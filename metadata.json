@@ -1,0 +1,6 @@
+{
+  "name": "MetaMeet",
+  "description": "پلتفرم هوشمند مدیریت صورت‌جلسات، تنظیم خودکار صورت‌جلسه با هوش مصنوعی و امضای دیجیتال سازمانی",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
