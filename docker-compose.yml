@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # 1. MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: metameet-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: metameet_admin
+      MONGO_INITDB_ROOT_PASSWORD: metameet_secret_password
+      MONGO_INITDB_DATABASE: metameet
+    volumes:
+      - mongo_data:/data/db
+
+  # 2. Redis Cache & Rate Limiting
+  redis:
+    image: redis:7.2-alpine
+    container_name: metameet-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  # 3. RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: metameet-rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # RabbitMQ Management Dashboard
+    environment:
+      RABBITMQ_DEFAULT_USER: metameet_broker
+      RABBITMQ_DEFAULT_PASS: broker_secret_password
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  # 4. MailDev Transactional Email Inspector
+  maildev:
+    image: maildev/maildev:2.1.0
+    container_name: metameet-maildev
+    restart: always
+    ports:
+      - "1080:1080" # Web UI
+      - "1025:1025" # SMTP server
+
+  # 5. MetaMeet Web Application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: metameet-web
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://metameet_admin:metameet_secret_password@mongodb:27017/metameet?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://metameet_broker:broker_secret_password@rabbitmq:5672
+      - EMAIL_PROVIDER=smtp
+      - SMTP_HOST=maildev
+      - SMTP_PORT=1025
+    depends_on:
+      - mongodb
+      - redis
+      - rabbitmq
+
+  # 6. MetaMeet Background Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: metameet-worker
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://metameet_admin:metameet_secret_password@mongodb:27017/metameet?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://metameet_broker:broker_secret_password@rabbitmq:5672
+    depends_on:
+      - mongodb
+      - redis
+      - rabbitmq
+
+volumes:
+  mongo_data:
+  redis_data:
+  rabbitmq_data:

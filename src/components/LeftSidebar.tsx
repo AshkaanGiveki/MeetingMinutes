@@ -17,6 +17,7 @@ interface LeftSidebarProps {
   onOpenAddParticipant: () => void;
   onAddComment: (comment: CommentItem) => void;
   onStatusChange?: (status: Meeting['status']) => void;
+  onOpenReviewModal?: () => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -25,6 +26,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onOpenAddParticipant,
   onAddComment,
   onStatusChange,
+  onOpenReviewModal,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
@@ -243,6 +245,15 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             );
           })}
         </div>
+
+        {meeting.status === 'IN_REVIEW' && onOpenReviewModal && (
+          <button
+            onClick={onOpenReviewModal}
+            className="mt-2 py-2 px-3 rounded-2xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+          >
+            <span>بازبینی رسمی و تأیید محتوا</span>
+          </button>
+        )}
       </div>
 
       {/* 3. Bottom Card: Notes & Comments */}

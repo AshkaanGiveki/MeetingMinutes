@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { initialMeeting, sampleMeetingsList } from './data/mockData';
-import { Meeting, CommentItem, Participant, Template } from './types';
+import React, { useState, useEffect } from 'react';
+import { initialMeeting, sampleMeetingsList, currentUser as defaultUser } from './data/mockData';
+import { Meeting, CommentItem, Participant, Template, OrganizationRole } from './types';
 import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
 import { MeetingHero } from './components/MeetingHero';
@@ -18,13 +18,57 @@ import { TemplatesView } from './components/TemplatesView';
 import { ContactsView } from './components/ContactsView';
 import { SettingsView } from './components/SettingsView';
 import { NewMeetingModal } from './components/NewMeetingModal';
+import { ReviewModal } from './components/ReviewModal';
+import { RoughNotesModal } from './components/RoughNotesModal';
+import { AuthModal } from './components/AuthModal';
+import { AuthView } from './components/AuthView';
 
 export default function App() {
-  const [isDark, setIsDark] = useState(false);
-  const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings'>('meetings');
+  const [isDark, setIsDark] = useState(() => {
+    try {
+      return localStorage.getItem('metameet_theme') === 'dark';
+    } catch {
+      return false;
+    }
+  });
+  const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'auth'>('meetings');
   const [viewMode, setViewMode] = useState<'hero' | 'list'>('hero');
   const [meetings, setMeetings] = useState<Meeting[]>(sampleMeetingsList);
   const [activeMeeting, setActiveMeeting] = useState<Meeting>(initialMeeting);
+
+  // Authenticated User State with localStorage persistence
+  const [activeUser, setActiveUser] = useState<{
+    name: string;
+    email: string;
+    role: OrganizationRole;
+    avatar?: string;
+  }>(() => {
+    try {
+      const saved = localStorage.getItem('metameet_user');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      name: 'آرش فتحی',
+      email: 'arash.fathi@metameet.ir',
+      role: 'Owner' as OrganizationRole,
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+    };
+  });
+
+  // Sync HTML document dark class
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      try {
+        localStorage.setItem('metameet_theme', 'dark');
+      } catch {}
+    } else {
+      document.documentElement.classList.remove('dark');
+      try {
+        localStorage.setItem('metameet_theme', 'light');
+      } catch {}
+    }
+  }, [isDark]);
 
   // Modals state
   const [isSignModalOpen, setIsSignModalOpen] = useState(false);
@@ -34,16 +78,63 @@ export default function App() {
   const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
   const [isAddParticipantModalOpen, setIsAddParticipantModalOpen] = useState(false);
   const [isNewMeetingModalOpen, setIsNewMeetingModalOpen] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [isRoughNotesModalOpen, setIsRoughNotesModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [hasUserSigned, setHasUserSigned] = useState(false);
 
+  // Load meetings and check auth session from server on mount
+  useEffect(() => {
+    fetch('/api/meetings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.meetings && data.meetings.length > 0) {
+          setMeetings(data.meetings);
+          const current = data.meetings.find((m: Meeting) => m.id === activeMeeting.id);
+          if (current) {
+            setActiveMeeting(current);
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('Backend meetings API offline or fallback:', err);
+      });
+
+    // Verify session
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.user) {
+          setActiveUser((prev) => ({
+            ...prev,
+            name: data.user.name,
+            email: data.user.email,
+            role: (data.user.role as OrganizationRole) || prev.role,
+          }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Handle meeting state updates
-  const handleUpdateMeeting = (updated: Partial<Meeting>) => {
+  const handleUpdateMeeting = async (updated: Partial<Meeting>) => {
     const newMeeting = { ...activeMeeting, ...updated };
     setActiveMeeting(newMeeting);
     setMeetings((prev) =>
       prev.map((m) => (m.id === newMeeting.id ? newMeeting : m))
     );
+
+    // Sync to backend
+    try {
+      await fetch(`/api/meetings/${newMeeting.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+    } catch {
+      // Local state is already updated
+    }
   };
 
   // Add comment
@@ -61,12 +152,89 @@ export default function App() {
     });
   };
 
-  // Confirm Signature
-  const handleConfirmSignature = (_signatureDataUrl: string) => {
+  // Formal Review workflow submission
+  const handleReviewSubmit = async (
+    action: 'approve' | 'request_changes',
+    notes?: string,
+    section?: string
+  ) => {
+    try {
+      const res = await fetch(`/api/meetings/${activeMeeting.id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          reviewerName: activeUser.name,
+          notes,
+          section,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (action === 'approve') {
+          handleUpdateMeeting({
+            status: 'READY_FOR_SIGNATURE',
+            statusLabel: 'آماده امضا',
+          });
+        } else {
+          const newComment: CommentItem = {
+            id: `c_${Date.now()}`,
+            author: {
+              id: 'usr_active',
+              name: activeUser.name,
+              role: activeUser.role,
+              email: activeUser.email,
+              avatar: activeUser.avatar,
+            },
+            text: `[درخواست اصلاح در ${section || 'محتوا'}]: ${notes || 'نیازمند بازنگری'}`,
+            timestamp: 'هم‌اکنون',
+          };
+          handleUpdateMeeting({
+            status: 'IN_REVIEW',
+            statusLabel: 'نیازمند اصلاح',
+            comments: [newComment, ...activeMeeting.comments],
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Review submission error:', err);
+    }
+  };
+
+  // Confirm Signature with Server Cryptographic SHA-256
+  const handleConfirmSignature = async (signatureDataUrl: string) => {
     setHasUserSigned(true);
     const newCount = activeMeeting.signatureCount + 1;
     const isNowAllSigned = newCount >= activeMeeting.totalSignaturesRequired;
 
+    try {
+      const res = await fetch('/api/signature/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meetingId: activeMeeting.id,
+          signerName: activeUser.name,
+          signerRole: activeUser.role,
+          signatureType: 'draw',
+          signatureData: signatureDataUrl,
+          intentConfirmed: true,
+        }),
+      });
+      const data = await res.json();
+      if (data?.documentHash) {
+        handleUpdateMeeting({
+          signatureCount: newCount,
+          status: isNowAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
+          statusLabel: isNowAllSigned ? 'آماده امضا' : 'در حال امضا',
+          documentHash: data.documentHash,
+        });
+        return;
+      }
+    } catch (err) {
+      console.warn('Signature API error:', err);
+    }
+
+    // Local fallback
     handleUpdateMeeting({
       signatureCount: newCount,
       status: isNowAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
@@ -74,8 +242,29 @@ export default function App() {
     });
   };
 
-  // Confirm Seal
-  const handleConfirmSeal = () => {
+  // Confirm Seal with Server Cryptographic Lock
+  const handleConfirmSeal = async () => {
+    try {
+      const res = await fetch('/api/meetings/seal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meetingId: activeMeeting.id }),
+      });
+      const data = await res.json();
+      if (data?.documentHash) {
+        handleUpdateMeeting({
+          status: 'SEALED',
+          statusLabel: 'مهر و موم شده',
+          sealedAt: data.sealedAt,
+          documentHash: data.documentHash,
+        });
+        return;
+      }
+    } catch (err) {
+      console.warn('Seal API error:', err);
+    }
+
+    // Local fallback
     handleUpdateMeeting({
       status: 'SEALED',
       statusLabel: 'مهر و موم شده',
@@ -125,7 +314,23 @@ export default function App() {
   };
 
   // Create new meeting
-  const handleCreateNewMeeting = (newMeeting: Meeting) => {
+  const handleCreateNewMeeting = async (newMeeting: Meeting) => {
+    try {
+      await fetch('/api/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newMeeting.title,
+          persianDate: newMeeting.persianDate,
+          timeRange: newMeeting.timeRange,
+          location: newMeeting.location,
+          description: newMeeting.discussion,
+        }),
+      });
+    } catch {
+      // Local fallback
+    }
+
     setMeetings([newMeeting, ...meetings]);
     setActiveMeeting(newMeeting);
     setViewMode('hero');
@@ -149,9 +354,9 @@ export default function App() {
         order: idx + 1,
         text,
       })),
-      discussion: `این جلسه با محوریت ${template.title} برگزار شد.`,
+      discussion: `این جلسه با محوریت «${template.title}» رسمیت یافت و پیرامون موضوعات توافق‌شده گفتگو انجام گرفت.`,
       aiSuggestion: {
-        summary: `پیشنهاد هوش مصنوعی برای ${template.title}: اهداف کلیدی و مسئولیت‌ها تنظیم شوند.`,
+        summary: `پیشنهاد هوش مصنوعی: اهداف کلیدی و مسئولیت‌های ${template.title} تصویب شوند.`,
         applied: false,
       },
       decisions: [],
@@ -164,6 +369,37 @@ export default function App() {
     handleCreateNewMeeting(newMeeting);
   };
 
+  const handleLoginSuccess = (user: { name: string; email: string; role: OrganizationRole }) => {
+    const updated = {
+      ...activeUser,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    };
+    setActiveUser(updated);
+    try {
+      localStorage.setItem('metameet_user', JSON.stringify(updated));
+    } catch {}
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    const guestUser = {
+      name: 'کاربر مهمان',
+      email: '',
+      role: 'Viewer' as OrganizationRole,
+      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80',
+    };
+    setActiveUser(guestUser);
+    try {
+      localStorage.removeItem('metameet_user');
+    } catch {}
+  };
+
+  const sealedCount = meetings.filter((m) => m.status === 'SEALED' || m.status === 'ARCHIVED').length;
+
   return (
     <div
       className={`min-h-screen flex text-slate-800 transition-colors duration-300 font-sans ${
@@ -174,8 +410,32 @@ export default function App() {
       <div className="fixed top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent rounded-full blur-3xl pointer-events-none -z-0" />
       <div className="fixed bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-sky-500/10 via-indigo-500/5 to-transparent rounded-full blur-3xl pointer-events-none -z-0" />
 
-      {/* Main Workspace Frame */}
-      <div className="flex-1 flex flex-col min-w-0 z-10">
+      {/* 
+        RIGHT SIDEBAR:
+        In standard Persian RTL (<html dir="rtl">), the first flex child is docked at the visual RIGHT edge.
+        This provides a full-height, modern enterprise navigation sidebar directly on the right!
+      */}
+      <div className="no-print">
+        <RightSidebar
+          currentTab={currentTab}
+          onTabChange={(tab) => {
+            setCurrentTab(tab as typeof currentTab);
+            if (tab === 'meetings') {
+              setViewMode('hero');
+            }
+          }}
+          isDark={isDark}
+          totalMeetingsCount={meetings.length}
+          sealedMeetingsCount={sealedCount}
+          onOpenNewMeeting={() => setIsNewMeetingModalOpen(true)}
+          currentUser={activeUser}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
+          onLogout={handleLogout}
+        />
+      </div>
+
+      {/* Main Workspace Frame to the left */}
+      <div className="flex-1 flex flex-col min-w-0 z-10 overflow-hidden">
         {/* Top Header */}
         <div className="no-print">
           <TopBar
@@ -183,7 +443,9 @@ export default function App() {
             onToggleTheme={() => setIsDark(!isDark)}
             onOpenSearch={() => setIsSearchModalOpen(true)}
             onOpenNotifications={() => setIsSearchModalOpen(true)}
-            onOpenProfile={() => setCurrentTab('settings')}
+            onOpenProfile={() => setIsAuthModalOpen(true)}
+            onOpenRoughNotes={() => setIsRoughNotesModalOpen(true)}
+            currentUser={activeUser}
           />
         </div>
 
@@ -205,6 +467,14 @@ export default function App() {
             <ContactsView />
           ) : currentTab === 'settings' ? (
             <SettingsView />
+          ) : currentTab === 'auth' ? (
+            <AuthView
+              onLoginSuccess={(u) => {
+                handleLoginSuccess(u);
+                setCurrentTab('meetings');
+              }}
+              onBackToApp={() => setCurrentTab('meetings')}
+            />
           ) : viewMode === 'list' ? (
             <MeetingsListView
               meetings={meetings}
@@ -215,15 +485,16 @@ export default function App() {
               onOpenNewMeetingModal={() => setIsNewMeetingModalOpen(true)}
             />
           ) : (
-            /* Primary Hero Meeting View matching screenshot */
-            <div className="flex items-start justify-center gap-6">
-              {/* Left Panel: In-Progress, Status Stepper, Comments */}
+            /* Primary Hero Meeting View */
+            <div className="flex items-start justify-center gap-6 pt-4">
+              {/* Left Panel: Status Stepper, Notes & Comments */}
               <div className="no-print">
                 <LeftSidebar
                   meeting={activeMeeting}
                   onOpenShareModal={() => setIsShareModalOpen(true)}
                   onOpenAddParticipant={() => setIsAddParticipantModalOpen(true)}
                   onAddComment={handleAddComment}
+                  onOpenReviewModal={() => setIsReviewModalOpen(true)}
                   onStatusChange={(newStatus) =>
                     handleUpdateMeeting({
                       status: newStatus,
@@ -240,7 +511,7 @@ export default function App() {
                 />
               </div>
 
-              {/* Central Document Hero Canvas */}
+              {/* Central Document Hero Canvas with Real Functional Editor */}
               <MeetingHero
                 meeting={activeMeeting}
                 onUpdateMeeting={handleUpdateMeeting}
@@ -250,7 +521,7 @@ export default function App() {
                 onPrintPdf={handlePrintPdf}
               />
 
-              {/* Floating Digital Signature Card on Right */}
+              {/* Floating Digital Signature Card on Right of Canvas */}
               <div className="no-print">
                 <SignatureCard
                   meeting={activeMeeting}
@@ -262,20 +533,6 @@ export default function App() {
             </div>
           )}
         </div>
-      </div>
-
-      {/* Right Persistent Navigation Sidebar */}
-      <div className="no-print">
-        <RightSidebar
-          currentTab={currentTab}
-          onTabChange={(tab) => {
-            setCurrentTab(tab as typeof currentTab);
-            if (tab === 'meetings') {
-              setViewMode('hero');
-            }
-          }}
-          isDark={isDark}
-        />
       </div>
 
       {/* Modals & Dialogs */}
@@ -334,6 +591,32 @@ export default function App() {
         isOpen={isNewMeetingModalOpen}
         onClose={() => setIsNewMeetingModalOpen(false)}
         onCreateMeeting={handleCreateNewMeeting}
+      />
+
+      <ReviewModal
+        isOpen={isReviewModalOpen}
+        onClose={() => setIsReviewModalOpen(false)}
+        meeting={activeMeeting}
+        onReviewSubmit={handleReviewSubmit}
+      />
+
+      <RoughNotesModal
+        isOpen={isRoughNotesModalOpen}
+        onClose={() => setIsRoughNotesModalOpen(false)}
+        onMeetingCreated={handleCreateNewMeeting}
+      />
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentRole={activeUser.role}
+        onRoleChange={(role) => {
+          setActiveUser((prev) => ({ ...prev, role }));
+        }}
+        currentUserName={activeUser.name}
+        currentUserEmail={activeUser.email}
+        onLoginSuccess={handleLoginSuccess}
+        onLogout={handleLogout}
       />
     </div>
   );

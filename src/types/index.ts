@@ -78,6 +78,15 @@ export interface Template {
   agendaDefaults: string[];
 }
 
+export type OrganizationRole =
+  | 'Owner'
+  | 'Admin'
+  | 'Organizer'
+  | 'Editor'
+  | 'Reviewer'
+  | 'Participant'
+  | 'Viewer';
+
 export interface AuditRecord {
   id: string;
   meetingId: string;

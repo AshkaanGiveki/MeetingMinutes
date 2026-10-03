@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key } from 'lucide-react';
+import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key, X, Trash2 } from 'lucide-react';
 import { sampleParticipants, currentUser } from '../data/mockData';
 import { Participant } from '../types';
 
@@ -8,6 +8,10 @@ export const ContactsView: React.FC = () => {
     currentUser,
     ...sampleParticipants,
   ]);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newRole, setNewRole] = useState('مدیر فنی');
 
   const permissionsList = [
     { code: 'meeting.create', label: 'ایجاد و ویرایش جلسه' },
@@ -15,6 +19,29 @@ export const ContactsView: React.FC = () => {
     { code: 'document.seal', label: 'مهر و موم و آرشیو سند' },
     { code: 'audit.read', label: 'مشاهده لاگ‌های بازرسی' },
   ];
+
+  const handleInvite = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim() || !newEmail.trim()) return;
+
+    const newMember: Participant = {
+      id: `usr_${Date.now()}`,
+      name: newName.trim(),
+      email: newEmail.trim(),
+      role: newRole,
+      avatar: `https://images.unsplash.com/photo-${1534528741775 + members.length * 100}?w=100&auto=format&fit=crop&q=80`,
+      hasSigned: false,
+    };
+
+    setMembers([...members, newMember]);
+    setNewName('');
+    setNewEmail('');
+    setIsInviteModalOpen(false);
+  };
+
+  const handleRemoveMember = (id: string) => {
+    setMembers(members.filter((m) => m.id !== id));
+  };
 
   return (
     <div className="flex-1 max-w-5xl mx-auto flex flex-col gap-6 p-6">
@@ -28,14 +55,14 @@ export const ContactsView: React.FC = () => {
             <h1 className="text-xl font-bold text-slate-900 dark:text-white">
               اعضای سازمان و سطوح دسترسی
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               مدیریت تیم‌ها، نقش‌ها، دسترسی‌های امضا و احراز هویت اعضا
             </p>
           </div>
         </div>
 
         <button
-          onClick={() => alert('دعوت عضو جدید به سازمان')}
+          onClick={() => setIsInviteModalOpen(true)}
           className="py-2.5 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 flex items-center gap-2 cursor-pointer transition-all active:scale-98"
         >
           <Plus className="w-4 h-4" />
@@ -44,12 +71,12 @@ export const ContactsView: React.FC = () => {
       </div>
 
       {/* Permissions overview bar */}
-      <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+      <div className="p-4 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
         <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold">
           <Key className="w-4 h-4 text-indigo-500" />
           <span>سیاست‌های مجوز سازمان:</span>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
           {permissionsList.map((p) => (
             <span
               key={p.code}
@@ -97,7 +124,7 @@ export const ContactsView: React.FC = () => {
                       {m.role}
                     </span>
                   </td>
-                  <td className="py-3.5 px-4 font-mono text-slate-500 dir-ltr text-left">
+                  <td className="py-3.5 px-4 font-mono text-slate-500 dark:text-slate-400 dir-ltr text-left">
                     {m.email}
                   </td>
                   <td className="py-3.5 px-4">
@@ -108,10 +135,11 @@ export const ContactsView: React.FC = () => {
                   </td>
                   <td className="py-3.5 px-4 text-center">
                     <button
-                      onClick={() => alert(`تنظیم دسترسی‌های ${m.name}`)}
-                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      onClick={() => handleRemoveMember(m.id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                      title="حذف عضو"
                     >
-                      ویرایش دسترسی‌ها
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </td>
                 </tr>
@@ -120,6 +148,88 @@ export const ContactsView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Invite Modal */}
+      {isInviteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+          <div className="relative w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-white/80 dark:border-slate-800 p-6 flex flex-col gap-4 text-right">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                دعوت عضو جدید به سازمان
+              </h3>
+              <button
+                onClick={() => setIsInviteModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleInvite} className="flex flex-col gap-3 text-xs">
+              <div className="flex flex-col gap-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300">
+                  نام و نام خانوادگی:
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="مثال: پویا رحیمی"
+                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300">
+                  ایمیل سازمانی:
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="pouya@company.ir"
+                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="font-semibold text-slate-700 dark:text-slate-300">
+                  سمت سازمانی:
+                </label>
+                <select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value)}
+                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none"
+                >
+                  <option value="مدیر ارشد">مدیر ارشد</option>
+                  <option value="مدیر محصول">مدیر محصول</option>
+                  <option value="توسعه‌دهنده ارشد">توسعه‌دهنده ارشد</option>
+                  <option value="کارشناس حقوقی">کارشناس حقوقی</option>
+                  <option value="طراح محصول">طراح محصول</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsInviteModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold cursor-pointer shadow-md shadow-indigo-600/20 active:scale-98"
+                >
+                  ارسال دعوت‌نامه
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

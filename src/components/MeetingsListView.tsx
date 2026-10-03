@@ -55,7 +55,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
             className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'ALL'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             همه جلسات
@@ -65,7 +65,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
             className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'IN_REVIEW'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             در حال بررسی
@@ -75,7 +75,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
             className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'SEALED'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             مهر و موم شده
@@ -85,7 +85,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
             className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'ARCHIVED'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             بایگانی شده
