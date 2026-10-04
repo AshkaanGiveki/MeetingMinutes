@@ -68,12 +68,25 @@ function canonicalize(value: unknown): string {
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
-// Initialize MongoDB Connection (if MONGODB_URI is provided)
-connectMongoDB()
+// Initialize MongoDB once per serverless instance and expose the same promise to
+// request middleware so the first request cannot race the connection handshake.
+const mongoReady = connectMongoDB()
   .then(() => authService.ensureBootstrapOwner(process.env.BOOTSTRAP_ADMIN_EMAIL, process.env.BOOTSTRAP_ADMIN_PASSWORD, process.env.BOOTSTRAP_ADMIN_NAME, process.env.BOOTSTRAP_ADMIN_PHONE))
   .catch((err) => {
     logger.warn('Initial MongoDB connection warning:', { metadata: { error: String(err) } });
   });
+
+app.use('/api', async (req, res, next) => {
+  if (req.path === '/health') return next();
+  try {
+    await mongoReady;
+    if (!getDb()) return res.status(503).json({ error: 'Database connection is temporarily unavailable.' });
+    return next();
+  } catch (error) {
+    logger.error('API request blocked because database initialization failed.', { metadata: { error: String(error) } });
+    return res.status(503).json({ error: 'Database connection is temporarily unavailable.' });
+  }
+});
 
 // Initialize background worker
 initializeWorker();
