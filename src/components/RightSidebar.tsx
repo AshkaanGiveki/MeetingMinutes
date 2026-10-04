@@ -10,11 +10,11 @@ import {
   LogIn,
   ChevronLeft,
   ChevronRight,
-  Shield,
   Sparkles,
   Calendar,
   CheckCircle2,
   Lock
+  ,Shield
 } from 'lucide-react';
 import { OrganizationRole } from '../types';
 
@@ -155,7 +155,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
         {/* Main Navigation List */}
         <nav className="flex flex-col gap-1.5 pt-2">
-          {navItems.map((item) => {
+          {navItems.filter((item) => item.id !== 'auth').map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (
@@ -253,7 +253,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         ) : (
           <button
             onClick={onOpenAuth}
-            className="w-full py-2.5 px-3 rounded-2xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+            className="hidden"
           >
             <LogIn className="w-4 h-4" />
             {!isCollapsed && <span>ورود / ثبت‌نام</span>}

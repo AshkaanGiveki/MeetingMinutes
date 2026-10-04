@@ -6,7 +6,7 @@ interface ShareModalProps {
   isOpen: boolean;
   onClose: () => void;
   meeting: Meeting;
-  onOpenTelegramModal: () => void;
+  onOpenTelegramModal?: () => void;
 }
 
 export const ShareModal: React.FC<ShareModalProps> = ({
@@ -136,7 +136,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         </form>
 
         {/* Telegram Mini App Action */}
-        <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900 flex items-center justify-between">
+        <div className="hidden">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-sky-500 text-white flex items-center justify-center shadow-xs">
               <Smartphone className="w-5 h-5" />
@@ -153,7 +153,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
           <button
             onClick={() => {
               onClose();
-              onOpenTelegramModal();
+              onOpenTelegramModal?.();
             }}
             className="py-1.5 px-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors flex items-center gap-1"
           >

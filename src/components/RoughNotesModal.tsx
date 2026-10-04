@@ -44,6 +44,9 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
       });
 
       const resData = await response.json();
+      if (!response.ok || !resData?.success || !resData?.data) {
+        throw new Error(resData?.error || 'AI conversion failed.');
+      }
       const aiData = resData.data;
 
       const newMeeting: Meeting = {
@@ -76,7 +79,7 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         actionItems: (aiData?.suggestedTasks || []).map((t: any, idx: number) => ({
           id: `act_${idx + 1}`,
           task: t.task || 'پیگیری موارد تعیین‌شده',
-          assigneeId: 'usr_sara',
+          assignee: sampleParticipants[idx % sampleParticipants.length] || currentUser,
           assigneeName: t.role || 'مسئول پیگیری',
           assigneeAvatar: sampleParticipants[idx % sampleParticipants.length]?.avatar,
           dueDate: t.deadline || '۱۰ روز آینده',

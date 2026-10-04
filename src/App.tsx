@@ -11,7 +11,6 @@ import { SealingModal } from './components/SealingModal';
 import { ShareModal } from './components/ShareModal';
 import { SearchModal } from './components/SearchModal';
 import { AddParticipantModal } from './components/AddParticipantModal';
-import { TelegramMiniAppModal } from './components/TelegramMiniAppModal';
 import { MeetingsListView } from './components/MeetingsListView';
 import { ArchiveView } from './components/ArchiveView';
 import { TemplatesView } from './components/TemplatesView';
@@ -32,7 +31,7 @@ export default function App() {
       return false;
     }
   });
-  const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'auth'>('meetings');
+  const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'auth'>('auth');
   const [viewMode, setViewMode] = useState<'hero' | 'list'>('hero');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [activeMeeting, setActiveMeeting] = useState<Meeting>(initialMeeting);
@@ -80,7 +79,6 @@ export default function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
   const [isAddParticipantModalOpen, setIsAddParticipantModalOpen] = useState(false);
   const [isNewMeetingModalOpen, setIsNewMeetingModalOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -374,7 +372,16 @@ export default function App() {
       });
       if (!response.ok) throw new Error('ایجاد جلسه انجام نشد.');
       const data = await response.json();
-      persistedMeeting = data.meeting || newMeeting;
+      const serverMeeting = data.meeting as Partial<Meeting> | undefined;
+      persistedMeeting = {
+        ...newMeeting,
+        ...serverMeeting,
+        // Keep the client shape safe even when an older API record omits nested assignee data.
+        actionItems: (serverMeeting?.actionItems || newMeeting.actionItems).map((item: any) => ({
+          ...item,
+          assignee: item.assignee || newMeeting.participants.find((participant) => participant.id === item.assigneeId) || newMeeting.participants[0] || newMeeting.organizer,
+        })),
+      };
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : 'ایجاد جلسه انجام نشد.');
       setTimeout(() => setOperationError(''), 3500);
@@ -492,8 +499,8 @@ export default function App() {
           isDark={isDark}
           totalMeetingsCount={meetings.length}
           sealedMeetingsCount={sealedCount}
-          onOpenNewMeeting={() => setIsNewMeetingModalOpen(true)}
-          currentUser={activeUser}
+          onOpenNewMeeting={isAuthenticated ? () => setIsNewMeetingModalOpen(true) : undefined}
+          currentUser={isAuthenticated ? activeUser : undefined}
           onOpenAuth={() => setIsAuthModalOpen(true)}
           onLogout={handleLogout}
         />
@@ -508,9 +515,7 @@ export default function App() {
             onToggleTheme={() => setIsDark(!isDark)}
             onOpenSearch={() => setIsSearchModalOpen(true)}
             onOpenNotifications={() => setIsNotificationsOpen(true)}
-            onOpenProfile={() => setIsAuthModalOpen(true)}
-            onOpenRoughNotes={() => setIsRoughNotesModalOpen(true)}
-            currentUser={activeUser}
+            onOpenRoughNotes={isAuthenticated ? () => setIsRoughNotesModalOpen(true) : undefined}
           />
         </div>
 
@@ -620,7 +625,6 @@ export default function App() {
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         meeting={activeMeeting}
-        onOpenTelegramModal={() => setIsTelegramModalOpen(true)}
       />
 
       <SearchModal
@@ -644,18 +648,6 @@ export default function App() {
         onClose={() => setIsAddParticipantModalOpen(false)}
         onAddParticipant={handleAddParticipant}
         existingParticipants={activeMeeting.participants}
-      />
-
-      <TelegramMiniAppModal
-        isOpen={isTelegramModalOpen}
-        onClose={() => setIsTelegramModalOpen(false)}
-        meeting={activeMeeting}
-        onSignComplete={() => {
-          setHasUserSigned(true);
-          handleUpdateMeeting({
-            signatureCount: activeMeeting.signatureCount + 1,
-          });
-        }}
       />
 
       <NewMeetingModal
