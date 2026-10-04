@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Search, Bell, Moon, Sun, Sparkles } from 'lucide-react';
 
 interface TopBarProps {
@@ -30,9 +30,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-slate-900">{unreadCount}</span>}
       </button>
-      <button onClick={onToggleTheme} className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-800 transition-colors cursor-pointer" title={isDark ? 'حالت روشن' : 'حالت تیره'} aria-label={isDark ? 'حالت روشن' : 'حالت تیره'}>
-        {isDark ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
-      </button>
+      <ThemeToggleButton isDark={isDark} onToggleTheme={onToggleTheme} />
     </div>
     <div className="w-full max-w-md mx-6">
       <button onClick={onOpenSearch} className="w-full h-10 px-4 rounded-xl bg-white/90 dark:bg-slate-800/80 backdrop-blur-xs border border-slate-200/80 dark:border-slate-700/60 shadow-xs flex items-center justify-between text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:border-indigo-300 dark:hover:border-indigo-600 transition-all cursor-pointer group">
@@ -43,3 +41,61 @@ export const TopBar: React.FC<TopBarProps> = ({
     <div className="w-16 hidden md:block" />
   </header>
 );
+
+interface ThemeToggleButtonProps {
+  isDark: boolean;
+  onToggleTheme: () => void;
+}
+
+const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({ isDark, onToggleTheme }) => {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const handleClick = () => {
+    const nextTheme = isDark ? 'light' : 'dark';
+    const viewTransitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => { finished: Promise<void> };
+    };
+
+    if (!viewTransitionDocument.startViewTransition || !buttonRef.current) {
+      onToggleTheme();
+      return;
+    }
+
+    const bounds = buttonRef.current.getBoundingClientRect();
+    const x = bounds.left + bounds.width / 2;
+    const y = bounds.top + bounds.height / 2;
+    const radius = Math.max(
+      Math.hypot(x, y),
+      Math.hypot(window.innerWidth - x, y),
+      Math.hypot(x, window.innerHeight - y),
+      Math.hypot(window.innerWidth - x, window.innerHeight - y),
+    );
+    const root = document.documentElement;
+    root.style.setProperty('--theme-transition-x', `${x}px`);
+    root.style.setProperty('--theme-transition-y', `${y}px`);
+    root.style.setProperty('--theme-transition-radius', `${radius}px`);
+    root.classList.add(`theme-transition-to-${nextTheme}`);
+
+    const transition = viewTransitionDocument.startViewTransition(() => {
+      onToggleTheme();
+    });
+    transition.finished.finally(() => {
+      root.classList.remove('theme-transition-to-dark', 'theme-transition-to-light');
+      root.style.removeProperty('--theme-transition-x');
+      root.style.removeProperty('--theme-transition-y');
+      root.style.removeProperty('--theme-transition-radius');
+    });
+  };
+
+  return (
+    <button
+      ref={buttonRef}
+      onClick={handleClick}
+      className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+      title={isDark ? 'حالت روشن' : 'حالت تیره'}
+      aria-label={isDark ? 'حالت روشن' : 'حالت تیره'}
+    >
+      {isDark ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
+    </button>
+  );
+};

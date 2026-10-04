@@ -2,6 +2,48 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Circular same-document theme reveal, centered on the theme toggle button. */
+::view-transition-old(root) {
+  animation: none;
+  z-index: 0;
+}
+
+:root.theme-transition-to-dark::view-transition-new(root),
+:root.theme-transition-to-light::view-transition-new(root) {
+  z-index: 1;
+  animation-duration: 850ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+:root.theme-transition-to-dark::view-transition-new(root) {
+  animation-name: theme-transition-circle-to-dark;
+}
+
+:root.theme-transition-to-light::view-transition-new(root) {
+  animation-name: theme-transition-circle-to-light;
+}
+
+@keyframes theme-transition-circle-to-dark {
+  from {
+    clip-path: circle(0 at var(--theme-transition-x) var(--theme-transition-y));
+  }
+
+  to {
+    clip-path: circle(var(--theme-transition-radius) at var(--theme-transition-x) var(--theme-transition-y));
+  }
+}
+
+@keyframes theme-transition-circle-to-light {
+  from {
+    clip-path: circle(0 at var(--theme-transition-x) var(--theme-transition-y));
+  }
+
+  to {
+    clip-path: circle(var(--theme-transition-radius) at var(--theme-transition-x) var(--theme-transition-y));
+  }
+}
+
 @theme {
   --font-sans: 'Vazirmatn', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --font-persian: 'Vazirmatn', system-ui, sans-serif;
