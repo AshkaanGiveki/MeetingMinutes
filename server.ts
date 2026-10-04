@@ -400,7 +400,11 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     result = await authService.login(phoneNumber, password);
   } catch (error) {
-    return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid phone number.' });
+    const message = error instanceof Error ? error.message : 'Invalid phone number.';
+    if (message.includes('Persistent MongoDB')) {
+      return res.status(503).json({ error: 'Database connection is temporarily unavailable.' });
+    }
+    return res.status(400).json({ error: message });
   }
   if (!result) {
     return res.status(401).json({ error: 'ایمیل یا رمز عبور اشتباه است.' });
@@ -431,7 +435,13 @@ app.get('/api/auth/me', async (req, res) => {
     return res.status(401).json({ error: 'No active session.' });
   }
 
-  const session = await authService.verifySessionAsync(token);
+  let session;
+  try {
+    session = await authService.verifySessionAsync(token);
+  } catch (error) {
+    logger.error('Session verification failed because the persistent database is unavailable.', { metadata: { error: String(error) } });
+    return res.status(503).json({ error: 'Database connection is temporarily unavailable.' });
+  }
   if (!session) {
     return res.status(401).json({ error: 'نشست کاربری نامعتبر یا منقضی شده است.' });
   }
