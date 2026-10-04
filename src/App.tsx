@@ -660,7 +660,7 @@ export default function App() {
         isOpen={isAddParticipantModalOpen}
         onClose={() => setIsAddParticipantModalOpen(false)}
         onAddParticipant={handleAddParticipant}
-        existingParticipants={activeMeeting.participants}
+        existingParticipants={activeMeeting?.participants || []}
       />
 
       <NewMeetingModal
