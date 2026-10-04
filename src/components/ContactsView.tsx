@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key, X, Trash2 } from 'lucide-react';
-import { currentUser } from '../data/mockData';
 import { Participant } from '../types';
 
 export const ContactsView: React.FC = () => {
@@ -133,7 +132,7 @@ export const ContactsView: React.FC = () => {
                   <td className="py-3.5 px-4 font-semibold text-slate-800 dark:text-slate-100">
                     <div className="flex items-center gap-2.5">
                       <img
-                        src={m.avatar || currentUser.avatar}
+                        src={m.avatar || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80'}
                         alt={m.name}
                         referrerPolicy="no-referrer"
                         className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700"

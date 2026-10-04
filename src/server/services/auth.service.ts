@@ -44,35 +44,16 @@ export function normalizePhoneNumber(phone: string): string {
 }
 
 export class AuthService {
-  private sessions = new Map<string, AuthSession>();
-  private guestTokens = new Map<string, { meetingId: string; email: string; expiresAt: number }>();
-  private invitations = new Map<string, MemberInvitation>();
-  private users = new Map<string, AuthUser>();
-
-  constructor() {
-    // Keep the local development account only in non-production environments.
-    if (process.env.NODE_ENV === 'production') return;
-    const defaultHash = bcrypt.hashSync('MetaMeet@2028', 10);
-    this.users.set('usr_arash', {
-      id: 'usr_arash',
-      phoneNumber: '+989121234567',
-      email: 'arash.fathi@metameet.ir',
-      name: 'آرش فتحی',
-      role: 'Owner',
-      passwordHash: defaultHash,
-      organizationId: 'org_main',
-    });
+  private requireDb() {
+    const db = getDb();
+    if (!db) throw new Error('Persistent MongoDB connection is required.');
+    return db;
   }
 
   async login(identifier: string, passwordPlain: string): Promise<{ sessionToken: string; user: AuthSession } | null> {
     const normalizedIdentifier = identifier.includes('@') ? identifier.trim().toLowerCase() : normalizePhoneNumber(identifier);
-    const db = getDb();
-    let user: AuthUser | undefined = db
-      ? ((await db.collection<AuthUser>('users').findOne(identifier.includes('@') ? { email: normalizedIdentifier } : { phoneNumber: normalizedIdentifier })) || undefined) as AuthUser | undefined
-      : undefined;
-    if (!user) {
-      user = Array.from(this.users.values()).find((u) => identifier.includes('@') ? u.email.toLowerCase() === normalizedIdentifier : u.phoneNumber === normalizedIdentifier);
-    }
+    const db = this.requireDb();
+    const user = ((await db.collection<AuthUser>('users').findOne(identifier.includes('@') ? { email: normalizedIdentifier } : { phoneNumber: normalizedIdentifier })) || undefined) as AuthUser | undefined;
     if (!user) {
       logger.warn(`Failed login attempt for identifier: ${identifier}`);
       return null;
@@ -82,10 +63,6 @@ export class AuthService {
     if (!isValid) {
       logger.warn(`Invalid password for user identifier: ${identifier}`);
       return null;
-    }
-
-    if (db) {
-      await db.collection<AuthUser>('users').updateOne({ id: user.id }, { $setOnInsert: user }, { upsert: true });
     }
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
@@ -99,10 +76,7 @@ export class AuthService {
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000, // 7 days
     };
 
-    this.sessions.set(sessionToken, session);
-    if (db) {
-      await db.collection('sessions').insertOne({ token: sessionToken, ...session, createdAt: new Date() });
-    }
+    await db.collection('sessions').insertOne({ token: sessionToken, ...session, createdAt: new Date() });
     logger.info(`User logged in: ${user.email}`);
     return { sessionToken, user: session };
   }
@@ -111,33 +85,18 @@ export class AuthService {
     const userId = `usr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     const normalizedEmail = email.trim().toLowerCase() || `${userId}@local.invalid`;
     const normalizedPhone = normalizePhoneNumber(phoneNumber || email);
-    const db = getDb();
-    const existing = db
-      ? await db.collection<AuthUser>('users').findOne({ $or: [{ email: normalizedEmail }, { phoneNumber: normalizedPhone }] })
-      : Array.from(this.users.values()).find((u) => u.email.toLowerCase() === normalizedEmail || u.phoneNumber === normalizedPhone);
+    const db = this.requireDb();
+    const existing = await db.collection<AuthUser>('users').findOne({ $or: [{ email: normalizedEmail }, { phoneNumber: normalizedPhone }] });
     if (existing) {
       throw new Error('کاربری با این آدرس ایمیل قبلاً ثبت نام نموده است.');
     }
 
     const passwordHash = await bcrypt.hash(passwordPlain, 10);
     const newUser: AuthUser = { id: userId, phoneNumber: normalizedPhone, email: normalizedEmail, passwordHash, name, role, organizationId };
-    this.users.set(userId, newUser);
-    if (db) {
-      await db.collection<AuthUser>('users').insertOne(newUser);
-    }
+    await db.collection<AuthUser>('users').insertOne(newUser);
 
     logger.info(`New user registered: ${email}`);
     return this.login(normalizedPhone, passwordPlain);
-  }
-
-  verifySession(sessionToken: string): AuthSession | null {
-    const session = this.sessions.get(sessionToken);
-    if (!session) return null;
-    if (session.expiresAt < Date.now()) {
-      this.sessions.delete(sessionToken);
-      return null;
-    }
-    return session;
   }
 
   async ensureBootstrapOwner(email?: string, password?: string, name = 'MetaMeet Owner', phoneNumber?: string): Promise<void> {
@@ -161,11 +120,7 @@ export class AuthService {
   }
 
   async verifySessionAsync(sessionToken: string): Promise<AuthSession | null> {
-    const local = this.verifySession(sessionToken);
-    if (local) return local;
-
-    const db = getDb();
-    if (!db) return null;
+    const db = this.requireDb();
     const session = await db.collection<AuthSession & { token: string }>('sessions').findOne({ token: sessionToken });
     if (!session || session.expiresAt < Date.now()) {
       if (session) await db.collection('sessions').deleteOne({ token: sessionToken });
@@ -173,32 +128,14 @@ export class AuthService {
     }
 
     const { token: _token, _id: _id, ...authSession } = session as AuthSession & { token: string; _id?: unknown };
-    this.sessions.set(sessionToken, authSession);
     return authSession;
-  }
-
-  resetPassword(email: string, newPasswordPlain: string): boolean {
-    const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (!user) return false;
-    const newHash = bcrypt.hashSync(newPasswordPlain, 10);
-    user.passwordHash = newHash;
-    this.users.set(user.id, user);
-    logger.info(`Password reset successfully for user: ${email}`);
-    return true;
   }
 
   async resetPasswordAsync(email: string, newPasswordPlain: string): Promise<boolean> {
     const normalizedEmail = email.trim().toLowerCase();
-    const db = getDb();
-    if (!db) return this.resetPassword(normalizedEmail, newPasswordPlain);
-
-    let user: AuthUser | null = (await db.collection<AuthUser>('users').findOne({ email: normalizedEmail })) as AuthUser | null;
-    if (!user) {
-      const localUser = Array.from(this.users.values()).find((candidate) => candidate.email === normalizedEmail);
-      if (!localUser) return false;
-      user = localUser;
-      await db.collection<AuthUser>('users').updateOne({ id: user.id }, { $setOnInsert: user }, { upsert: true });
-    }
+    const db = this.requireDb();
+    const user = (await db.collection<AuthUser>('users').findOne({ email: normalizedEmail })) as AuthUser | null;
+    if (!user) return false;
     const passwordHash = await bcrypt.hash(newPasswordPlain, 10);
     await db.collection('users').updateOne(
       { id: user.id },
@@ -208,17 +145,14 @@ export class AuthService {
     return true;
   }
 
+  /** @deprecated Use resetPasswordAsync; synchronous local password mutation was removed with the in-memory user store. */
+  resetPassword(_email: string, _newPasswordPlain: string): boolean {
+    return false;
+  }
+
   async resetPasswordByPhoneAsync(phoneNumber: string, newPasswordPlain: string): Promise<boolean> {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
-    const db = getDb();
-    if (!db) {
-      const user = Array.from(this.users.values()).find((candidate) => candidate.phoneNumber === normalizedPhone);
-      if (!user) return false;
-      user.passwordHash = await bcrypt.hash(newPasswordPlain, 10);
-      this.users.set(user.id, user);
-      await this.logoutAll(user.id);
-      return true;
-    }
+    const db = this.requireDb();
     const user = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone });
     if (!user) return false;
     const passwordHash = await bcrypt.hash(newPasswordPlain, 10);
@@ -228,161 +162,86 @@ export class AuthService {
   }
 
   logout(sessionToken: string): void {
-    this.sessions.delete(sessionToken);
     const db = getDb();
     if (db) void db.collection('sessions').deleteOne({ token: sessionToken });
   }
 
   async logoutAll(userId: string): Promise<void> {
-    for (const [token, session] of this.sessions.entries()) {
-      if (session.userId === userId) this.sessions.delete(token);
-    }
-    const db = getDb();
-    if (db) await db.collection('sessions').deleteMany({ userId });
+    await this.requireDb().collection('sessions').deleteMany({ userId });
   }
 
   async getPreferences(userId: string): Promise<Record<string, unknown>> {
-    const db = getDb();
-    if (db) {
-      const user = await db.collection<AuthUser>('users').findOne({ id: userId }, { projection: { preferences: 1 } });
-      return user?.preferences || {};
-    }
-    return this.users.get(userId)?.preferences || {};
+    const user = await this.requireDb().collection<AuthUser>('users').findOne({ id: userId }, { projection: { preferences: 1 } });
+    return user?.preferences || {};
   }
 
   async updatePreferences(userId: string, preferences: Record<string, unknown>): Promise<void> {
-    const db = getDb();
-    if (db) {
-      await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { preferences, updatedAt: new Date().toISOString() } });
-      return;
-    }
-    const user = this.users.get(userId);
-    if (user) {
-      user.preferences = preferences;
-      this.users.set(userId, user);
-    }
+    await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId }, { $set: { preferences, updatedAt: new Date().toISOString() } });
   }
 
   async updateProfile(userId: string, name: string, phoneNumber?: string): Promise<boolean> {
     const normalizedName = name.trim();
     if (normalizedName.length < 2 || normalizedName.length > 120) return false;
     const normalizedPhone = phoneNumber ? normalizePhoneNumber(phoneNumber) : undefined;
-    const db = getDb();
-    if (db) {
-      if (normalizedPhone) {
-        const duplicate = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } });
-        if (duplicate) return false;
-      }
-      const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}), updatedAt: new Date().toISOString() } });
-      if (!result.matchedCount) return false;
-    }
-    const user = this.users.get(userId);
-    if (user) {
-      const duplicate = normalizedPhone && Array.from(this.users.values()).some((candidate) => candidate.id !== userId && candidate.phoneNumber === normalizedPhone);
-      if (duplicate) return false;
-      this.users.set(userId, { ...user, name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}) });
-    }
-    for (const [token, session] of this.sessions.entries()) {
-      if (session.userId === userId) this.sessions.set(token, { ...session, name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}) });
-    }
+    const db = this.requireDb();
+    if (normalizedPhone && await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } })) return false;
+    const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}), updatedAt: new Date().toISOString() } });
+    if (!result.matchedCount) return false;
+    await db.collection('sessions').updateMany({ userId }, { $set: { name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}) } });
     return true;
   }
 
   async listUsers(organizationId = 'org_main'): Promise<Array<Pick<AuthUser, 'id' | 'phoneNumber' | 'email' | 'name' | 'role' | 'organizationId'>>> {
-    const db = getDb();
-    if (db) {
-      return db.collection<AuthUser>('users').find({ organizationId }, { projection: { passwordHash: 0 } }).map((user) => ({
+    const db = this.requireDb();
+    return db.collection<AuthUser>('users').find({ organizationId }, { projection: { passwordHash: 0 } }).map((user) => ({
         id: user.id,
         phoneNumber: user.phoneNumber,
         email: user.email,
         name: user.name,
         role: user.role,
         organizationId: user.organizationId,
-      })).toArray();
-    }
-    return Array.from(this.users.values()).filter((user) => user.organizationId === organizationId).map(({ id, phoneNumber, email, name, role, organizationId: userOrganizationId }) => ({ id, phoneNumber, email, name, role, organizationId: userOrganizationId }));
+    })).toArray();
   }
 
   async removeUser(userId: string, organizationId = 'org_main'): Promise<boolean> {
-    if (userId === 'usr_arash') return false;
-    const db = getDb();
-    if (db) {
-      const result = await db.collection<AuthUser>('users').deleteOne({ id: userId, organizationId });
-      await this.logoutAll(userId);
-      return result.deletedCount > 0;
-    }
-    const user = this.users.get(userId);
-    const deleted = user?.organizationId === organizationId ? this.users.delete(userId) : false;
+    const result = await this.requireDb().collection<AuthUser>('users').deleteOne({ id: userId, organizationId });
     await this.logoutAll(userId);
-    return deleted;
+    return result.deletedCount > 0;
   }
 
   async updateUserRole(userId: string, organizationId: string, role: string): Promise<boolean> {
-    const db = getDb();
-    if (db) {
-      const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { role, updatedAt: new Date().toISOString() } });
-      if (!result.matchedCount) return false;
-    }
-    const user = this.users.get(userId);
-    if (!user || user.organizationId !== organizationId) return false;
-    this.users.set(userId, { ...user, role });
-    for (const [token, session] of this.sessions.entries()) {
-      if (session.userId === userId) this.sessions.set(token, { ...session, role });
-    }
+    const db = this.requireDb();
+    const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { role, updatedAt: new Date().toISOString() } });
+    if (!result.matchedCount) return false;
+    await db.collection('sessions').updateMany({ userId }, { $set: { role } });
     return true;
   }
 
   async updateUserPhone(userId: string, organizationId: string, phoneNumber: string): Promise<boolean> {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
-    const db = getDb();
-    if (db) {
-      const duplicate = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } });
-      if (duplicate) return false;
-      const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { phoneNumber: normalizedPhone, updatedAt: new Date().toISOString() } });
-      return result.matchedCount > 0;
-    }
-    const user = this.users.get(userId);
-    if (!user || user.organizationId !== organizationId || Array.from(this.users.values()).some((candidate) => candidate.id !== userId && candidate.phoneNumber === normalizedPhone)) return false;
-    this.users.set(userId, { ...user, phoneNumber: normalizedPhone });
-    return true;
+    const db = this.requireDb();
+    const duplicate = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } });
+    if (duplicate) return false;
+    const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { phoneNumber: normalizedPhone, updatedAt: new Date().toISOString() } });
+    return result.matchedCount > 0;
   }
 
   async linkTelegramChat(userId: string, organizationId: string, chatId: string): Promise<boolean> {
-    const db = getDb();
-    if (db) {
-      const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { telegramChatId: chatId, updatedAt: new Date().toISOString() } });
-      return result.matchedCount > 0;
-    }
-    const user = this.users.get(userId);
-    if (!user || user.organizationId !== organizationId) return false;
-    this.users.set(userId, { ...user, telegramChatId: chatId });
-    return true;
+    const result = await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { telegramChatId: chatId, updatedAt: new Date().toISOString() } });
+    return result.matchedCount > 0;
   }
 
   async unlinkTelegramChat(userId: string, organizationId: string): Promise<boolean> {
-    const db = getDb();
-    if (db) {
-      const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $unset: { telegramChatId: '' } });
-      return result.matchedCount > 0;
-    }
-    const user = this.users.get(userId);
-    if (!user || user.organizationId !== organizationId) return false;
-    const { telegramChatId: _chatId, ...withoutChat } = user;
-    this.users.set(userId, withoutChat);
-    return true;
+    const result = await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $unset: { telegramChatId: '' } });
+    return result.matchedCount > 0;
   }
 
   async findByTelegramChat(chatId: string): Promise<AuthUser | null> {
-    const db = getDb();
-    if (db) return (await db.collection<AuthUser>('users').findOne({ telegramChatId: chatId })) as AuthUser | null;
-    return Array.from(this.users.values()).find((user) => user.telegramChatId === chatId) || null;
+    return (await this.requireDb().collection<AuthUser>('users').findOne({ telegramChatId: chatId })) as AuthUser | null;
   }
 
   async findById(userId: string, organizationId?: string): Promise<AuthUser | null> {
-    const db = getDb();
-    if (db) return await db.collection<AuthUser>('users').findOne({ id: userId, ...(organizationId ? { organizationId } : {}) });
-    const user = this.users.get(userId);
-    return user && (!organizationId || user.organizationId === organizationId) ? user : null;
+    return await this.requireDb().collection<AuthUser>('users').findOne({ id: userId, ...(organizationId ? { organizationId } : {}) });
   }
 
   async createMemberInvitation(email: string, name: string, role: string, invitedBy: string, organizationId = 'org_main', phoneNumber = ''): Promise<MemberInvitation> {
@@ -396,40 +255,28 @@ export class AuthService {
       invitedBy,
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
     };
-    this.invitations.set(invitation.token, invitation);
-    const db = getDb();
-    if (db) await db.collection<MemberInvitation>('member_invitations').insertOne(invitation);
+    await this.requireDb().collection<MemberInvitation>('member_invitations').insertOne(invitation);
     return invitation;
   }
 
   async acceptMemberInvitation(token: string, password: string): Promise<{ sessionToken: string; user: AuthSession } | null> {
-    const db = getDb();
-    const invitation = db
-      ? ((await db.collection<MemberInvitation>('member_invitations').findOne({ token })) || this.invitations.get(token))
-      : this.invitations.get(token);
+    const db = this.requireDb();
+    const invitation = await db.collection<MemberInvitation>('member_invitations').findOne({ token });
     if (!invitation || invitation.expiresAt < Date.now()) return null;
     const result = await this.register(invitation.email, password, invitation.name, invitation.role, invitation.organizationId, invitation.phoneNumber);
-    this.invitations.delete(token);
-    if (db) await db.collection('member_invitations').deleteOne({ token });
+    await db.collection('member_invitations').deleteOne({ token });
     return result;
   }
 
   async cancelMemberInvitation(token: string, organizationId: string): Promise<boolean> {
-    const db = getDb();
-    if (db) {
-      const result = await db.collection<MemberInvitation>('member_invitations').deleteOne({ token, organizationId });
-      this.invitations.delete(token);
-      return result.deletedCount > 0;
-    }
-    const invitation = this.invitations.get(token);
-    if (!invitation || invitation.organizationId !== organizationId) return false;
-    this.invitations.delete(token);
-    return true;
+    const result = await this.requireDb().collection<MemberInvitation>('member_invitations').deleteOne({ token, organizationId });
+    return result.deletedCount > 0;
   }
 
-  createGuestSigningToken(meetingId: string, email: string): string {
+  async createGuestSigningToken(meetingId: string, email: string): Promise<string> {
     const token = crypto.randomBytes(24).toString('hex');
-    this.guestTokens.set(token, {
+    await this.requireDb().collection('guest_signing_tokens').insertOne({
+      token,
       meetingId,
       email,
       expiresAt: Date.now() + 48 * 3600 * 1000, // 48 hours
@@ -437,12 +284,14 @@ export class AuthService {
     return token;
   }
 
-  verifyGuestSigningToken(token: string) {
-    const guest = this.guestTokens.get(token);
+  async verifyGuestSigningToken(token: string) {
+    const guest = await this.requireDb().collection('guest_signing_tokens').findOne({ token });
     if (!guest || guest.expiresAt < Date.now()) {
+      if (guest) await this.requireDb().collection('guest_signing_tokens').deleteOne({ token });
       return null;
     }
-    return guest;
+    const { _id, ...safeGuest } = guest;
+    return safeGuest;
   }
 }
 

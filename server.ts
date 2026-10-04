@@ -429,15 +429,6 @@ app.get('/api/auth/me', async (req, res) => {
   const token = req.cookies[SESSION_COOKIE_NAME];
   if (!token) {
     return res.status(401).json({ error: 'No active session.' });
-    // Return default executive user session
-    return res.json({
-      user: {
-        userId: 'usr_arash',
-        name: 'آرش فتحی',
-        role: 'Owner',
-        email: 'arash.fathi@metameet.ir',
-      },
-    });
   }
 
   const session = await authService.verifySessionAsync(token);
@@ -711,7 +702,7 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
     statusLabel: 'پیش‌نویس',
     organizer: {
       id: auth.userId,
-      name: 'آرش فتحی',
+      name: auth.name,
       role: auth.role,
       email: auth.email,
       hasSigned: true,
@@ -732,7 +723,7 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
     id: `aud_${Date.now()}`,
     meetingId: created.id,
     action: 'MEETING_CREATED',
-    actor: 'آرش فتحی (مدیر محصول)',
+    actor: `${auth.name} (${auth.role})`,
     timestamp: new Date().toISOString(),
     documentHash: crypto.createHash('sha256').update(created.title).digest('hex'),
   });
@@ -1343,7 +1334,7 @@ app.post('/api/email/invite', requirePermission('participant.invite'), async (re
   if (!meeting) {
     return res.status(404).json({ error: 'Meeting not found.' });
   }
-  const token = authService.createGuestSigningToken(meetingId, email);
+  const token = await authService.createGuestSigningToken(meetingId, email);
   const signingLink = `${process.env.APP_URL || 'https://metameet.ir'}/meeting/${meetingId}?token=${token}`;
 
   await queueManager.enqueue('metameet.email.send', {

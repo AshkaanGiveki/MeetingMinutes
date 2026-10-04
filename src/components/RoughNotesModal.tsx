@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { X, Sparkles, Wand2, FileText, ArrowLeft, Loader2 } from 'lucide-react';
 import { Meeting, Participant } from '../types';
-import { currentUser, sampleParticipants } from '../data/mockData';
 
 interface RoughNotesModalProps {
   isOpen: boolean;
@@ -59,8 +58,8 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         location: 'اتاق جلسات اصلی',
         status: 'DRAFT',
         statusLabel: 'پیش‌نویس',
-        organizer: organizer || currentUser,
-        participants: [organizer || currentUser, sampleParticipants[0], sampleParticipants[1]],
+        organizer: organizer || { id: 'unknown', name: 'کاربر فعلی', role: 'Participant', email: '', avatar: '' },
+        participants: organizer ? [organizer] : [],
         agenda: (aiData?.agenda || ['بررسی معماری', 'تخصیص وظایف']).map((text: string, idx: number) => ({
           id: `ag_${idx + 1}`,
           order: idx + 1,
@@ -81,9 +80,9 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         actionItems: (aiData?.suggestedTasks || []).map((t: any, idx: number) => ({
           id: `act_${idx + 1}`,
           task: t.task || 'پیگیری موارد تعیین‌شده',
-          assignee: sampleParticipants[idx % sampleParticipants.length] || organizer || currentUser,
+          assignee: organizer || { id: 'unknown', name: 'کاربر فعلی', role: 'Participant', email: '', avatar: '' },
           assigneeName: t.role || 'مسئول پیگیری',
-          assigneeAvatar: sampleParticipants[idx % sampleParticipants.length]?.avatar,
+          assigneeAvatar: organizer?.avatar,
           dueDate: t.deadline || '۱۰ روز آینده',
           completed: false,
         })),

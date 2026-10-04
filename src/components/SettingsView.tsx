@@ -9,12 +9,11 @@ import {
   PenTool,
   CheckCircle2
 } from 'lucide-react';
-import { currentUser } from '../data/mockData';
 
 export const SettingsView: React.FC = () => {
-  const [name, setName] = useState(currentUser.name);
+  const [name, setName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [role, setRole] = useState(currentUser.role);
+  const [role, setRole] = useState('Participant');
   const [emailNotification, setEmailNotification] = useState(true);
   const [telegramNotification, setTelegramNotification] = useState(true);
   const [autoSeal, setAutoSeal] = useState(true);

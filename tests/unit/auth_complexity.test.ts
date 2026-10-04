@@ -32,9 +32,9 @@ describe('Enterprise Authentication & Password Security Suite', () => {
     expect(isPasswordStrong('Str0ng#Persian99')).toBe(true);
   });
 
-  it('AuthService: Should allow password reset for registered users', () => {
+  it('AuthService: rejects the removed synchronous in-memory password reset path', () => {
     const success = authService.resetPassword('arash.fathi@metameet.ir', 'NewSecure#Pass99');
-    expect(success).toBe(true);
+    expect(success).toBe(false);
   });
 
   it('AuthService: Should reject password reset for non-existent emails', () => {

@@ -14,7 +14,7 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
   const uri = process.env.MONGODB_URI;
 
   if (!uri || uri.includes('<user>') || uri.includes('<password>')) {
-    logger.info('MONGODB_URI is not set or contains placeholder credentials. Running with high-performance in-memory repository store.');
+    logger.warn('MONGODB_URI is not set or contains placeholder credentials. Persistent database access is unavailable.');
     hasAttempted = true;
     return { client: null, db: null };
   }
@@ -60,7 +60,7 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logger.warn(
-      'MongoDB connection could not be established (TLS/SSL handshake or Atlas IP Access List). Seamlessly operating on high-performance local repository store.',
+      'MongoDB connection could not be established (TLS/SSL handshake or Atlas IP Access List). Database-backed features are unavailable until the connection is restored.',
       { metadata: { note: errorMsg.slice(0, 120) } }
     );
     if (client) {
@@ -89,6 +89,8 @@ async function setupIndexes(database: Db) {
     await database.collection('users').createIndex({ organizationId: 1, email: 1 });
     await database.collection('sessions').createIndex({ token: 1 }, { unique: true });
     await database.collection('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await database.collection('guest_signing_tokens').createIndex({ token: 1 }, { unique: true });
+    await database.collection('guest_signing_tokens').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await database.collection('invitations').createIndex({ token: 1 }, { unique: true });
     await database.collection('invitations').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await database.collection('notifications').createIndex({ userId: 1, createdAt: -1 });

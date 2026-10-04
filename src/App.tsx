@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { initialMeeting } from './data/mockData';
 import { Meeting, CommentItem, Participant, Template, OrganizationRole } from './types';
 import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
@@ -34,7 +33,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'auth'>('auth');
   const [viewMode, setViewMode] = useState<'hero' | 'list'>('hero');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [activeMeeting, setActiveMeeting] = useState<Meeting>(initialMeeting);
+  const [activeMeeting, setActiveMeeting] = useState<Meeting>(null as unknown as Meeting);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Authenticated User State with localStorage persistence
@@ -50,11 +49,10 @@ export default function App() {
       if (saved) return JSON.parse(saved);
     } catch {}
     return {
-      name: 'آرش فتحی',
-      phoneNumber: '+989121234567',
-      email: 'arash.fathi@metameet.ir',
-      role: 'Owner' as OrganizationRole,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      name: '',
+      phoneNumber: '',
+      email: '',
+      role: 'Participant' as OrganizationRole,
     };
   });
 
@@ -404,8 +402,8 @@ export default function App() {
       location: 'اتاق جلسات اصلی',
       status: 'DRAFT',
       statusLabel: 'پیش‌نویس',
-      organizer: activeMeeting.organizer,
-      participants: activeMeeting.participants,
+      organizer: activeParticipant,
+      participants: [activeParticipant],
       agenda: template.agendaDefaults.map((text, idx) => ({
         id: `ag_${idx + 1}`,
         order: idx + 1,
@@ -552,6 +550,14 @@ export default function App() {
               }}
               onBackToApp={() => setCurrentTab('meetings')}
             />
+          ) : meetings.length === 0 ? (
+            <div className="min-h-[60vh] flex items-center justify-center text-center">
+              <div className="max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-8 shadow-sm">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">هنوز صورت‌جلسه‌ای ثبت نشده است</h2>
+                <p className="mt-2 text-sm text-slate-500">برای شروع، یک جلسه جدید ایجاد کنید یا یادداشت‌های خام را به صورت‌جلسه تبدیل کنید.</p>
+                {isAuthenticated && <button onClick={() => setIsNewMeetingModalOpen(true)} className="mt-5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">ایجاد جلسه جدید</button>}
+              </div>
+            </div>
           ) : viewMode === 'list' ? (
             <MeetingsListView
               meetings={meetings}

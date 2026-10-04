@@ -13,48 +13,26 @@ export interface NotificationRecord {
   createdAt: string;
 }
 
-const memory = new Map<string, NotificationRecord>();
-
 class NotificationService {
   async list(userId: string, unreadOnly = false): Promise<NotificationRecord[]> {
-    const db = getDb();
-    if (db) {
-      const filter: Record<string, unknown> = { userId };
-      if (unreadOnly) filter.readAt = { $exists: false };
-      const rows = await db.collection<NotificationRecord>('notifications')
-        .find(filter).sort({ createdAt: -1 }).limit(100).toArray();
-      return rows.map(({ _id: _ignored, ...row }) => row as NotificationRecord);
-    }
-    return Array.from(memory.values())
-      .filter((item) => item.userId === userId && (!unreadOnly || !item.readAt))
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const filter: Record<string, unknown> = { userId };
+    if (unreadOnly) filter.readAt = { $exists: false };
+    const rows = await this.requireDb().collection<NotificationRecord>('notifications')
+      .find(filter).sort({ createdAt: -1 }).limit(100).toArray();
+    return rows.map(({ _id: _ignored, ...row }) => row as NotificationRecord);
   }
 
   async markRead(userId: string, id: string): Promise<boolean> {
     const readAt = new Date().toISOString();
-    const db = getDb();
-    if (db) {
-      const result = await db.collection<NotificationRecord>('notifications')
-        .updateOne({ id, userId }, { $set: { readAt } });
-      return result.matchedCount > 0;
-    }
-    const item = memory.get(id);
-    if (!item || item.userId !== userId) return false;
-    memory.set(id, { ...item, readAt });
-    return true;
+    const result = await this.requireDb().collection<NotificationRecord>('notifications')
+      .updateOne({ id, userId }, { $set: { readAt } });
+    return result.matchedCount > 0;
   }
 
   async markAllRead(userId: string): Promise<void> {
     const readAt = new Date().toISOString();
-    const db = getDb();
-    if (db) {
-      await db.collection<NotificationRecord>('notifications')
-        .updateMany({ userId, readAt: { $exists: false } }, { $set: { readAt } });
-      return;
-    }
-    for (const [id, item] of memory.entries()) {
-      if (item.userId === userId && !item.readAt) memory.set(id, { ...item, readAt });
-    }
+    await this.requireDb().collection<NotificationRecord>('notifications')
+      .updateMany({ userId, readAt: { $exists: false } }, { $set: { readAt } });
   }
 
   async create(input: Omit<NotificationRecord, 'id' | 'createdAt'>): Promise<NotificationRecord> {
@@ -63,10 +41,14 @@ class NotificationService {
       id: `ntf_${crypto.randomUUID()}`,
       createdAt: new Date().toISOString(),
     };
-    const db = getDb();
-    if (db) await db.collection<NotificationRecord>('notifications').insertOne(record);
-    else memory.set(record.id, record);
+    await this.requireDb().collection<NotificationRecord>('notifications').insertOne(record);
     return record;
+  }
+
+  private requireDb() {
+    const db = getDb();
+    if (!db) throw new Error('Persistent MongoDB connection is required.');
+    return db;
   }
 }
 

@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Calendar, Clock, MapPin, Plus, Sparkles } from 'lucide-react';
 import { Meeting, Participant, Template } from '../types';
-import { currentUser, sampleParticipants, sampleTemplates } from '../data/mockData';
 
 interface NewMeetingModalProps {
   isOpen: boolean;
@@ -21,6 +20,15 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   const [timeRange, setTimeRange] = useState('۱۰:۰۰ - ۱۱:۳۰');
   const [location, setLocation] = useState('اتاق جلسات اصلی');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [templates, setTemplates] = useState<Template[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/templates')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load templates')))
+      .then((data) => setTemplates(Array.isArray(data?.templates) ? data.templates : []))
+      .catch(() => setTemplates([]));
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -28,7 +36,8 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
     e.preventDefault();
     if (!title.trim()) return;
 
-    const chosenTemplate = sampleTemplates.find((t) => t.id === selectedTemplateId);
+    const chosenTemplate = templates.find((t) => t.id === selectedTemplateId);
+    if (!organizer) return;
 
     const newMeeting: Meeting = {
       id: `meet_${Date.now()}`,
@@ -38,8 +47,8 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
       location: location.trim(),
       status: 'DRAFT',
       statusLabel: 'پیش‌نویس',
-      organizer: organizer || currentUser,
-      participants: [organizer || currentUser, sampleParticipants[0], sampleParticipants[1]],
+      organizer,
+      participants: [organizer],
       agenda: chosenTemplate
         ? chosenTemplate.agendaDefaults.map((text, idx) => ({
             id: `ag_${idx + 1}`,
@@ -160,7 +169,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
               className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
             >
               <option value="">بدون قالب (سند خام)</option>
-              {sampleTemplates.map((t) => (
+              {templates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.title} ({t.category})
                 </option>

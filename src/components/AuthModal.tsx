@@ -36,7 +36,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   currentRole,
   onRoleChange,
   currentUserName,
-  currentUserEmail = 'arash.fathi@metameet.ir',
+  currentUserEmail = '',
   onLoginSuccess,
   onLogout,
 }) => {
