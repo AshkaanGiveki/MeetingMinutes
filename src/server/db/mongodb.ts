@@ -11,7 +11,10 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
     return { client: null, db: null };
   }
 
-  const uri = process.env.MONGODB_URI;
+  // Vercel environment values can arrive with accidental surrounding quotes or whitespace
+  // when copied from a local dotenv file. Normalize only the wrapper, never the credentials.
+  const rawUri = process.env.MONGODB_URI;
+  const uri = rawUri?.trim().replace(/^(["'])(.*)\1$/, '$2');
 
   if (!uri || uri.includes('<user>') || uri.includes('<password>')) {
     logger.warn('MONGODB_URI is not set or contains placeholder credentials. Persistent database access is unavailable.');
@@ -33,8 +36,8 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
     const options: MongoClientOptions = {
       maxPoolSize: 10,
       minPoolSize: 1,
-      serverSelectionTimeoutMS: 3000,
-      connectTimeoutMS: 3000,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
       ...(isTls
         ? {
             tls: true,
