@@ -9,7 +9,6 @@ import {
   UserPlus
 } from 'lucide-react';
 import { Meeting, Participant, CommentItem } from '../types';
-import { currentUser } from '../data/mockData';
 
 interface LeftSidebarProps {
   meeting: Meeting;
@@ -37,7 +36,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
     const newComment: CommentItem = {
       id: `com_${Date.now()}`,
-      author: currentUser,
+      author: meeting.organizer,
       text: newCommentText.trim(),
       timestamp: new Intl.DateTimeFormat('fa-IR', {
         hour: '2-digit',
@@ -277,7 +276,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               className="flex items-start gap-2.5 text-xs p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800"
             >
               <img
-                src={comment.author.avatar || currentUser.avatar}
+                src={comment.author.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80'}
                 alt={comment.author.name}
                 referrerPolicy="no-referrer"
                 className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5"

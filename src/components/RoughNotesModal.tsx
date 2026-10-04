@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { X, Sparkles, Wand2, FileText, ArrowLeft, Loader2 } from 'lucide-react';
-import { Meeting } from '../types';
+import { Meeting, Participant } from '../types';
 import { currentUser, sampleParticipants } from '../data/mockData';
 
 interface RoughNotesModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMeetingCreated: (meeting: Meeting) => void;
+  organizer?: Participant;
 }
 
 export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
   isOpen,
   onClose,
   onMeetingCreated,
+  organizer,
 }) => {
   const [roughText, setRoughText] = useState(
     `- بچه‌ها با محصول جدید موافق بودن ولی گفتن روی سرعت API کار بشه
@@ -57,8 +59,8 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         location: 'اتاق جلسات اصلی',
         status: 'DRAFT',
         statusLabel: 'پیش‌نویس',
-        organizer: currentUser,
-        participants: [currentUser, sampleParticipants[0], sampleParticipants[1]],
+        organizer: organizer || currentUser,
+        participants: [organizer || currentUser, sampleParticipants[0], sampleParticipants[1]],
         agenda: (aiData?.agenda || ['بررسی معماری', 'تخصیص وظایف']).map((text: string, idx: number) => ({
           id: `ag_${idx + 1}`,
           order: idx + 1,
@@ -79,7 +81,7 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         actionItems: (aiData?.suggestedTasks || []).map((t: any, idx: number) => ({
           id: `act_${idx + 1}`,
           task: t.task || 'پیگیری موارد تعیین‌شده',
-          assignee: sampleParticipants[idx % sampleParticipants.length] || currentUser,
+          assignee: sampleParticipants[idx % sampleParticipants.length] || organizer || currentUser,
           assigneeName: t.role || 'مسئول پیگیری',
           assigneeAvatar: sampleParticipants[idx % sampleParticipants.length]?.avatar,
           dueDate: t.deadline || '۱۰ روز آینده',

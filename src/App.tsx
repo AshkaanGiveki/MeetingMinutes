@@ -466,6 +466,13 @@ export default function App() {
   const sealedCount = isAuthenticated
     ? meetings.filter((m) => m.status === 'SEALED' || m.status === 'ARCHIVED').length
     : 0;
+  const activeParticipant: Participant = {
+    id: 'current-user',
+    name: activeUser.name,
+    role: activeUser.role,
+    email: activeUser.email,
+    avatar: activeUser.avatar,
+  };
 
   return (
     <div
@@ -654,6 +661,7 @@ export default function App() {
         isOpen={isNewMeetingModalOpen}
         onClose={() => setIsNewMeetingModalOpen(false)}
         onCreateMeeting={handleCreateNewMeeting}
+        organizer={activeParticipant}
       />
 
       <ReviewModal
@@ -667,6 +675,7 @@ export default function App() {
         isOpen={isRoughNotesModalOpen}
         onClose={() => setIsRoughNotesModalOpen(false)}
         onMeetingCreated={handleCreateNewMeeting}
+        organizer={activeParticipant}
       />
 
       <AuthModal

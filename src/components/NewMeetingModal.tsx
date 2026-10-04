@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { X, Calendar, Clock, MapPin, Plus, Sparkles } from 'lucide-react';
-import { Meeting, Template } from '../types';
+import { Meeting, Participant, Template } from '../types';
 import { currentUser, sampleParticipants, sampleTemplates } from '../data/mockData';
 
 interface NewMeetingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreateMeeting: (newMeeting: Meeting) => void;
+  organizer?: Participant;
 }
 
 export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   isOpen,
   onClose,
   onCreateMeeting,
+  organizer,
 }) => {
   const [title, setTitle] = useState('');
   const [persianDate, setPersianDate] = useState('۱۵ مهر ۱۴۰۴');
@@ -36,8 +38,8 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
       location: location.trim(),
       status: 'DRAFT',
       statusLabel: 'پیش‌نویس',
-      organizer: currentUser,
-      participants: [currentUser, sampleParticipants[0], sampleParticipants[1]],
+      organizer: organizer || currentUser,
+      participants: [organizer || currentUser, sampleParticipants[0], sampleParticipants[1]],
       agenda: chosenTemplate
         ? chosenTemplate.agendaDefaults.map((text, idx) => ({
             id: `ag_${idx + 1}`,
