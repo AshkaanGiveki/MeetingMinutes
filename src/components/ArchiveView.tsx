@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Archive,
   Search,
@@ -91,9 +92,12 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {sealedMeetings.map((m) => (
-                <tr
+              {sealedMeetings.map((m, index) => (
+                <motion.tr
                   key={m.id}
+                  initial={{ opacity: 0, x: index % 2 === 0 ? 10 : -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: index * 0.055, ease: 'easeOut' }}
                   className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
                 >
                   <td className="py-3.5 px-4 font-semibold text-slate-800 dark:text-slate-100">
@@ -143,7 +147,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                       </button>
                     </div>
                   </td>
-                </tr>
+                </motion.tr>
               ))}
             </tbody>
           </table>
@@ -249,9 +253,12 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
             </div>
 
             <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
-              {auditLogs.map((log) => (
-                <div
+              {auditLogs.map((log, index) => (
+                <motion.div
                   key={log.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.28, delay: index * 0.045, ease: 'easeOut' }}
                   className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs flex flex-col gap-1"
                 >
                   <div className="flex items-center justify-between font-semibold">
@@ -268,7 +275,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                   <div className="font-mono text-[10px] text-slate-400 truncate dir-ltr text-left">
                     هش سند: {log.documentHash}
                   </div>
-                </div>
+                </motion.div>
               ))}
             </div>
 

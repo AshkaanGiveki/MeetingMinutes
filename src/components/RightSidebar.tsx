@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import {
   FileText,
   FolderArchive,
@@ -160,14 +161,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         )}
 
         {/* Main Navigation List */}
-        <nav className="flex flex-col gap-1.5 pt-2">
+        <motion.nav
+          className="flex flex-col gap-1.5 pt-2"
+          initial="hidden"
+          animate="show"
+          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.055 } } }}
+        >
           {navItems.filter((item) => item.id !== 'auth').map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (
-              <button
+              <motion.button
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
+                variants={{ hidden: { opacity: 0, y: 7 }, show: { opacity: 1, y: 0 } }}
+                whileTap={{ scale: 0.98 }}
                 className={`relative group flex items-center gap-3.5 py-2.5 rounded-2xl transition-all duration-200 cursor-pointer text-xs font-semibold text-right ${
                   isCollapsed ? 'justify-center px-0' : 'px-3.5'
                 } ${
@@ -178,19 +186,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 title={item.label}
               >
                 {/* Active Indicator Bar on visual right */}
-                {isActive && (
-                  <span className="absolute right-0 top-2 bottom-2 w-1 bg-indigo-600 dark:bg-indigo-500 rounded-l-full" />
-                )}
+                {isActive && <motion.span layoutId="sidebar-active-indicator" transition={{ type: 'spring', stiffness: 520, damping: 36 }} className="absolute right-0 top-2 bottom-2 w-1 bg-indigo-600 dark:bg-indigo-500 rounded-l-full" />}
 
-                <Icon
-                  className={`w-4 h-4 stroke-[2] shrink-0 transition-transform ${
-                    isActive ? 'scale-110 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300'
-                  }`}
-                />
+                <motion.span
+                  key={`${item.id}-${isActive ? 'active' : 'idle'}`}
+                  initial={isActive ? { scale: 0, opacity: 0 } : { scale: 1, opacity: 1 }}
+                  animate={{ scale: isActive ? 1.1 : 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 24 }}
+                  className={`flex shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300'}`}
+                >
+                  <Icon className="w-4 h-4 stroke-[2]" />
+                </motion.span>
 
                 {!isCollapsed && (
                   <div className="flex-1 flex items-center justify-between">
-                    <span>{item.label}</span>
+                    {isActive ? <motion.span initial={{ opacity: 0, x: 7 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>{item.label}</motion.span> : <span>{item.label}</span>}
                     {item.badge !== undefined && item.badge > 0 && (
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono ${item.badgeColor}`}
@@ -200,10 +210,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                     )}
                   </div>
                 )}
-              </button>
+              </motion.button>
             );
           })}
-        </nav>
+        </motion.nav>
       </div>
 
       {/* Bottom User Profile & Auth Section */}

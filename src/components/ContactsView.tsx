@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key, X, Trash2 } from 'lucide-react';
 import { Participant } from '../types';
 
@@ -124,9 +125,12 @@ export const ContactsView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {members.map((m) => (
-                <tr
+              {members.map((m, index) => (
+                <motion.tr
                   key={m.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: index * 0.055, ease: 'easeOut' }}
                   className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
                 >
                   <td className="py-3.5 px-4 font-semibold text-slate-800 dark:text-slate-100">
@@ -163,7 +167,7 @@ export const ContactsView: React.FC = () => {
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </td>
-                </tr>
+                </motion.tr>
               ))}
             </tbody>
           </table>

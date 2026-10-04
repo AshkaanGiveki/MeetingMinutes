@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import {
   FileText,
   Plus,
@@ -116,10 +117,12 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
       </div>
 
       {/* Grid of Templates */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
         {templates.map((tpl) => (
-          <div
+          <motion.div
             key={tpl.id}
+            variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: { duration: 0.34, ease: 'easeOut' } } }}
+            layout
             className="p-5 rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm flex flex-col justify-between gap-4 group hover:border-indigo-200 dark:hover:border-indigo-800/60 transition-all hover:shadow-md"
           >
             <div className="flex flex-col gap-2">
@@ -177,9 +180,9 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
                 <ArrowRight className="w-3.5 h-3.5 rotate-180" />
               </button>
             </div>
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
       {/* Modal for creating a new template */}
       {isCreateModalOpen && (

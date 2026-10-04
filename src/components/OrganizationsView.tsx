@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import { Building2, Check, ChevronDown, MailPlus, Plus, RefreshCw, X } from 'lucide-react';
 
 interface OrganizationContext {
@@ -93,13 +94,13 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ activeOrga
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="نام سازمان جدید" className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800" />
         <button disabled={isBusy} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"><Plus className="h-4 w-4" />ایجاد سازمان</button>
       </form>
-      <div className="grid gap-4 md:grid-cols-2">
-        {organizations.map((item) => <div key={item.organization.id} className={`rounded-2xl border p-5 ${item.organization.id === activeOrganizationId ? 'border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}>
+      <motion.div className="grid gap-4 md:grid-cols-2" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
+        {organizations.map((item) => <motion.div key={item.organization.id} variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.32, ease: 'easeOut' } } }} layout className={`rounded-2xl border p-5 ${item.organization.id === activeOrganizationId ? 'border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}>
           <div className="flex items-start justify-between"><div className="flex items-center gap-3"><div className="rounded-xl bg-indigo-100 p-2 text-indigo-600"><Building2 className="h-5 w-5" /></div><div><h2 className="font-bold text-slate-900 dark:text-white">{item.organization.name}</h2><p className="text-xs text-slate-500">{item.memberCount} عضو · {item.membership.role}</p></div></div>{item.organization.id === activeOrganizationId && <Check className="h-5 w-5 text-emerald-600" />}</div>
           {item.organization.id !== activeOrganizationId && <button onClick={() => void switchOrganization(item.organization.id)} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 py-2 text-sm font-semibold text-indigo-700"><ChevronDown className="h-4 w-4" />فعال‌سازی این سازمان</button>}
           {item.organization.id === activeOrganizationId && item.membership.permissions.includes('members.manage') && <form onSubmit={(event) => void invite(event, item.organization.id)} className="mt-4 space-y-2 border-t border-slate-200 pt-4 dark:border-slate-700"><div className="flex gap-2"><input value={inviteTarget} onChange={(event) => setInviteTarget(event.target.value)} placeholder="شماره تلفن یا ایمیل" className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800" /><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-2 text-xs dark:border-slate-700 dark:bg-slate-800"><option>Participant</option><option>Viewer</option><option>Editor</option><option>Reviewer</option><option>Organizer</option></select></div><button className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-2 text-xs font-semibold text-white dark:bg-slate-700"><MailPlus className="h-4 w-4" />دعوت عضو</button></form>}
-        </div>)}
-      </div>
+        </motion.div>)}
+      </motion.div>
       {invitations.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5"><h2 className="mb-3 font-bold text-amber-900">دعوت‌نامه‌های دریافتی</h2><div className="space-y-2">{invitations.map((inv) => <div key={inv.token} className="flex items-center justify-between rounded-xl bg-white p-3"><div><p className="text-sm font-semibold text-slate-800">دعوت به عضویت · {inv.role}</p><p className="text-xs text-slate-500">{inv.email || inv.phoneNumber}</p></div><div className="flex gap-2"><button onClick={() => void respondToInvitation(inv.token, 'accept')} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">پذیرش</button><button onClick={() => void respondToInvitation(inv.token, 'reject')} className="rounded-lg bg-rose-100 px-3 py-1.5 text-xs font-semibold text-rose-700"><X className="inline h-3 w-3" /> رد</button></div></div>)}</div></section>}
     </div>
   );

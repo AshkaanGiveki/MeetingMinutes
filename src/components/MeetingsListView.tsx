@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import { Plus, Search, Calendar, Clock, MapPin, Users, ArrowLeft, Filter, FileText } from 'lucide-react';
 import { Meeting } from '../types';
 
@@ -106,13 +107,15 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
       </div>
 
       {/* Grid of Meeting Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
         {filtered.map((meeting) => {
           const isSealed = meeting.status === 'SEALED' || meeting.status === 'ARCHIVED';
           return (
-            <div
+            <motion.div
               key={meeting.id}
               onClick={() => onSelectMeeting(meeting)}
+              variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: { duration: 0.34, ease: 'easeOut' } } }}
+              layout
               className="p-5 rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-800 transition-all cursor-pointer flex flex-col justify-between gap-4 group"
             >
               <div className="flex flex-col gap-2">
@@ -169,10 +172,10 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
                   <ArrowLeft className="w-3.5 h-3.5" />
                 </div>
               </div>
-            </div>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
     </div>
   );
 };
