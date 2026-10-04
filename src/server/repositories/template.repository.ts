@@ -9,8 +9,8 @@ function requireDb() {
 }
 
 export class TemplateRepository {
-  async getAll(): Promise<Template[]> {
-    const docs = await requireDb().collection('templates').find({}).sort({ title: 1 }).toArray();
+  async getAll(organizationId?: string): Promise<Template[]> {
+    const docs = await requireDb().collection('templates').find(organizationId ? { organizationId } : {}).sort({ title: 1 }).toArray();
     return docs.map(({ _id, ...rest }) => rest as unknown as Template);
   }
 
@@ -20,8 +20,8 @@ export class TemplateRepository {
     return { ...template };
   }
 
-  async delete(id: string): Promise<boolean> {
-    const result = await requireDb().collection('templates').deleteOne({ id });
+  async delete(id: string, organizationId?: string): Promise<boolean> {
+    const result = await requireDb().collection('templates').deleteOne({ id, ...(organizationId ? { organizationId } : {}) });
     return result.deletedCount > 0;
   }
 }

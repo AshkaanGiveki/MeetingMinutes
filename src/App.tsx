@@ -21,6 +21,7 @@ import { RoughNotesModal } from './components/RoughNotesModal';
 import { AuthModal } from './components/AuthModal';
 import { AuthView } from './components/AuthView';
 import { NotificationPanel } from './components/NotificationPanel';
+import { OrganizationsView } from './components/OrganizationsView';
 
 export default function App() {
   const [isDark, setIsDark] = useState(() => {
@@ -30,7 +31,7 @@ export default function App() {
       return false;
     }
   });
-  const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'auth'>('auth');
+  const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'auth'>('auth');
   const [viewMode, setViewMode] = useState<'hero' | 'list'>('hero');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [activeMeeting, setActiveMeeting] = useState<Meeting>(null as unknown as Meeting);
@@ -42,6 +43,7 @@ export default function App() {
     phoneNumber: string;
     email: string;
     role: OrganizationRole;
+    organizationId?: string;
     avatar?: string;
   }>(() => {
     try {
@@ -86,6 +88,13 @@ export default function App() {
   const [hasUserSigned, setHasUserSigned] = useState(false);
   const [operationError, setOperationError] = useState('');
 
+  const loadOrganizations = async () => {
+    const response = await fetch('/api/organizations');
+    if (!response.ok) throw new Error('Unable to load organizations');
+    const data = await response.json();
+    return data.organizations || [];
+  };
+
   const loadMeetings = async () => {
     const response = await fetch('/api/meetings');
     if (!response.ok) throw new Error('Unable to load meetings');
@@ -111,8 +120,10 @@ export default function App() {
             phoneNumber: data.user.phoneNumber || prev.phoneNumber,
             email: data.user.email,
             role: (data.user.role as OrganizationRole) || prev.role,
+            organizationId: data.user.organizationId || prev.organizationId,
           }));
-          return loadMeetings();
+          setCurrentTab('meetings');
+          return Promise.all([loadMeetings(), loadOrganizations()]);
         }
         setCurrentTab('auth');
       })
@@ -424,18 +435,19 @@ export default function App() {
     handleCreateNewMeeting(newMeeting);
   };
 
-  const handleLoginSuccess = (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole }) => {
+  const handleLoginSuccess = (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string }) => {
     const updated = {
       ...activeUser,
       name: user.name,
       phoneNumber: user.phoneNumber || activeUser.phoneNumber,
       email: user.email || '',
       role: user.role,
+      organizationId: user.organizationId || activeUser.organizationId,
     };
     setActiveUser(updated);
     setIsAuthenticated(true);
     setCurrentTab('meetings');
-    void loadMeetings();
+    void Promise.all([loadMeetings(), loadOrganizations()]);
     try {
       localStorage.setItem('metameet_user', JSON.stringify(updated));
     } catch {}
@@ -540,6 +552,14 @@ export default function App() {
             <TemplatesView onUseTemplate={handleUseTemplate} />
           ) : currentTab === 'contacts' ? (
             <ContactsView />
+          ) : currentTab === 'organizations' ? (
+            <OrganizationsView
+              activeOrganizationId={activeUser.organizationId}
+              onOrganizationChanged={(user) => {
+                setActiveUser((previous) => ({ ...previous, role: (user.role as OrganizationRole) || previous.role, organizationId: user.organizationId }));
+                void loadMeetings();
+              }}
+            />
           ) : currentTab === 'settings' ? (
             <SettingsView />
           ) : currentTab === 'auth' ? (

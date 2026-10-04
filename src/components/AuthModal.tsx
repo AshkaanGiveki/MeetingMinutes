@@ -26,7 +26,7 @@ interface AuthModalProps {
   onRoleChange: (role: OrganizationRole) => void;
   currentUserName: string;
   currentUserEmail?: string;
-  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole }) => void;
+  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string }) => void;
   onLogout: () => void;
 }
 
@@ -133,6 +133,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           phoneNumber: data.user.phoneNumber,
           email: data.user.email,
           role: data.user.role as OrganizationRole,
+          organizationId: data.user.organizationId,
         });
         setTimeout(() => onClose(), 600);
       } else {
@@ -174,7 +175,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           name: signupName.trim(),
           phoneNumber: signupEmail.trim(),
           password: signupPassword,
-          role: signupRole,
         }),
       });
       const data = await res.json();
@@ -185,6 +185,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           phoneNumber: data.user.phoneNumber,
           email: data.user.email,
           role: data.user.role as OrganizationRole,
+          organizationId: data.user.organizationId,
         });
         setTimeout(() => onClose(), 700);
       } else {
@@ -196,7 +197,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         name: signupName,
         phoneNumber: signupEmail,
         email: signupEmail,
-        role: signupRole,
+        role: currentRole,
       });
       setTimeout(() => onClose(), 700);
     } finally {
@@ -358,10 +359,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <button
             type="button"
             onClick={() => {
-              setActiveTab('roles');
+              setActiveTab('login');
               setStatusMessage(null);
             }}
-            className={`flex-1 py-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`hidden flex-1 py-2 rounded-xl transition-all cursor-pointer items-center justify-center gap-1.5 ${
               activeTab === 'roles'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'

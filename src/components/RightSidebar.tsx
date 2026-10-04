@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Lock
   ,Shield
+  ,Building2
 } from 'lucide-react';
 import { OrganizationRole } from '../types';
 
@@ -77,6 +78,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       id: 'settings',
       label: 'تنظیمات و امنیت',
       icon: Settings,
+    },
+    {
+      id: 'organizations',
+      label: 'سازمان‌های من',
+      icon: Building2,
     },
     {
       id: 'auth',

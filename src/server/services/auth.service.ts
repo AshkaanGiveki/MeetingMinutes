@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { logger } from './logger';
 import { getDb } from '../db/mongodb';
+import { organizationService } from './organization.service';
+import { Permission } from '../policies/rbac';
 
 export interface AuthSession {
   userId: string;
@@ -10,6 +12,8 @@ export interface AuthSession {
   name: string;
   role: string;
   organizationId: string;
+  organizationName?: string;
+  permissions?: Permission[];
   expiresAt: number;
 }
 
@@ -19,21 +23,8 @@ export interface AuthUser {
   email: string;
   passwordHash: string;
   name: string;
-  role: string;
-  organizationId: string;
   telegramChatId?: string;
   preferences?: Record<string, unknown>;
-}
-
-export interface MemberInvitation {
-  token: string;
-  phoneNumber: string;
-  email: string;
-  name: string;
-  role: string;
-  organizationId: string;
-  invitedBy: string;
-  expiresAt: number;
 }
 
 export function normalizePhoneNumber(phone: string): string {
@@ -65,14 +56,21 @@ export class AuthService {
       return null;
     }
 
+    const context = await organizationService.getContext(user.id);
+    if (!context) {
+      logger.warn(`Login rejected because user has no active organization membership: ${user.email}`);
+      return null;
+    }
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const session: AuthSession = {
       userId: user.id,
       phoneNumber: user.phoneNumber,
       email: user.email,
       name: user.name,
-      role: user.role,
-      organizationId: user.organizationId || 'org_main',
+      role: context.membership.role,
+      organizationId: context.organization.id,
+      organizationName: context.organization.name,
+      permissions: context.membership.permissions,
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000, // 7 days
     };
 
@@ -81,7 +79,7 @@ export class AuthService {
     return { sessionToken, user: session };
   }
 
-  async register(email: string, passwordPlain: string, name: string, role: string = 'Participant', organizationId = 'org_main', phoneNumber = '') {
+  async register(email: string, passwordPlain: string, name: string, phoneNumber = '') {
     const userId = `usr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     const normalizedEmail = email.trim().toLowerCase() || `${userId}@local.invalid`;
     const normalizedPhone = normalizePhoneNumber(phoneNumber || email);
@@ -92,8 +90,9 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(passwordPlain, 10);
-    const newUser: AuthUser = { id: userId, phoneNumber: normalizedPhone, email: normalizedEmail, passwordHash, name, role, organizationId };
+    const newUser: AuthUser = { id: userId, phoneNumber: normalizedPhone, email: normalizedEmail, passwordHash, name };
     await db.collection<AuthUser>('users').insertOne(newUser);
+    await organizationService.create(userId, `${name.trim()} - سازمان جدید`);
 
     logger.info(`New user registered: ${email}`);
     return this.login(normalizedPhone, passwordPlain);
@@ -112,10 +111,9 @@ export class AuthService {
       email: normalizedEmail,
       passwordHash: await bcrypt.hash(password, 12),
       name,
-      role: 'Owner',
-      organizationId: 'org_main',
     };
     await db.collection<AuthUser>('users').insertOne(user);
+    await organizationService.create(user.id, 'سازمان اصلی');
     logger.info('Bootstrap owner account created.');
   }
 
@@ -129,6 +127,26 @@ export class AuthService {
 
     const { token: _token, _id: _id, ...authSession } = session as AuthSession & { token: string; _id?: unknown };
     return authSession;
+  }
+
+  async switchOrganization(sessionToken: string, userId: string, organizationId: string): Promise<AuthSession | null> {
+    const context = await organizationService.getContext(userId, organizationId);
+    if (!context) return null;
+    const user = await this.requireDb().collection<AuthUser>('users').findOne({ id: userId });
+    if (!user) return null;
+    const session: AuthSession = {
+      userId,
+      phoneNumber: user.phoneNumber,
+      email: user.email,
+      name: user.name,
+      role: context.membership.role,
+      organizationId: context.organization.id,
+      organizationName: context.organization.name,
+      permissions: context.membership.permissions,
+      expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
+    };
+    await this.requireDb().collection('sessions').updateOne({ token: sessionToken, userId }, { $set: session });
+    return session;
   }
 
   async resetPasswordAsync(email: string, newPasswordPlain: string): Promise<boolean> {
@@ -191,30 +209,19 @@ export class AuthService {
     return true;
   }
 
-  async listUsers(organizationId = 'org_main'): Promise<Array<Pick<AuthUser, 'id' | 'phoneNumber' | 'email' | 'name' | 'role' | 'organizationId'>>> {
-    const db = this.requireDb();
-    return db.collection<AuthUser>('users').find({ organizationId }, { projection: { passwordHash: 0 } }).map((user) => ({
-        id: user.id,
-        phoneNumber: user.phoneNumber,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        organizationId: user.organizationId,
-    })).toArray();
+  async listUsers(organizationId = 'org_main') {
+    return organizationService.listMembers(organizationId);
   }
 
   async removeUser(userId: string, organizationId = 'org_main'): Promise<boolean> {
-    const result = await this.requireDb().collection<AuthUser>('users').deleteOne({ id: userId, organizationId });
+    const result = await this.requireDb().collection('organization_memberships').updateOne({ userId, organizationId, status: 'active' }, { $set: { status: 'left' } });
     await this.logoutAll(userId);
-    return result.deletedCount > 0;
+    return result.modifiedCount > 0;
   }
 
   async updateUserRole(userId: string, organizationId: string, role: string): Promise<boolean> {
-    const db = this.requireDb();
-    const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { role, updatedAt: new Date().toISOString() } });
-    if (!result.matchedCount) return false;
-    await db.collection('sessions').updateMany({ userId }, { $set: { role } });
-    return true;
+    const updated = await organizationService.updateMembership(organizationId, userId, role as any);
+    return updated;
   }
 
   async updateUserPhone(userId: string, organizationId: string, phoneNumber: string): Promise<boolean> {
@@ -222,17 +229,17 @@ export class AuthService {
     const db = this.requireDb();
     const duplicate = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } });
     if (duplicate) return false;
-    const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { phoneNumber: normalizedPhone, updatedAt: new Date().toISOString() } });
+    const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { phoneNumber: normalizedPhone, updatedAt: new Date().toISOString() } });
     return result.matchedCount > 0;
   }
 
   async linkTelegramChat(userId: string, organizationId: string, chatId: string): Promise<boolean> {
-    const result = await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { telegramChatId: chatId, updatedAt: new Date().toISOString() } });
+    const result = await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId }, { $set: { telegramChatId: chatId, updatedAt: new Date().toISOString() } });
     return result.matchedCount > 0;
   }
 
   async unlinkTelegramChat(userId: string, organizationId: string): Promise<boolean> {
-    const result = await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $unset: { telegramChatId: '' } });
+    const result = await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId }, { $unset: { telegramChatId: '' } });
     return result.matchedCount > 0;
   }
 
@@ -241,36 +248,8 @@ export class AuthService {
   }
 
   async findById(userId: string, organizationId?: string): Promise<AuthUser | null> {
-    return await this.requireDb().collection<AuthUser>('users').findOne({ id: userId, ...(organizationId ? { organizationId } : {}) });
-  }
-
-  async createMemberInvitation(email: string, name: string, role: string, invitedBy: string, organizationId = 'org_main', phoneNumber = ''): Promise<MemberInvitation> {
-    const invitation: MemberInvitation = {
-      token: crypto.randomBytes(32).toString('hex'),
-      phoneNumber: normalizePhoneNumber(phoneNumber),
-      email: email.trim().toLowerCase(),
-      name: name.trim(),
-      role,
-      organizationId,
-      invitedBy,
-      expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
-    };
-    await this.requireDb().collection<MemberInvitation>('member_invitations').insertOne(invitation);
-    return invitation;
-  }
-
-  async acceptMemberInvitation(token: string, password: string): Promise<{ sessionToken: string; user: AuthSession } | null> {
-    const db = this.requireDb();
-    const invitation = await db.collection<MemberInvitation>('member_invitations').findOne({ token });
-    if (!invitation || invitation.expiresAt < Date.now()) return null;
-    const result = await this.register(invitation.email, password, invitation.name, invitation.role, invitation.organizationId, invitation.phoneNumber);
-    await db.collection('member_invitations').deleteOne({ token });
-    return result;
-  }
-
-  async cancelMemberInvitation(token: string, organizationId: string): Promise<boolean> {
-    const result = await this.requireDb().collection<MemberInvitation>('member_invitations').deleteOne({ token, organizationId });
-    return result.deletedCount > 0;
+    void organizationId;
+    return await this.requireDb().collection<AuthUser>('users').findOne({ id: userId });
   }
 
   async createGuestSigningToken(meetingId: string, email: string): Promise<string> {

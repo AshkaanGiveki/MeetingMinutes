@@ -14,25 +14,25 @@ export interface NotificationRecord {
 }
 
 class NotificationService {
-  async list(userId: string, unreadOnly = false): Promise<NotificationRecord[]> {
-    const filter: Record<string, unknown> = { userId };
+  async list(userId: string, organizationId: string, unreadOnly = false): Promise<NotificationRecord[]> {
+    const filter: Record<string, unknown> = { userId, organizationId };
     if (unreadOnly) filter.readAt = { $exists: false };
     const rows = await this.requireDb().collection<NotificationRecord>('notifications')
       .find(filter).sort({ createdAt: -1 }).limit(100).toArray();
     return rows.map(({ _id: _ignored, ...row }) => row as NotificationRecord);
   }
 
-  async markRead(userId: string, id: string): Promise<boolean> {
+  async markRead(userId: string, organizationId: string, id: string): Promise<boolean> {
     const readAt = new Date().toISOString();
     const result = await this.requireDb().collection<NotificationRecord>('notifications')
-      .updateOne({ id, userId }, { $set: { readAt } });
+      .updateOne({ id, userId, organizationId }, { $set: { readAt } });
     return result.matchedCount > 0;
   }
 
-  async markAllRead(userId: string): Promise<void> {
+  async markAllRead(userId: string, organizationId: string): Promise<void> {
     const readAt = new Date().toISOString();
     await this.requireDb().collection<NotificationRecord>('notifications')
-      .updateMany({ userId, readAt: { $exists: false } }, { $set: { readAt } });
+      .updateMany({ userId, organizationId, readAt: { $exists: false } }, { $set: { readAt } });
   }
 
   async create(input: Omit<NotificationRecord, 'id' | 'createdAt'>): Promise<NotificationRecord> {

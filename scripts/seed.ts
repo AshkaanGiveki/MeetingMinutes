@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import { connectMongoDB } from '../src/server/db/mongodb';
 import type { AuthUser } from '../src/server/services/auth.service';
 import type { Meeting, Participant, Template } from '../src/types';
+import { RolePermissionsMap, type OrganizationRole } from '../src/server/policies/rbac';
+import type { OrganizationMembership, OrganizationRecord } from '../src/server/services/organization.service';
 
 dotenv.config();
 
@@ -61,10 +63,36 @@ async function main() {
   if (!db || !client) throw new Error('MongoDB connection failed; no seed data was written.');
   try {
     const passwordHash = bcrypt.hashSync(seedPassword, 12);
-    const users: AuthUser[] = Object.values(participants).map((participant, index) => ({ id: participant.id, phoneNumber: `+9891212345${String(index + 1).padStart(2, '0')}`, email: participant.email, passwordHash, name: participant.name, role: participant.role, organizationId: 'org_main', preferences: {} }));
+    const users: AuthUser[] = Object.values(participants).map((participant, index) => ({ id: participant.id, phoneNumber: `+9891212345${String(index + 1).padStart(2, '0')}`, email: participant.email, passwordHash, name: participant.name, preferences: {} }));
+    const organization: OrganizationRecord = { id: 'org_main', name: 'سازمان متامیت', createdBy: participants.maryam.id, visibility: 'private', createdAt: new Date().toISOString() };
+    await db.collection<OrganizationRecord>('organizations').updateOne({ id: organization.id }, { $setOnInsert: organization }, { upsert: true });
     for (const user of users) await db.collection('users').updateOne({ id: user.id }, { $setOnInsert: user }, { upsert: true });
-    for (const template of templates) await db.collection('templates').updateOne({ id: template.id }, { $setOnInsert: template }, { upsert: true });
+    for (const participant of Object.values(participants)) {
+      const role = (participant.id === participants.maryam.id ? 'Owner' : participant.role) as OrganizationRole;
+      const membership: OrganizationMembership = { id: `membership_${participant.id}`, organizationId: organization.id, userId: participant.id, role, permissions: RolePermissionsMap[role], status: 'active', joinedAt: organization.createdAt };
+      await db.collection<OrganizationMembership>('organization_memberships').updateOne({ organizationId: organization.id, userId: participant.id }, { $setOnInsert: membership }, { upsert: true });
+    }
+    const legacyUsers = await db.collection<AuthUser & { role?: string; organizationId?: string }>('users').find({ $or: [{ role: { $exists: true } }, { organizationId: { $exists: true } }] }).toArray();
+    for (const legacyUser of legacyUsers) {
+      const organizationId = legacyUser.organizationId || 'org_main';
+      const role = (legacyUser.role || 'Participant') as OrganizationRole;
+      await db.collection<OrganizationMembership>('organization_memberships').updateOne(
+        { organizationId, userId: legacyUser.id },
+        { $setOnInsert: { id: `membership_${organizationId}_${legacyUser.id}`, organizationId, userId: legacyUser.id, role, permissions: RolePermissionsMap[role] || RolePermissionsMap.Participant, status: 'active', joinedAt: new Date().toISOString() } },
+        { upsert: true },
+      );
+    }
+    await db.collection('users').updateMany({}, { $unset: { role: '', organizationId: '' } });
+    await db.collection('meetings').updateMany({ organizationId: { $exists: false } }, { $set: { organizationId: 'org_main' } });
+    await db.collection('templates').updateMany({ organizationId: { $exists: false } }, { $set: { organizationId: 'org_main' } });
+    for (const template of templates) await db.collection('templates').updateOne({ id: template.id }, { $setOnInsert: { ...template, organizationId: 'org_main' } }, { upsert: true });
     for (const meeting of meetings) await db.collection('meetings').updateOne({ id: meeting.id }, { $setOnInsert: { ...meeting, organizationId: 'org_main', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }, { upsert: true });
+    for (const meeting of meetings) {
+      for (const participant of [meeting.organizer, ...meeting.participants]) {
+        const assignment = participant.id === meeting.organizer.id ? 'Organizer' : (participant.role as OrganizationRole);
+        await db.collection('meeting_members').updateOne({ meetingId: meeting.id, userId: participant.id }, { $setOnInsert: { id: `meeting_member_${meeting.id}_${participant.id}`, meetingId: meeting.id, organizationId: 'org_main', userId: participant.id, assignments: [assignment], permissions: RolePermissionsMap[assignment] || RolePermissionsMap.Participant } }, { upsert: true });
+      }
+    }
     console.log(`Seed complete: ${users.length} users, ${templates.length} templates, ${meetings.length} meetings.`);
   } finally { await client.close(); }
 }

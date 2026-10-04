@@ -22,7 +22,8 @@ import type { Meeting } from './src/types';
 import { initializeWorker } from './src/server/worker';
 import { documentExists, getMeetingPdfPath } from './src/server/services/document.service';
 import { templateRepository } from './src/server/repositories/template.repository';
-import { canTransitionMeeting, hasPermission, OrganizationRole } from './src/server/policies/rbac';
+import { organizationService } from './src/server/services/organization.service';
+import { canTransitionMeeting, hasPermission, OrganizationRole, Permission, RolePermissionsMap } from './src/server/policies/rbac';
 import {
   SignDocumentSchema,
   CreateMeetingSchema,
@@ -114,7 +115,6 @@ type RequestWithAuth = express.Request & { auth?: AuthSession };
 const publicApiPaths = [
   /^\/api\/auth\/(login|register|forgot-password|reset-password|forgot-password-sms|reset-password-sms)$/,
   /^\/api\/auth\/me$/,
-  /^\/api\/members\/invitations\/[^/]+\/accept$/,
   /^\/api\/queues\/[^/]+$/,
   /^\/api\/telegram\/webhook$/,
   /^\/api\/health$/,
@@ -141,9 +141,94 @@ app.use(async (req, res, next) => {
 function requirePermission(permission: Parameters<typeof hasPermission>[1]) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const auth = (req as RequestWithAuth).auth;
-    if (!auth || !hasPermission(auth.role as OrganizationRole, permission)) {
+    if (!auth || !(auth.permissions?.includes(permission) || hasPermission(auth.role as OrganizationRole, permission))) {
       return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
+    return next();
+  };
+}
+
+async function meetingAssignmentAllows(meeting: Meeting, userId: string, permission: string): Promise<boolean> {
+  const db = getDb();
+  if (db) {
+    const assignment = await db.collection<{ permissions?: string[]; assignment?: string }>('meeting_members')
+      .findOne({ meetingId: meeting.id, userId });
+    if (assignment) return Boolean(assignment.permissions?.includes(permission));
+  }
+
+  // Embedded participants are retained as a backwards-compatible projection for
+  // older records, but the meeting_members collection is authoritative.
+  if (meeting.organizer?.id === userId) {
+    return ['meeting.read', 'meeting.edit', 'meeting.review', 'meeting.archive', 'meeting.finalize', 'participant.invite', 'participant.remove', 'signature.request', 'signature.sign', 'comment.create'].includes(permission);
+  }
+  const participant = meeting.participants?.find((item) => item.id === userId);
+  if (!participant) return false;
+  if (permission === 'meeting.read' || permission === 'comment.create') return true;
+  if (permission === 'signature.sign') return true;
+  if (permission === 'meeting.review') return participant.role === 'Reviewer';
+  if (permission === 'meeting.edit') return participant.role === 'Editor';
+  return false;
+}
+
+async function canAccessMeeting(req: express.Request, meetingId: string, permission: string): Promise<boolean> {
+  const auth = (req as RequestWithAuth).auth;
+  if (!auth) return false;
+  const meeting = await meetingRepository.getById(meetingId);
+  if (!meeting || (meeting as Meeting & { organizationId?: string }).organizationId !== auth.organizationId) return false;
+  if (auth.permissions?.includes('meeting.view_all') && permission === 'meeting.read') return true;
+  if (permission !== 'meeting.read' && ['Owner', 'Admin'].includes(auth.role) && auth.permissions?.includes(permission as any)) return true;
+  return meetingAssignmentAllows(meeting, auth.userId, permission);
+}
+
+type MeetingMemberRecord = {
+  id: string;
+  meetingId: string;
+  organizationId: string;
+  userId: string;
+  assignment: OrganizationRole;
+  permissions: Permission[];
+  assignedBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+async function upsertMeetingMember(meeting: Meeting, userId: string, assignment: OrganizationRole, assignedBy: string, permissions?: Permission[]) {
+  const db = getDb();
+  if (!db) return;
+  const now = new Date().toISOString();
+  await db.collection<MeetingMemberRecord>('meeting_members').updateOne(
+    { meetingId: meeting.id, userId },
+    {
+      $set: {
+        organizationId: (meeting as Meeting & { organizationId?: string }).organizationId,
+        assignment,
+        permissions: permissions || RolePermissionsMap[assignment],
+        assignedBy,
+        updatedAt: now,
+      },
+      $setOnInsert: { id: `meeting_member_${crypto.randomUUID()}`, meetingId: meeting.id, userId, createdAt: now },
+    },
+    { upsert: true },
+  );
+}
+
+async function syncMeetingMembers(meeting: Meeting, participants: Array<{ id?: string; role?: string }>, assignedBy: string) {
+  const db = getDb();
+  if (!db) return;
+  const memberIds = participants.map((item) => item.id).filter((id): id is string => Boolean(id));
+  for (const participant of participants) {
+    if (!participant.id) continue;
+    const role = (['Admin', 'Organizer', 'Editor', 'Reviewer', 'Participant', 'Viewer'].includes(String(participant.role))
+      ? participant.role
+      : 'Participant') as OrganizationRole;
+    await upsertMeetingMember(meeting, participant.id, role, assignedBy);
+  }
+  await db.collection<MeetingMemberRecord>('meeting_members').deleteMany({ meetingId: meeting.id, userId: { $nin: [meeting.organizer.id, ...memberIds] } });
+}
+
+function requireMeetingPermission(permission: string) {
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!(await canAccessMeeting(req, req.params.id, permission))) return res.status(403).json({ error: 'You do not have access to this meeting.' });
     return next();
   };
 }
@@ -217,7 +302,7 @@ app.post('/api/auth/register', async (req, res) => {
 
   try {
     // Public registration never accepts a privileged role from the client.
-    const result = await authService.register(email, password, name.trim(), 'Participant', 'org_main', phoneNumber);
+    const result = await authService.register(email, password, name.trim(), phoneNumber);
     if (!result) {
       return res.status(400).json({ error: 'خطا در ثبت‌نام کاربر.' });
     }
@@ -397,7 +482,7 @@ app.post('/api/signature/otp/verify', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const phoneNumber = req.body?.phoneNumber || req.body?.email;
+  const phoneNumber = req.body?.phoneNumber || req.body?.identifier || req.body?.email;
   const { password } = req.body;
   if (!phoneNumber || !password) {
     return res.status(400).json({ error: 'ایمیل و رمز عبور الزامی است.' });
@@ -462,6 +547,100 @@ app.get('/api/auth/me', async (req, res) => {
   return res.json({ user: session });
 });
 
+app.get('/api/organizations', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  return res.json({ success: true, organizations: await organizationService.listForUser(auth.userId), activeOrganizationId: auth.organizationId });
+});
+
+app.post('/api/organizations', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (name.length < 2 || name.length > 120) return res.status(400).json({ error: 'Organization name is invalid.' });
+  const context = await organizationService.create(auth.userId, name);
+  const token = req.cookies[SESSION_COOKIE_NAME];
+  const session = token ? await authService.switchOrganization(token, auth.userId, context.organization.id) : null;
+  return res.json({ success: true, organization: context.organization, user: session || auth });
+});
+
+app.patch('/api/organizations/:id', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (name.length < 2 || name.length > 120) return res.status(400).json({ error: 'Organization name is invalid.' });
+  const organization = await organizationService.rename(auth.userId, req.params.id, name);
+  return organization ? res.json({ success: true, organization }) : res.status(403).json({ error: 'You do not have permission to rename this organization.' });
+});
+
+app.delete('/api/organizations/:id', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const result = await organizationService.remove(auth.userId, req.params.id);
+  return result.ok ? res.json({ success: true }) : res.status(400).json({ error: result.reason });
+});
+
+app.post('/api/organizations/:id/switch', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const token = req.cookies[SESSION_COOKIE_NAME];
+  const session = token ? await authService.switchOrganization(token, auth.userId, req.params.id) : null;
+  if (!session) return res.status(403).json({ error: 'You are not a member of this organization.' });
+  return res.json({ success: true, user: session });
+});
+
+app.get('/api/organizations/invitations', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  return res.json({ success: true, invitations: await organizationService.listInvitations(auth.userId) });
+});
+
+app.post('/api/organizations/invitations/:token/accept', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const context = await organizationService.acceptInvitation(auth.userId, req.params.token);
+  if (!context) return res.status(400).json({ error: 'Invitation is invalid, expired, or not addressed to this account.' });
+  const token = req.cookies[SESSION_COOKIE_NAME];
+  const session = token ? await authService.switchOrganization(token, auth.userId, context.organization.id) : null;
+  return res.json({ success: true, user: session || auth, organization: context.organization });
+});
+
+app.post('/api/organizations/invitations/:token/reject', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const rejected = await organizationService.rejectInvitation(auth.userId, req.params.token);
+  return rejected ? res.json({ success: true }) : res.status(404).json({ error: 'Invitation not found.' });
+});
+
+app.delete('/api/organizations/:id/invitations/:token', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  if (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage'))) return res.status(403).json({ error: 'You do not have permission to cancel invitations.' });
+  const cancelled = await organizationService.cancelInvitation(auth.userId, req.params.token);
+  return cancelled ? res.json({ success: true }) : res.status(404).json({ error: 'Invitation not found.' });
+});
+
+app.post('/api/organizations/:id/leave', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  if (auth.organizationId !== req.params.id) return res.status(403).json({ error: 'Switch to this organization before leaving it.' });
+  const result = await organizationService.leave(auth.userId, req.params.id);
+  if (!result.ok) return res.status(400).json({ error: result.reason });
+  const token = req.cookies[SESSION_COOKIE_NAME];
+  if (token) authService.logout(token);
+  res.clearCookie(SESSION_COOKIE_NAME);
+  return res.json({ success: true });
+});
+
+app.get('/api/organizations/:id/members', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  if (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage'))) return res.status(403).json({ error: 'You do not have permission to view organization members.' });
+  return res.json({ success: true, members: await organizationService.listMembers(req.params.id) });
+});
+
+app.post('/api/organizations/:id/invitations', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  if (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage'))) return res.status(403).json({ error: 'You do not have permission to invite members.' });
+  const phoneNumber = typeof req.body?.phoneNumber === 'string' ? normalizePhoneNumber(req.body.phoneNumber) : undefined;
+  const email = typeof req.body?.email === 'string' && req.body.email.trim() ? req.body.email.trim().toLowerCase() : undefined;
+  if (!phoneNumber && !email) return res.status(400).json({ error: 'Phone number or email is required.' });
+  const role = (req.body?.role || 'Participant') as OrganizationRole;
+  if (!['Admin', 'Organizer', 'Editor', 'Reviewer', 'Participant', 'Viewer'].includes(role)) return res.status(400).json({ error: 'Invalid membership role.' });
+  const invitation = await organizationService.invite({ organizationId: req.params.id, invitedBy: auth.userId, phoneNumber, email, name: req.body?.name, role });
+  if (phoneNumber) await smsService.sendMessage(phoneNumber, `دعوت عضویت در سازمان متامیت: ${process.env.APP_URL || ''}/invitations/${invitation.token}`);
+  return res.json({ success: true, invitation, invitationUrl: `${process.env.APP_URL || ''}/invitations/${invitation.token}` });
+});
+
 app.get('/api/settings', requirePermission('settings.manage'), async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
   const preferences = await authService.getPreferences(auth.userId);
@@ -479,19 +658,19 @@ app.put('/api/profile', async (req, res) => {
 app.get('/api/notifications', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
   const unreadOnly = String(req.query.unreadOnly || '') === 'true';
-  const notifications = await notificationService.list(auth.userId, unreadOnly);
+  const notifications = await notificationService.list(auth.userId, auth.organizationId, unreadOnly);
   return res.json({ success: true, notifications, unreadCount: notifications.filter((item) => !item.readAt).length });
 });
 
 app.post('/api/notifications/read-all', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
-  await notificationService.markAllRead(auth.userId);
+  await notificationService.markAllRead(auth.userId, auth.organizationId);
   return res.json({ success: true });
 });
 
 app.post('/api/notifications/:id/read', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
-  const updated = await notificationService.markRead(auth.userId, req.params.id);
+  const updated = await notificationService.markRead(auth.userId, auth.organizationId, req.params.id);
   return updated ? res.json({ success: true }) : res.status(404).json({ error: 'Notification not found.' });
 });
 
@@ -527,22 +706,22 @@ app.post('/api/members/invite', requirePermission('members.manage'), async (req,
   const { email = '', phoneNumber, name, role } = req.body || {};
   if (!phoneNumber || !name || !role) return res.status(400).json({ error: 'Phone number, name, and role are required.' });
   const auth = (req as RequestWithAuth).auth!;
-  const allowedRoles = ['Owner', 'Admin', 'Organizer', 'Editor', 'Reviewer', 'Participant', 'Viewer'];
-  if (!allowedRoles.includes(role)) return res.status(400).json({ error: 'Invalid member role.' });
-  if (auth.role !== 'Owner' && ['Owner', 'Admin'].includes(role)) {
+  const allowedRoles: OrganizationRole[] = ['Admin', 'Organizer', 'Editor', 'Reviewer', 'Participant', 'Viewer'];
+  if (!allowedRoles.includes(role as OrganizationRole)) return res.status(400).json({ error: 'Invalid member role.' });
+  if (auth.role !== 'Owner' && role === 'Admin') {
     return res.status(403).json({ error: 'Only owners can assign owner or admin roles.' });
   }
-  const invitation = await authService.createMemberInvitation(
-    email,
-    name,
-    role,
-    auth.userId,
-    auth.organizationId,
-    phoneNumber,
-  );
-  const invitationUrl = `${process.env.APP_URL || ''}/accept-invitation/${invitation.token}`;
-  const delivery = await smsService.sendMessage(invitation.phoneNumber, `MetaMeet invitation: ${invitationUrl}`);
-  if (email) await emailService.sendMemberInvitation(invitation.email, invitation.name, invitationUrl);
+  const invitation = await organizationService.invite({
+    email: typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : undefined,
+    name: String(name).trim(),
+    role: role as OrganizationRole,
+    invitedBy: auth.userId,
+    organizationId: auth.organizationId,
+    phoneNumber: normalizePhoneNumber(phoneNumber),
+  });
+  const invitationUrl = `${process.env.APP_URL || ''}/invitations/${invitation.token}`;
+  const delivery = await smsService.sendMessage(invitation.phoneNumber || phoneNumber, `MetaMeet invitation: ${invitationUrl}`);
+  if (email) await emailService.sendMemberInvitation(String(email).trim().toLowerCase(), String(name).trim(), invitationUrl);
   if (!delivery.success && process.env.NODE_ENV === 'production') {
     return res.status(503).json({ error: 'Invitation SMS could not be delivered.' });
   }
@@ -576,29 +755,13 @@ app.put('/api/members/:id/phone', requirePermission('members.manage'), async (re
 });
 
 app.delete('/api/members/invitations/:token', requirePermission('members.manage'), async (req, res) => {
-  const cancelled = await authService.cancelMemberInvitation(
-    req.params.token,
-    (req as RequestWithAuth).auth!.organizationId,
-  );
+  const auth = (req as RequestWithAuth).auth!;
+  const cancelled = await organizationService.cancelInvitation(auth.userId, req.params.token);
   return cancelled ? res.json({ success: true }) : res.status(404).json({ error: 'Invitation not found.' });
 });
 
 app.post('/api/members/invitations/:token/accept', async (req, res) => {
-  const { password } = req.body || {};
-  if (!password) return res.status(400).json({ error: 'Password is required.' });
-  try {
-    const result = await authService.acceptMemberInvitation(req.params.token, password);
-    if (!result) return res.status(400).json({ error: 'Invitation is invalid or expired.' });
-    res.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 3600 * 1000,
-    });
-    return res.json({ success: true, user: result.user });
-  } catch (error) {
-    return res.status(400).json({ error: error instanceof Error ? error.message : 'Invitation acceptance failed.' });
-  }
+  return res.status(410).json({ error: 'برای پذیرش دعوت ابتدا وارد حساب کاربری خود شوید.' });
 });
 
 // -------------------------------------------------------------
@@ -611,17 +774,29 @@ app.use('/api/meetings/:id', async (req, res, next) => {
   if (!meeting || (organizationId && organizationId !== auth?.organizationId)) {
     return res.status(404).json({ error: 'Meeting not found.' });
   }
+  if (req.method === 'GET' && !(await canAccessMeeting(req, req.params.id, 'meeting.read'))) {
+    return res.status(404).json({ error: 'Meeting not found.' });
+  }
   return next();
 });
 
 app.get('/api/meetings', async (req, res) => {
   const { search, status } = req.query;
+  const auth = (req as RequestWithAuth).auth!;
   if (search || status) {
     const results = await meetingRepository.search(String(search || ''), String(status || ''));
-    return res.json({ success: true, meetings: results });
+    const scoped = results.filter((meeting) => (meeting as Meeting & { organizationId?: string }).organizationId === auth.organizationId);
+    const visible = auth.permissions?.includes('meeting.view_all')
+      ? scoped
+      : (await Promise.all(scoped.map(async (meeting) => (await meetingAssignmentAllows(meeting, auth.userId, 'meeting.read')) ? meeting : null))).filter((meeting): meeting is Meeting => Boolean(meeting));
+    return res.json({ success: true, meetings: visible });
   }
   const meetings = await meetingRepository.getAll();
-  return res.json({ success: true, meetings });
+  const scoped = meetings.filter((meeting) => (meeting as Meeting & { organizationId?: string }).organizationId === auth.organizationId);
+  const visible = auth.permissions?.includes('meeting.view_all')
+    ? scoped
+    : (await Promise.all(scoped.map(async (meeting) => (await meetingAssignmentAllows(meeting, auth.userId, 'meeting.read')) ? meeting : null))).filter((meeting): meeting is Meeting => Boolean(meeting));
+  return res.json({ success: true, meetings: visible });
 });
 
 app.get('/api/meetings/:id', async (req, res) => {
@@ -632,7 +807,7 @@ app.get('/api/meetings/:id', async (req, res) => {
   return res.json({ success: true, meeting });
 });
 
-app.get('/api/meetings/:id/pdf', requirePermission('meeting.read'), async (req, res) => {
+app.get('/api/meetings/:id/pdf', requireMeetingPermission('meeting.read'), async (req, res) => {
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
   if (meeting.status !== 'SEALED' && meeting.status !== 'ARCHIVED') {
@@ -644,7 +819,7 @@ app.get('/api/meetings/:id/pdf', requirePermission('meeting.read'), async (req, 
   return res.download(getMeetingPdfPath(meeting.id), `${meeting.id}.pdf`);
 });
 
-app.post('/api/meetings/:id/pdf-link', requirePermission('meeting.read'), async (req, res) => {
+app.post('/api/meetings/:id/pdf-link', requireMeetingPermission('meeting.read'), async (req, res) => {
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting || (meeting.status !== 'SEALED' && meeting.status !== 'ARCHIVED')) return res.status(404).json({ error: 'Sealed document not found.' });
   if (!(await documentExists(meeting.id))) return res.status(404).json({ error: 'PDF artifact is not ready yet.' });
@@ -665,7 +840,7 @@ app.get('/api/documents/:id', async (req, res) => {
   return res.download(getMeetingPdfPath(meeting.id), `${meeting.id}.pdf`);
 });
 
-app.get('/api/meetings/:id/verify', requirePermission('meeting.read'), async (req, res) => {
+app.get('/api/meetings/:id/verify', requireMeetingPermission('meeting.read'), async (req, res) => {
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
   const signatures = (meeting as Meeting & { signatures?: unknown[] }).signatures || [];
@@ -742,6 +917,7 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
   };
 
   const created = await meetingRepository.create(newMeeting as any);
+  await upsertMeetingMember(created, auth.userId, 'Organizer', auth.userId);
   await meetingRepository.addAudit({
     id: `aud_${Date.now()}`,
     meetingId: created.id,
@@ -762,7 +938,61 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
   return res.json({ success: true, meeting: created });
 });
 
-app.put('/api/meetings/:id', requirePermission('meeting.edit'), async (req, res) => {
+app.get('/api/meetings/:id/members', requireMeetingPermission('meeting.read'), async (req, res) => {
+  const db = getDb();
+  if (!db) return res.status(503).json({ error: 'Database connection is temporarily unavailable.' });
+  const members = await db.collection<MeetingMemberRecord>('meeting_members').aggregate([
+    { $match: { meetingId: req.params.id } },
+    { $lookup: { from: 'users', localField: 'userId', foreignField: 'id', as: 'user' } },
+    { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+    { $project: { _id: 0, id: 1, meetingId: 1, organizationId: 1, userId: 1, assignment: 1, permissions: 1, assignedBy: 1, createdAt: 1, updatedAt: 1, 'user.passwordHash': 0 } },
+  ]).toArray();
+  return res.json({ success: true, members });
+});
+
+app.post('/api/meetings/:id/members', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
+  if (!(await canAccessMeeting(req, meeting.id, 'participant.invite'))) return res.status(403).json({ error: 'You do not have permission to manage this meeting.' });
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  const assignment = req.body?.assignment;
+  const allowedAssignments: OrganizationRole[] = ['Organizer', 'Editor', 'Reviewer', 'Participant', 'Viewer'];
+  if (!userId || !allowedAssignments.includes(assignment)) return res.status(400).json({ error: 'A valid userId and assignment are required.' });
+  const assignmentRole = assignment as OrganizationRole;
+  const db = getDb();
+  const member = await db?.collection('organization_memberships').findOne({ organizationId: auth.organizationId, userId, status: 'active' });
+  if (!member) return res.status(400).json({ error: 'The user must be an active member of this organization.' });
+  await upsertMeetingMember(meeting, userId, assignmentRole, auth.userId, Array.isArray(req.body?.permissions) ? req.body.permissions : undefined);
+  const participant = await db?.collection('users').findOne({ id: userId }, { projection: { passwordHash: 0 } });
+  if (participant) {
+    const participantProjection = {
+      id: userId,
+      name: participant.name,
+      role: assignmentRole,
+      email: participant.email,
+      avatar: participant.avatar,
+      initials: String(participant.name || '').slice(0, 2),
+      hasSigned: false,
+    };
+    const participants = [...(meeting.participants || []).filter((item) => item.id !== userId), participantProjection];
+    await meetingRepository.update(meeting.id, { participants } as Partial<Meeting>);
+  }
+  return res.json({ success: true, member: { userId, assignment: assignmentRole, permissions: Array.isArray(req.body?.permissions) ? req.body.permissions : RolePermissionsMap[assignmentRole], user: participant } });
+});
+
+app.delete('/api/meetings/:id/members/:userId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
+  if (!(await canAccessMeeting(req, meeting.id, 'participant.remove'))) return res.status(403).json({ error: 'You do not have permission to manage this meeting.' });
+  if (req.params.userId === meeting.organizer.id) return res.status(400).json({ error: 'The meeting organizer cannot be removed.' });
+  const result = await getDb()!.collection<MeetingMemberRecord>('meeting_members').deleteOne({ meetingId: meeting.id, userId: req.params.userId, organizationId: auth.organizationId });
+  if (result.deletedCount) await meetingRepository.update(meeting.id, { participants: (meeting.participants || []).filter((item) => item.id !== req.params.userId) });
+  return result.deletedCount ? res.json({ success: true }) : res.status(404).json({ error: 'Meeting assignment not found.' });
+});
+
+app.put('/api/meetings/:id', requireMeetingPermission('meeting.edit'), async (req, res) => {
   const meetingId = req.params.id;
   const existing = await meetingRepository.getById(meetingId);
   if (!existing) {
@@ -799,10 +1029,11 @@ app.put('/api/meetings/:id', requirePermission('meeting.edit'), async (req, res)
   }
   const updated = await meetingRepository.update(meetingId, updates, expectedVersion);
   if (!updated) return res.status(409).json({ error: 'Meeting changed on the server. Reload and retry.' });
+  if (Array.isArray(updates.participants)) await syncMeetingMembers(updated, updates.participants, (req as RequestWithAuth).auth!.userId);
   return res.json({ success: true, meeting: updated });
 });
 
-app.post('/api/meetings/:id/archive', requirePermission('meeting.archive'), async (req, res) => {
+app.post('/api/meetings/:id/archive', requireMeetingPermission('meeting.archive'), async (req, res) => {
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
   if (meeting.status !== 'SEALED') {
@@ -825,7 +1056,7 @@ app.post('/api/meetings/:id/archive', requirePermission('meeting.archive'), asyn
 });
 
 // Formal Review Workflow Endpoint
-app.post('/api/meetings/:id/review', requirePermission('meeting.review'), async (req, res) => {
+app.post('/api/meetings/:id/review', requireMeetingPermission('meeting.review'), async (req, res) => {
   const meetingId = req.params.id;
   const { action, reviewerName, notes, section } = req.body;
 
@@ -916,8 +1147,8 @@ app.post('/api/meetings/:id/review', requirePermission('meeting.review'), async 
 // -------------------------------------------------------------
 // Template Endpoints
 // -------------------------------------------------------------
-app.get('/api/templates', async (_req, res) => {
-  const templates = await templateRepository.getAll();
+app.get('/api/templates', async (req, res) => {
+  const templates = await templateRepository.getAll((req as RequestWithAuth).auth!.organizationId);
   return res.json({ success: true, templates });
 });
 
@@ -929,6 +1160,7 @@ app.post('/api/templates', requirePermission('template.create'), async (req, res
 
   const newTemplate = {
     id: `tpl_${Date.now()}`,
+    organizationId: (req as RequestWithAuth).auth!.organizationId,
     title,
     category: category || 'عمومی',
     description: description || 'قالب سفارشی سازمان',
@@ -940,14 +1172,14 @@ app.post('/api/templates', requirePermission('template.create'), async (req, res
 });
 
 app.delete('/api/templates/:id', requirePermission('template.delete'), async (req, res) => {
-  await templateRepository.delete(req.params.id);
-  return res.json({ success: true });
+  const deleted = await templateRepository.delete(req.params.id, (req as RequestWithAuth).auth!.organizationId);
+  return deleted ? res.json({ success: true }) : res.status(404).json({ error: 'Template not found.' });
 });
 
 // -------------------------------------------------------------
 // Digital Signature & Sealing Endpoints
 // -------------------------------------------------------------
-app.post('/api/signature/sign', requirePermission('signature.sign'), async (req, res) => {
+app.post('/api/signature/sign', async (req, res) => {
   const parseResult = SignDocumentSchema.safeParse(req.body);
   if (!parseResult.success) {
     return res.status(400).json({ error: parseResult.error.format() });
@@ -978,11 +1210,7 @@ app.post('/api/signature/sign', requirePermission('signature.sign'), async (req,
     return res.status(400).json({ error: 'این سند قبلاً مهر و موم شده و امکان ثبت امضای جدید ندارد.' });
   }
 
-  const isOrganizer = meeting.organizer?.id === authenticatedUser.userId;
-  const isParticipant = meeting.participants?.some((participant) => participant.id === authenticatedUser.userId);
-  if (!isOrganizer && !isParticipant) {
-    return res.status(403).json({ error: 'You are not an authorized signer for this meeting.' });
-  }
+  if (!(await canAccessMeeting(req, meetingId, 'signature.sign'))) return res.status(403).json({ error: 'You are not an authorized signer for this meeting.' });
 
   if (!['READY_FOR_SIGNATURE', 'SIGNING'].includes(meeting.status)) {
     return res.status(400).json({ error: 'The meeting is not ready for signing.' });
@@ -1067,12 +1295,13 @@ app.post('/api/signature/sign', requirePermission('signature.sign'), async (req,
   });
 });
 
-app.post('/api/meetings/seal', requirePermission('meeting.finalize'), async (req, res) => {
+app.post('/api/meetings/seal', async (req, res) => {
   const { meetingId } = req.body;
   const meeting = await meetingRepository.getById(meetingId);
   if (!meeting) {
     return res.status(404).json({ error: 'جلسه پیدا نشد.' });
   }
+  if (!(await canAccessMeeting(req, meetingId, 'meeting.finalize'))) return res.status(403).json({ error: 'شما اجازه نهایی‌سازی این جلسه را ندارید.' });
 
   if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') {
     return res.status(409).json({ error: 'The meeting is already sealed or archived.' });
@@ -1145,13 +1374,16 @@ app.post('/api/meetings/seal', requirePermission('meeting.finalize'), async (req
 // -------------------------------------------------------------
 // Telegram bot, account-linking, and callback endpoints
 // -------------------------------------------------------------
-async function recordTelegramSignature(meetingId: string, userId: string, chatId: string) {
+async function recordTelegramSignature(meetingId: string, userId: string, chatId: string, organizationId?: string) {
   const user = await authService.findById(userId);
   const meeting = await meetingRepository.getById(meetingId);
+  if (organizationId && meeting && (meeting as Meeting & { organizationId?: string }).organizationId !== organizationId) return { ok: false as const, status: 404, message: 'Invalid organization context.' };
   if (!user || !meeting) return { ok: false as const, status: 404, message: 'جلسه یا کاربر یافت نشد.' };
   if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') return { ok: false as const, status: 400, message: 'این صورت‌جلسه قبلاً نهایی شده است.' };
   if (!['READY_FOR_SIGNATURE', 'SIGNING'].includes(meeting.status)) return { ok: false as const, status: 400, message: 'این صورت‌جلسه هنوز آماده امضا نیست.' };
-  const allowed = meeting.organizer?.id === user.id || meeting.participants?.some((participant) => participant.id === user.id);
+  const db = getDb();
+  const assignment = await db?.collection<MeetingMemberRecord>('meeting_members').findOne({ meetingId: meeting.id, userId: user.id });
+  const allowed = meeting.organizer?.id === user.id || Boolean(assignment?.permissions?.includes('signature.sign'));
   if (!allowed) return { ok: false as const, status: 403, message: 'این کاربر امضاکننده مجاز این صورت‌جلسه نیست.' };
   const signatures = (meeting as typeof meeting & { signatures?: Array<{ signerId: string }> }).signatures || [];
   if (signatures.some((signature) => signature.signerId === user.id)) return { ok: false as const, status: 409, message: 'این کاربر قبلاً صورت‌جلسه را امضا کرده است.' };
@@ -1160,7 +1392,7 @@ async function recordTelegramSignature(meetingId: string, userId: string, chatId
   const documentHash = crypto.createHash('sha256').update(contentToHash).digest('hex');
   const signatureId = `sig_${crypto.randomUUID()}`;
   await meetingRepository.addAudit({ id: `aud_${crypto.randomUUID()}`, meetingId, action: 'SIGNATURE_COMPLETED', actor: `${signerName} (Telegram)`, timestamp: new Date().toISOString(), documentHash, metadata: { authMethod: 'Telegram Persian bot', chatId } });
-  const updatedSignatures = [...signatures, { id: signatureId, meetingId, signerId: user.id, signerName, signerRole: user.role, signatureType: 'telegram' as const, signatureData: `telegram:${chatId}`, signedAt: new Date().toISOString(), documentHash }];
+  const updatedSignatures = [...signatures, { id: signatureId, meetingId, signerId: user.id, signerName, signerRole: 'Participant', signatureType: 'telegram' as const, signatureData: `telegram:${chatId}`, signedAt: new Date().toISOString(), documentHash }];
   const isAllSigned = updatedSignatures.length >= meeting.totalSignaturesRequired;
   await meetingRepository.update(meetingId, { signatureCount: updatedSignatures.length, status: isAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING', statusLabel: isAllSigned ? 'آماده امضا' : 'در حال امضا', documentHash, signatures: updatedSignatures } as any);
   return { ok: true as const, signatureId, documentHash, meetingTitle: meeting.title };
@@ -1215,13 +1447,14 @@ app.post('/api/telegram/webhook', async (req, res) => {
         } else if (action === 'reject') {
           await redisService.set(`telegram-sign:${token}`, JSON.stringify({ ...request, state: 'rejected' }), 86400);
           const meeting = await meetingRepository.getById(request.meetingId);
+          if (meeting && (meeting as Meeting & { organizationId?: string }).organizationId !== request.organizationId) resultText = 'Ø§ÛŒÙ† Ø¯Ø±Ø®ÙˆØ§Ø³Øª Ø¨Ù‡ Ø³Ø§Ø²Ù…Ø§Ù† Ø¯ÛŒÚ¯Ø±ÛŒ Ù…Ø±Ø¨ÙˆØ· Ø§Ø³Øª.';
           if (meeting) await meetingRepository.addAudit({ id: `aud_${crypto.randomUUID()}`, meetingId: request.meetingId, action: 'TELEGRAM_SIGNATURE_REJECTED', actor: request.userId, timestamp: new Date().toISOString(), documentHash: meeting.documentHash || '', metadata: { chatId: request.chatId } });
           resultText = 'درخواست امضا رد شد.';
         } else {
           const linkedUser = await authService.findByTelegramChat(String(telegramUserId));
-          if (!linkedUser || linkedUser.id !== request.userId || linkedUser.organizationId !== request.organizationId) resultText = 'حساب تلگرام شما به این کاربر متصل نیست.';
+          if (!linkedUser || linkedUser.id !== request.userId) resultText = 'حساب تلگرام شما به این کاربر متصل نیست.';
           else {
-            const signed = await recordTelegramSignature(request.meetingId, request.userId, request.chatId);
+            const signed = await recordTelegramSignature(request.meetingId, request.userId, request.chatId, request.organizationId);
             resultText = signed.ok ? '✅ امضا با موفقیت ثبت شد.' : signed.message;
             if (signed.ok) await redisService.set(`telegram-sign:${token}`, JSON.stringify({ ...request, state: 'accepted' }), 86400);
           }
@@ -1245,7 +1478,7 @@ app.post('/api/telegram/send-pm', async (req, res) => {
     return res.status(404).json({ error: 'صورت‌جلسه یافت نشد.' });
   }
 
-  const isSigner = meeting.organizer?.id === auth.userId || meeting.participants?.some((participant) => participant.id === auth.userId);
+  const isSigner = await canAccessMeeting(req, meetingId, 'signature.request');
   if (!isSigner) return res.status(403).json({ error: 'شما امضاکننده این صورت‌جلسه نیستید.' });
   const actionToken = crypto.randomBytes(18).toString('base64url');
   await redisService.set(`telegram-sign:${actionToken}`, JSON.stringify({ meetingId: meeting.id, userId: auth.userId, organizationId: auth.organizationId, chatId: String(chatId) }), 48 * 60 * 60);
@@ -1357,6 +1590,7 @@ app.post('/api/email/invite', requirePermission('participant.invite'), async (re
   if (!meeting) {
     return res.status(404).json({ error: 'Meeting not found.' });
   }
+  if (!(await canAccessMeeting(req, meetingId, 'signature.request'))) return res.status(403).json({ error: 'You do not have access to request signatures for this meeting.' });
   const token = await authService.createGuestSigningToken(meetingId, email);
   const signingLink = `${process.env.APP_URL || 'https://metameet.ir'}/meeting/${meetingId}?token=${token}`;
 
@@ -1411,6 +1645,7 @@ app.post('/api/queues/:queue', async (req, res) => {
 // Audit Trail Endpoint
 // -------------------------------------------------------------
 app.get('/api/audit/:meetingId', requirePermission('audit.read'), async (req, res) => {
+  if (!(await canAccessMeeting(req, req.params.meetingId, 'meeting.read'))) return res.status(404).json({ error: 'Meeting not found.' });
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
   const logs = await meetingRepository.getAuditLogs(req.params.meetingId, page, limit);
@@ -1431,6 +1666,7 @@ app.post('/api/ai/suggest', requirePermission('meeting.read'), async (req, res) 
       if (!meeting || ((meeting as Meeting & { organizationId?: string }).organizationId && (meeting as Meeting & { organizationId?: string }).organizationId !== auth.organizationId)) {
         return res.status(404).json({ error: 'Meeting not found.' });
       }
+      if (!(await canAccessMeeting(req, meetingId, 'meeting.read'))) return res.status(404).json({ error: 'Meeting not found.' });
       if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') return res.status(400).json({ error: 'AI changes are disabled for sealed meetings.' });
     }
     const persistAiSuggestion = async (data: unknown) => {

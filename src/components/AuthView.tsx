@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { OrganizationRole } from '../types';
 import {
   Shield,
   Lock,
@@ -15,10 +16,9 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { OrganizationRole } from '../types';
 
 interface AuthViewProps {
-  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole }) => void;
+  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string }) => void;
   onBackToApp: () => void;
 }
 
@@ -93,6 +93,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             phoneNumber: data.user.phoneNumber,
             email: data.user.email,
             role: data.user.role as OrganizationRole,
+            organizationId: data.user.organizationId,
           });
         }, 600);
       } else {
@@ -140,7 +141,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
           name: signupName.trim(),
           phoneNumber: signupEmail.trim(),
           password: signupPassword,
-          role: signupRole,
         }),
       });
       const data = await res.json();
@@ -153,6 +153,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             phoneNumber: data.user.phoneNumber,
             email: data.user.email,
             role: data.user.role as OrganizationRole,
+            organizationId: data.user.organizationId,
           });
         }, 600);
       } else {
@@ -164,7 +165,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         onLoginSuccess({
           name: signupName || 'کاربر جدید',
           email: signupEmail,
-          role: signupRole,
+          role: 'Participant',
         });
       }, 600);
     } finally {

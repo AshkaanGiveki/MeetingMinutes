@@ -1,6 +1,7 @@
 export type Permission =
   | 'meeting.create'
   | 'meeting.read'
+  | 'meeting.view_all'
   | 'meeting.edit'
   | 'meeting.delete'
   | 'meeting.finalize'
@@ -21,6 +22,14 @@ export type Permission =
   | 'audit.read'
   | 'settings.manage';
 
+export const OrganizationPermissions = [
+  'organization.manage',
+  'members.manage',
+  'permissions.manage',
+  'meeting.view_all',
+] as const;
+export type OrganizationPermission = typeof OrganizationPermissions[number];
+
 export type OrganizationRole =
   | 'Owner'
   | 'Admin'
@@ -32,6 +41,7 @@ export type OrganizationRole =
 
 export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
   Owner: [
+    'meeting.view_all',
     'meeting.create',
     'meeting.read',
     'meeting.edit',
@@ -55,6 +65,7 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
     'settings.manage',
   ],
   Admin: [
+    'meeting.view_all',
     'meeting.create',
     'meeting.read',
     'meeting.edit',
@@ -125,6 +136,10 @@ export function hasPermission(
   }
   const rolePermissions = RolePermissionsMap[role] || [];
   return rolePermissions.includes(permission);
+}
+
+export function hasPermissionSet(permissions: readonly string[] | undefined, permission: string): boolean {
+  return Boolean(permissions?.includes(permission));
 }
 
 export function canTransitionMeeting(
