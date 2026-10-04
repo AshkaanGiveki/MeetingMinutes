@@ -40,6 +40,7 @@ export default function App() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [activeMeeting, setActiveMeeting] = useState<Meeting>(null as unknown as Meeting);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
 
   // Authenticated User State with localStorage persistence
   const [activeUser, setActiveUser] = useState<{
@@ -114,26 +115,50 @@ export default function App() {
 
   // Load authenticated session before loading protected meeting data.
   useEffect(() => {
-    if (guestLink?.meetingId && guestLink.token) return;
-    fetch('/api/auth/me')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.user) {
-          setIsAuthenticated(true);
-          setActiveUser((prev) => ({
-            ...prev,
-            name: data.user.name,
-            phoneNumber: data.user.phoneNumber || prev.phoneNumber,
-            email: data.user.email,
-            role: (data.user.role as OrganizationRole) || prev.role,
-            organizationId: data.user.organizationId || prev.organizationId,
-          }));
-          setCurrentTab('meetings');
-          return Promise.all([loadMeetings(), loadOrganizations()]);
+    if (guestLink?.meetingId && guestLink.token) {
+      setIsBootstrapping(false);
+      return;
+    }
+
+    let cancelled = false;
+    const bootstrap = async () => {
+      try {
+        const response = await fetch('/api/auth/me');
+        const data = await response.json();
+        if (cancelled) return;
+        if (!data?.user) {
+          setIsAuthenticated(false);
+          setCurrentTab('auth');
+          return;
         }
-        setCurrentTab('auth');
-      })
-      .catch(() => setCurrentTab('auth'));
+
+        setActiveUser((prev) => ({
+          ...prev,
+          name: data.user.name,
+          phoneNumber: data.user.phoneNumber || prev.phoneNumber,
+          email: data.user.email,
+          role: (data.user.role as OrganizationRole) || prev.role,
+          organizationId: data.user.organizationId || prev.organizationId,
+        }));
+        await Promise.all([loadMeetings(), loadOrganizations()]);
+        if (!cancelled) {
+          setIsAuthenticated(true);
+          setCurrentTab('meetings');
+        }
+      } catch {
+        if (!cancelled) {
+          setIsAuthenticated(false);
+          setCurrentTab('auth');
+        }
+      } finally {
+        if (!cancelled) setIsBootstrapping(false);
+      }
+    };
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
   }, [guestLink?.meetingId, guestLink?.token]);
 
   // Handle meeting state updates
@@ -491,6 +516,13 @@ export default function App() {
   };
 
   if (guestLink?.meetingId && guestLink.token) return <GuestSigningView meetingId={guestLink.meetingId} token={guestLink.token} />;
+  if (isBootstrapping) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'}`}>
+        <div className="rounded-2xl bg-white/80 dark:bg-slate-900/80 px-6 py-4 text-sm shadow-sm">در حال بارگذاری سامانه...</div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -594,7 +626,7 @@ export default function App() {
                 {isAuthenticated && canCreateMeeting && <button onClick={() => setIsNewMeetingModalOpen(true)} className="mt-5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">ایجاد جلسه جدید</button>}
               </div>
             </div>
-          ) : viewMode === 'list' ? (
+          ) : viewMode === 'list' || !activeMeeting ? (
             <MeetingsListView
               meetings={meetings}
               onSelectMeeting={(m) => {
