@@ -22,8 +22,12 @@ import { AuthModal } from './components/AuthModal';
 import { AuthView } from './components/AuthView';
 import { NotificationPanel } from './components/NotificationPanel';
 import { OrganizationsView } from './components/OrganizationsView';
+import { GuestSigningView } from './components/GuestSigningView';
 
 export default function App() {
+  const guestLink = typeof window !== 'undefined' && window.location.pathname.startsWith('/meeting/')
+    ? { meetingId: window.location.pathname.split('/')[2] || '', token: new URLSearchParams(window.location.search).get('token') || '' }
+    : null;
   const [isDark, setIsDark] = useState(() => {
     try {
       return localStorage.getItem('metameet_theme') === 'dark';
@@ -109,6 +113,7 @@ export default function App() {
 
   // Load authenticated session before loading protected meeting data.
   useEffect(() => {
+    if (guestLink?.meetingId && guestLink.token) return;
     fetch('/api/auth/me')
       .then((res) => res.json())
       .then((data) => {
@@ -128,7 +133,7 @@ export default function App() {
         setCurrentTab('auth');
       })
       .catch(() => setCurrentTab('auth'));
-  }, []);
+  }, [guestLink?.meetingId, guestLink?.token]);
 
   // Handle meeting state updates
   const handleUpdateMeeting = async (updated: Partial<Meeting>) => {
@@ -280,13 +285,6 @@ export default function App() {
       setTimeout(() => setOperationError(''), 3500);
     }
 
-    return;
-    // Local fallback is intentionally disabled when the server rejects the operation.
-    handleUpdateMeeting({
-      signatureCount: newCount,
-      status: isNowAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
-      statusLabel: isNowAllSigned ? 'آماده امضا' : 'در حال امضا',
-    });
   };
 
   // Confirm Seal with Server Cryptographic Lock
@@ -313,19 +311,6 @@ export default function App() {
       setTimeout(() => setOperationError(''), 3500);
     }
 
-    return;
-    // Local fallback is intentionally disabled when the server rejects the operation.
-    handleUpdateMeeting({
-      status: 'SEALED',
-      statusLabel: 'مهر و موم شده',
-      sealedAt: new Intl.DateTimeFormat('fa-IR', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      }).format(new Date()),
-    });
   };
 
   // AI Suggestion trigger via server Gemini API
@@ -484,6 +469,8 @@ export default function App() {
     avatar: activeUser.avatar,
   };
 
+  if (guestLink?.meetingId && guestLink.token) return <GuestSigningView meetingId={guestLink.meetingId} token={guestLink.token} />;
+
   return (
     <div
       className={`min-h-screen flex text-slate-800 transition-colors duration-300 font-sans ${
@@ -556,7 +543,12 @@ export default function App() {
             <OrganizationsView
               activeOrganizationId={activeUser.organizationId}
               onOrganizationChanged={(user) => {
-                setActiveUser((previous) => ({ ...previous, role: (user.role as OrganizationRole) || previous.role, organizationId: user.organizationId }));
+                setActiveUser((previous) => {
+                  const updated = { ...previous, role: (user.role as OrganizationRole) || previous.role, organizationId: user.organizationId };
+                  try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
+                  return updated;
+                });
+                setMeetings([]);
                 void loadMeetings();
               }}
             />

@@ -121,6 +121,8 @@ const publicApiPaths = [
   /^\/api\/ready$/,
   /^\/api\/certificates\/[^/]+\/verify$/,
   /^\/api\/documents\/[^/]+$/,
+  /^\/api\/guest\/meetings\/[^/]+$/,
+  /^\/api\/guest\/sign$/,
 ];
 
 app.use(async (req, res, next) => {
@@ -232,6 +234,69 @@ function requireMeetingPermission(permission: string) {
     return next();
   };
 }
+
+app.get('/api/guest/meetings/:id', async (req, res) => {
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
+  const guest = token ? await authService.verifyGuestSigningToken(token) : null;
+  if (!guest || guest.meetingId !== req.params.id) return res.status(401).json({ error: 'Guest link is invalid or expired.' });
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
+  return res.json({
+    success: true,
+    guestEmail: guest.email,
+    meeting: {
+      id: meeting.id,
+      title: meeting.title,
+      persianDate: meeting.persianDate,
+      timeRange: meeting.timeRange,
+      location: meeting.location,
+      status: meeting.status,
+      statusLabel: meeting.statusLabel,
+      organizer: meeting.organizer,
+      agenda: meeting.agenda,
+      discussion: meeting.discussion,
+      decisions: meeting.decisions,
+      actionItems: meeting.actionItems,
+      signatureCount: meeting.signatureCount,
+      totalSignaturesRequired: meeting.totalSignaturesRequired,
+    },
+  });
+});
+
+app.post('/api/guest/sign', async (req, res) => {
+  const { token, meetingId, signerName, signatureData, signatureType = 'type' } = req.body || {};
+  if (typeof token !== 'string' || typeof meetingId !== 'string' || typeof signerName !== 'string' || typeof signatureData !== 'string') {
+    return res.status(400).json({ error: 'Guest token, meeting, name, and signature are required.' });
+  }
+  if (signerName.trim().length < 2 || signatureData.length < 2 || signatureData.length > 200_000) return res.status(400).json({ error: 'Invalid guest signature data.' });
+  const guest = await authService.verifyGuestSigningToken(token);
+  if (!guest || guest.meetingId !== meetingId) return res.status(401).json({ error: 'Guest link is invalid or expired.' });
+  const meeting = await meetingRepository.getById(meetingId);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
+  if (!['READY_FOR_SIGNATURE', 'SIGNING'].includes(meeting.status)) return res.status(400).json({ error: 'This meeting is not open for signing.' });
+  const guestSignerId = `guest_${crypto.createHash('sha256').update(String(guest.email).toLowerCase()).digest('hex').slice(0, 24)}`;
+  const signatures = (meeting as Meeting & { signatures?: Array<{ signerId: string }> }).signatures || [];
+  if (signatures.some((signature) => signature.signerId === guestSignerId)) return res.status(409).json({ error: 'This guest has already signed the meeting.' });
+  const signedAt = new Date().toISOString();
+  const contentToHash = canonicalize({ meetingId: meeting.id, title: meeting.title, discussion: meeting.discussion, decisions: meeting.decisions, agenda: meeting.agenda, actionItems: meeting.actionItems, signerId: guestSignerId, signerName: signerName.trim() });
+  const documentHash = crypto.createHash('sha256').update(contentToHash).digest('hex');
+  const updatedSignatures = [...signatures, {
+    id: `sig_${crypto.randomUUID()}`,
+    meetingId,
+    signerId: guestSignerId,
+    signerName: signerName.trim(),
+    signerRole: 'Guest signer',
+    signatureType: ['draw', 'type', 'upload'].includes(signatureType) ? signatureType : 'type',
+    signatureData,
+    signedAt,
+    documentHash,
+  }];
+  const allSigned = updatedSignatures.length >= meeting.totalSignaturesRequired;
+  await meetingRepository.update(meetingId, { signatures: updatedSignatures, signatureCount: updatedSignatures.length, status: allSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING', statusLabel: allSigned ? 'آماده امضا' : 'در حال امضا', documentHash } as Partial<Meeting>);
+  await meetingRepository.addAudit({ id: `aud_${crypto.randomUUID()}`, meetingId, action: 'GUEST_SIGNATURE_COMPLETED', actor: signerName.trim(), timestamp: signedAt, documentHash, metadata: { guestEmail: guest.email } });
+  await getDb()?.collection('guest_signing_tokens').deleteOne({ token });
+  return res.json({ success: true, documentHash, message: 'امضای مهمان با موفقیت ثبت شد.' });
+});
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'metameet' }));
 
@@ -428,6 +493,7 @@ app.post('/api/signature/otp/send', async (req, res) => {
   if (!meetingId) {
     return res.status(400).json({ error: 'شناسه جلسه الزامی است.' });
   }
+  if (!(await canAccessMeeting(req, String(meetingId), 'signature.sign'))) return res.status(403).json({ error: 'شما اجازه امضای این جلسه را ندارید.' });
 
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   const key = `${meetingId}_${auth.userId}`;
@@ -458,6 +524,7 @@ app.post('/api/signature/otp/send', async (req, res) => {
 app.post('/api/signature/otp/verify', async (req, res) => {
   const { meetingId, otp } = req.body;
   const auth = (req as RequestWithAuth).auth!;
+  if (typeof meetingId !== 'string' || !(await canAccessMeeting(req, meetingId, 'signature.sign'))) return res.status(403).json({ error: 'شما اجازه امضای این جلسه را ندارید.' });
   const key = `${meetingId}_${auth.userId}`;
   const persisted = await redisService.get(`signature-otp:${key}`);
   const record = persisted
@@ -689,7 +756,8 @@ app.get('/api/members', requirePermission('members.manage'), async (req, res) =>
 });
 
 app.delete('/api/members/:id', requirePermission('members.manage'), async (req, res) => {
-  const removed = await authService.removeUser(req.params.id, (req as RequestWithAuth).auth!.organizationId);
+  const auth = (req as RequestWithAuth).auth!;
+  const removed = await authService.removeUser(req.params.id, auth.organizationId, auth.userId);
   if (!removed) return res.status(404).json({ error: 'Member could not be removed.' });
   return res.json({ success: true });
 });
@@ -739,7 +807,7 @@ app.put('/api/members/:id/role', requirePermission('members.manage'), async (req
   if (!allowedRoles.includes(role)) return res.status(400).json({ error: 'Invalid member role.' });
   if (auth.role !== 'Owner' && ['Owner', 'Admin'].includes(role)) return res.status(403).json({ error: 'Only owners can assign owner or admin roles.' });
   if (req.params.id === auth.userId && role !== auth.role) return res.status(400).json({ error: 'You cannot change your own role.' });
-  const updated = await authService.updateUserRole(req.params.id, auth.organizationId, role);
+  const updated = await authService.updateUserRole(req.params.id, auth.organizationId, role, auth.userId);
   return updated ? res.json({ success: true }) : res.status(404).json({ error: 'Member not found.' });
 });
 
@@ -945,7 +1013,8 @@ app.get('/api/meetings/:id/members', requireMeetingPermission('meeting.read'), a
     { $match: { meetingId: req.params.id } },
     { $lookup: { from: 'users', localField: 'userId', foreignField: 'id', as: 'user' } },
     { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-    { $project: { _id: 0, id: 1, meetingId: 1, organizationId: 1, userId: 1, assignment: 1, permissions: 1, assignedBy: 1, createdAt: 1, updatedAt: 1, 'user.passwordHash': 0 } },
+    { $unset: 'user.passwordHash' },
+    { $project: { _id: 0, id: 1, meetingId: 1, organizationId: 1, userId: 1, assignment: 1, permissions: 1, assignedBy: 1, createdAt: 1, updatedAt: 1, user: 1 } },
   ]).toArray();
   return res.json({ success: true, members });
 });

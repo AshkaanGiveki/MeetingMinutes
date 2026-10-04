@@ -100,17 +100,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setFeedback({ type: 'error', text: data.error || 'ایمیل یا رمز عبور اشتباه است.' });
       }
     } catch {
-      setFeedback({ type: 'error', text: 'Unable to reach the server.' });
-      return;
-      // Offline fallback
-      setFeedback({ type: 'success', text: 'ورود موفقیت‌آمیز به سامانه.' });
-      setTimeout(() => {
-        onLoginSuccess({
-          name: 'آرش فتحی',
-          email: loginEmail,
-          role: 'Owner',
-        });
-      }, 600);
+      setFeedback({ type: 'error', text: 'ارتباط با سرور برقرار نشد.' });
     } finally {
       setIsLoading(false);
     }
@@ -160,14 +150,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setFeedback({ type: 'error', text: data.error || 'خطا در ثبت نام.' });
       }
     } catch {
-      setFeedback({ type: 'success', text: 'حساب کاربری ایجاد شد.' });
-      setTimeout(() => {
-        onLoginSuccess({
-          name: signupName || 'کاربر جدید',
-          email: signupEmail,
-          role: 'Participant',
-        });
-      }, 600);
+      setFeedback({ type: 'error', text: 'ارتباط با سرور برقرار نشد و حساب کاربری ایجاد نشد.' });
     } finally {
       setIsLoading(false);
     }

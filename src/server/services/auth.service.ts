@@ -213,14 +213,22 @@ export class AuthService {
     return organizationService.listMembers(organizationId);
   }
 
-  async removeUser(userId: string, organizationId = 'org_main'): Promise<boolean> {
+  async removeUser(userId: string, organizationId = 'org_main', actorId?: string): Promise<boolean> {
+    if (actorId) {
+      const result = await organizationService.removeMember(actorId, organizationId, userId);
+      if (!result.ok) return false;
+      await this.logoutAll(userId);
+      return true;
+    }
     const result = await this.requireDb().collection('organization_memberships').updateOne({ userId, organizationId, status: 'active' }, { $set: { status: 'left' } });
     await this.logoutAll(userId);
     return result.modifiedCount > 0;
   }
 
-  async updateUserRole(userId: string, organizationId: string, role: string): Promise<boolean> {
-    const updated = await organizationService.updateMembership(organizationId, userId, role as any);
+  async updateUserRole(userId: string, organizationId: string, role: string, actorId?: string): Promise<boolean> {
+    const updated = actorId
+      ? await organizationService.updateMembershipAs(actorId, organizationId, userId, role as any)
+      : await organizationService.updateMembership(organizationId, userId, role as any);
     return updated;
   }
 

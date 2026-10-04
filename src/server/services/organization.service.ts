@@ -88,6 +88,8 @@ export class OrganizationService {
     if (meetingCount > 0) return { ok: false, reason: 'Organizations with meetings cannot be deleted.' };
     await db.collection('organization_invitations').deleteMany({ organizationId });
     await db.collection('organization_memberships').deleteMany({ organizationId });
+    await db.collection('templates').deleteMany({ organizationId });
+    await db.collection('notifications').deleteMany({ organizationId });
     const result = await db.collection<OrganizationRecord>('organizations').deleteOne({ id: organizationId });
     return result.deletedCount ? { ok: true } : { ok: false, reason: 'Organization not found.' };
   }
@@ -134,6 +136,10 @@ export class OrganizationService {
     const db = requireDb();
     const user = await db.collection<{ id: string; phoneNumber: string; email: string }>('users').findOne({ id: userId });
     if (!user) return [];
+    await db.collection<OrganizationInvitation>('organization_invitations').updateMany(
+      { status: 'pending', expiresAt: { $lte: Date.now() } },
+      { $set: { status: 'expired' } },
+    );
     const recipientFilters = [{ phoneNumber: user.phoneNumber }, ...(user.email ? [{ email: user.email }] : [])];
     const invitations = await db.collection<OrganizationInvitation>('organization_invitations').find({
       status: 'pending',
@@ -160,6 +166,11 @@ export class OrganizationService {
         status: 'active',
         joinedAt: new Date().toISOString(),
       });
+    } else if (existing.status !== 'active') {
+      await db.collection<OrganizationMembership>('organization_memberships').updateOne(
+        { organizationId: invitation.organizationId, userId },
+        { $set: { status: 'active', role: invitation.role, permissions: RolePermissionsMap[invitation.role], joinedAt: new Date().toISOString() } },
+      );
     }
     await db.collection<OrganizationInvitation>('organization_invitations').updateOne({ token }, { $set: { status: 'accepted', acceptedAt: new Date().toISOString() } });
     return this.getContext(userId, invitation.organizationId);
@@ -174,8 +185,15 @@ export class OrganizationService {
     return result.modifiedCount > 0;
   }
 
-  async cancelInvitation(invitedBy: string, token: string): Promise<boolean> {
-    const result = await requireDb().collection('organization_invitations').updateOne({ token, invitedBy, status: 'pending' }, { $set: { status: 'cancelled' } });
+  async cancelInvitation(actorId: string, token: string): Promise<boolean> {
+    const db = requireDb();
+    const invitation = await db.collection<OrganizationInvitation>('organization_invitations').findOne({ token, status: 'pending' });
+    if (!invitation) return false;
+    if (invitation.invitedBy !== actorId) {
+      const membership = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId: invitation.organizationId, userId: actorId, status: 'active', role: { $in: ['Owner', 'Admin'] } });
+      if (!membership) return false;
+    }
+    const result = await db.collection('organization_invitations').updateOne({ token, status: 'pending' }, { $set: { status: 'cancelled' } });
     return result.modifiedCount > 0;
   }
 
@@ -196,6 +214,38 @@ export class OrganizationService {
       { $set: { role, permissions: permissions || RolePermissionsMap[role] } },
     );
     return result.modifiedCount > 0;
+  }
+
+  async updateMembershipAs(actorId: string, organizationId: string, userId: string, role: OrganizationRole, permissions?: Permission[]) {
+    const db = requireDb();
+    const actor = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active' });
+    const target = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId, status: 'active' });
+    if (!actor || !target || !['Owner', 'Admin'].includes(actor.role)) return false;
+    if (target.role === 'Owner' && actor.role !== 'Owner') return false;
+    if (role === 'Owner' && actor.role !== 'Owner') return false;
+    if (target.role === 'Owner' && role !== 'Owner') {
+      const ownerCount = await db.collection<OrganizationMembership>('organization_memberships').countDocuments({ organizationId, role: 'Owner', status: 'active' });
+      if (ownerCount <= 1) return false;
+    }
+    const result = await db.collection<OrganizationMembership>('organization_memberships').updateOne(
+      { organizationId, userId, status: 'active' },
+      { $set: { role, permissions: permissions || RolePermissionsMap[role] } },
+    );
+    return result.modifiedCount > 0;
+  }
+
+  async removeMember(actorId: string, organizationId: string, userId: string): Promise<{ ok: boolean; reason?: string }> {
+    const db = requireDb();
+    const actor = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active' });
+    const target = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId, status: 'active' });
+    if (!actor || !target || !['Owner', 'Admin'].includes(actor.role)) return { ok: false, reason: 'You do not have permission to remove this member.' };
+    if (target.role === 'Owner' && actor.role !== 'Owner') return { ok: false, reason: 'Only an owner can remove another owner.' };
+    if (target.role === 'Owner') {
+      const ownerCount = await db.collection<OrganizationMembership>('organization_memberships').countDocuments({ organizationId, role: 'Owner', status: 'active' });
+      if (ownerCount <= 1) return { ok: false, reason: 'The last owner cannot be removed.' };
+    }
+    const result = await db.collection<OrganizationMembership>('organization_memberships').updateOne({ organizationId, userId, status: 'active' }, { $set: { status: 'left' } });
+    return result.modifiedCount > 0 ? { ok: true } : { ok: false, reason: 'Member could not be removed.' };
   }
 
   async leave(userId: string, organizationId: string): Promise<{ ok: boolean; reason?: string }> {

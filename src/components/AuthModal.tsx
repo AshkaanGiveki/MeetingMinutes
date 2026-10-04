@@ -140,14 +140,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setStatusMessage({ type: 'error', text: data.error || 'ایمیل یا رمز عبور اشتباه است.' });
       }
     } catch {
-      setStatusMessage({ type: 'success', text: 'ورود به حساب با موفقیت انجام شد.' });
-      onLoginSuccess({
-        name: currentUserName,
-        phoneNumber: loginEmail,
-        email: loginEmail,
-        role: currentRole,
-      });
-      setTimeout(() => onClose(), 600);
+      setStatusMessage({ type: 'error', text: 'ارتباط با سرور برقرار نشد.' });
     } finally {
       setIsLoading(false);
     }
@@ -192,14 +185,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setStatusMessage({ type: 'error', text: data.error || 'خطا در ثبت نام.' });
       }
     } catch {
-      setStatusMessage({ type: 'success', text: 'حساب کاربری جدید ایجاد شد.' });
-      onLoginSuccess({
-        name: signupName,
-        phoneNumber: signupEmail,
-        email: signupEmail,
-        role: currentRole,
-      });
-      setTimeout(() => onClose(), 700);
+      setStatusMessage({ type: 'error', text: 'ارتباط با سرور برقرار نشد و حساب کاربری ایجاد نشد.' });
     } finally {
       setIsLoading(false);
     }
