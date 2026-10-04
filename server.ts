@@ -950,15 +950,30 @@ app.get('/api/certificates/:id/verify', async (req, res) => {
 });
 
 app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) => {
-  const parseResult = CreateMeetingSchema.safeParse(req.body);
-  if (!parseResult.success) {
-    return res.status(400).json({ error: parseResult.error.format() });
-  }
+  try {
+    const parseResult = CreateMeetingSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ error: 'اطلاعات صورت‌جلسه کامل یا معتبر نیست.', details: parseResult.error.format() });
+    }
 
-  const data = parseResult.data;
-  const auth = (req as RequestWithAuth).auth!;
-  const newMeeting = {
-    id: `meet_${Date.now()}`,
+    const data = parseResult.data;
+    const auth = (req as RequestWithAuth).auth!;
+    const participantIds = [...new Set((data.participantIds || []).filter((id) => id && id !== auth.userId))];
+    const db = getDb();
+    const participantUsers = db && participantIds.length > 0
+      ? await db.collection('users').find({ id: { $in: participantIds } }).project({ passwordHash: 0 }).toArray()
+      : [];
+    const participants = participantUsers.map((participant) => ({
+      id: participant.id,
+      name: participant.name,
+      role: 'Participant' as const,
+      email: participant.email,
+      avatar: participant.avatar,
+      initials: String(participant.name || '').slice(0, 2),
+      hasSigned: false,
+    }));
+    const newMeeting = {
+    id: `meet_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     title: data.title,
     organizationId: auth.organizationId,
     persianDate: data.persianDate,
@@ -973,19 +988,20 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
       email: auth.email,
       hasSigned: true,
     },
-    participants: [],
-    agenda: [{ id: 'ag_1', order: 1, text: 'بررسی موارد مطروحه' }],
+    participants,
+    agenda: data.agenda?.length ? data.agenda : [{ id: 'ag_1', order: 1, text: 'بررسی موارد مطروحه' }],
     discussion: data.description || 'جلسه با حضور اعضا رسمیت یافت.',
     aiSuggestion: { summary: 'پیشنهاد اولیه به زودی تولید خواهد شد.', applied: false },
-    decisions: [],
-    actionItems: [],
+    decisions: data.decisions || [],
+    actionItems: data.actionItems || [],
     comments: [],
     signatureCount: 0,
-    totalSignaturesRequired: 3,
+    totalSignaturesRequired: participants.length + 1,
   };
 
   const created = await meetingRepository.create(newMeeting as any);
   await upsertMeetingMember(created, auth.userId, 'Organizer', auth.userId);
+  for (const participant of participants) await upsertMeetingMember(created, participant.id, 'Participant', auth.userId);
   await meetingRepository.addAudit({
     id: `aud_${Date.now()}`,
     meetingId: created.id,
@@ -1003,7 +1019,11 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
     message: `Meeting "${created.title}" was created as a draft.`,
     meetingId: created.id,
   });
-  return res.json({ success: true, meeting: created });
+    return res.json({ success: true, meeting: created });
+  } catch (error) {
+    logger.error('Meeting creation failed.', { metadata: { error: error instanceof Error ? error.message : String(error) } });
+    return res.status(500).json({ error: 'ایجاد صورت‌جلسه انجام نشد. اتصال پایدار به پایگاه‌داده را بررسی کنید.' });
+  }
 });
 
 app.get('/api/meetings/:id/members', requireMeetingPermission('meeting.read'), async (req, res) => {

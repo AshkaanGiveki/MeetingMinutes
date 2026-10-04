@@ -65,6 +65,9 @@ export const CreateMeetingSchema = z.object({
   description: z.string().optional(),
   templateId: z.string().optional(),
   participantIds: z.array(z.string()).optional(),
+  agenda: z.array(AgendaItemSchema).optional(),
+  decisions: z.array(DecisionItemSchema).optional(),
+  actionItems: z.array(ActionItemSchema).optional(),
 });
 
 export const SignDocumentSchema = z.object({

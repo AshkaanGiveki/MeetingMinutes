@@ -91,6 +91,7 @@ export default function App() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [hasUserSigned, setHasUserSigned] = useState(false);
   const [operationError, setOperationError] = useState('');
+  const canCreateMeeting = ['Owner', 'Admin', 'Organizer'].includes(activeUser.role);
 
   const loadOrganizations = async () => {
     const response = await fetch('/api/organizations');
@@ -362,14 +363,34 @@ export default function App() {
           timeRange: newMeeting.timeRange,
           location: newMeeting.location,
           description: newMeeting.discussion,
+          participantIds: newMeeting.participants.map((participant) => participant.id).filter((id) => id !== newMeeting.organizer.id),
+          agenda: newMeeting.agenda,
+          decisions: newMeeting.decisions,
+          actionItems: newMeeting.actionItems.map((item: any) => ({
+            id: item.id,
+            task: item.task,
+            assigneeId: item.assigneeId || item.assignee?.id || newMeeting.organizer.id,
+            assigneeName: item.assigneeName || item.assignee?.name || newMeeting.organizer.name,
+            assigneeAvatar: item.assigneeAvatar || item.assignee?.avatar,
+            dueDate: item.dueDate || '',
+            completed: Boolean(item.completed),
+          })),
         }),
       });
-      if (!response.ok) throw new Error('ایجاد جلسه انجام نشد.');
       const data = await response.json();
+      if (!response.ok) {
+        const serverError = typeof data?.error === 'string'
+          ? data.error
+          : response.status === 403
+            ? 'شما در سازمان فعال خود اجازه ایجاد صورت‌جلسه ندارید.'
+            : 'ایجاد صورت‌جلسه انجام نشد.';
+        throw new Error(serverError);
+      }
       const serverMeeting = data.meeting as Partial<Meeting> | undefined;
       persistedMeeting = {
-        ...newMeeting,
         ...serverMeeting,
+        ...newMeeting,
+        id: serverMeeting?.id || newMeeting.id,
         // Keep the client shape safe even when an older API record omits nested assignee data.
         actionItems: (serverMeeting?.actionItems || newMeeting.actionItems).map((item: any) => ({
           ...item,
@@ -503,7 +524,7 @@ export default function App() {
           isDark={isDark}
           totalMeetingsCount={meetings.length}
           sealedMeetingsCount={sealedCount}
-          onOpenNewMeeting={isAuthenticated ? () => setIsNewMeetingModalOpen(true) : undefined}
+          onOpenNewMeeting={isAuthenticated && canCreateMeeting ? () => setIsNewMeetingModalOpen(true) : undefined}
           currentUser={isAuthenticated ? activeUser : undefined}
           onOpenAuth={() => setIsAuthModalOpen(true)}
           onLogout={handleLogout}
@@ -519,7 +540,7 @@ export default function App() {
             onToggleTheme={() => setIsDark(!isDark)}
             onOpenSearch={() => setIsSearchModalOpen(true)}
             onOpenNotifications={() => setIsNotificationsOpen(true)}
-            onOpenRoughNotes={isAuthenticated ? () => setIsRoughNotesModalOpen(true) : undefined}
+            onOpenRoughNotes={isAuthenticated && canCreateMeeting ? () => setIsRoughNotesModalOpen(true) : undefined}
           />
         </div>
 
@@ -536,7 +557,10 @@ export default function App() {
               onPrintPdf={handlePrintPdf}
             />
           ) : currentTab === 'templates' ? (
-            <TemplatesView onUseTemplate={handleUseTemplate} />
+            <TemplatesView onUseTemplate={canCreateMeeting ? handleUseTemplate : () => {
+              setOperationError('شما در سازمان فعال خود اجازه ایجاد صورت‌جلسه ندارید.');
+              setTimeout(() => setOperationError(''), 3500);
+            }} />
           ) : currentTab === 'contacts' ? (
             <ContactsView />
           ) : currentTab === 'organizations' ? (
@@ -567,7 +591,7 @@ export default function App() {
               <div className="max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-8 shadow-sm">
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">هنوز صورت‌جلسه‌ای ثبت نشده است</h2>
                 <p className="mt-2 text-sm text-slate-500">برای شروع، یک جلسه جدید ایجاد کنید یا یادداشت‌های خام را به صورت‌جلسه تبدیل کنید.</p>
-                {isAuthenticated && <button onClick={() => setIsNewMeetingModalOpen(true)} className="mt-5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">ایجاد جلسه جدید</button>}
+                {isAuthenticated && canCreateMeeting && <button onClick={() => setIsNewMeetingModalOpen(true)} className="mt-5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">ایجاد جلسه جدید</button>}
               </div>
             </div>
           ) : viewMode === 'list' ? (
@@ -577,7 +601,13 @@ export default function App() {
                 setActiveMeeting(m);
                 setViewMode('hero');
               }}
-              onOpenNewMeetingModal={() => setIsNewMeetingModalOpen(true)}
+              onOpenNewMeetingModal={() => {
+                if (canCreateMeeting) setIsNewMeetingModalOpen(true);
+                else {
+                  setOperationError('شما در سازمان فعال خود اجازه ایجاد صورت‌جلسه ندارید.');
+                  setTimeout(() => setOperationError(''), 3500);
+                }
+              }}
             />
           ) : (
             /* Primary Hero Meeting View */
