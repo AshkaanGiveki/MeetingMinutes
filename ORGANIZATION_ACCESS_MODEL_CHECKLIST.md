@@ -37,4 +37,4 @@
 - [x] Test invitation and organization switching flows.
 - [x] Test Telegram/signature access rules.
 - [x] Run lint, tests, build, and production smoke checks.
-- [ ] Push the completed implementation to `main`.
+- [x] Push the completed implementation to `main`.
