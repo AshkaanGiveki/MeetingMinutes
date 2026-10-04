@@ -15,13 +15,13 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Meeting } from '../types';
-import { currentUser } from '../data/mockData';
 
 interface SignatureModalProps {
   isOpen: boolean;
   onClose: () => void;
   meeting: Meeting;
   onConfirmSignature: (signatureDataUrl: string) => void;
+  currentUser: { name: string; phoneNumber: string; email: string; role: string };
 }
 
 export const SignatureModal: React.FC<SignatureModalProps> = ({
@@ -29,6 +29,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   onClose,
   meeting,
   onConfirmSignature,
+  currentUser,
 }) => {
   const [step, setStep] = useState<'sign' | 'otp'>('sign');
   const [activeTab, setActiveTab] = useState<'draw' | 'type'>('draw');
@@ -141,23 +142,19 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           meetingId: meeting.id,
-          signerEmail: currentUser.email,
+          signerPhone: currentUser.phoneNumber,
         }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to send verification code.');
       if (data?.demoOtp) {
         setDemoOtpHint(data.demoOtp);
       }
       setOtpSent(true);
       setTimerSeconds(120);
       setStep('otp');
-    } catch {
-      // Offline fallback: demo OTP
-      const fallbackOtp = '123456';
-      setDemoOtpHint(fallbackOtp);
-      setOtpSent(true);
-      setTimerSeconds(120);
-      setStep('otp');
+    } catch (error) {
+      setOtpError(error instanceof Error ? error.message : 'Unable to send verification code.');
     } finally {
       setIsSubmitting(false);
     }
@@ -187,39 +184,40 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           meetingId: meeting.id,
-          signerEmail: currentUser.email,
+          signerPhone: currentUser.phoneNumber,
           otp: otpCode,
         }),
       });
       const verifyData = await verifyRes.json();
 
-      if (!verifyRes.ok && otpCode !== demoOtpHint && otpCode !== '123456') {
+      if (!verifyRes.ok) {
         setOtpError(verifyData.error || 'کد تأیید نامعتبر است.');
         setIsSubmitting(false);
         return;
       }
 
       // 2. Finalize cryptographic signature
-      await fetch('/api/signature/sign', {
+      const signatureRes = await fetch('/api/signature/sign', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
         body: JSON.stringify({
           meetingId: meeting.id,
-          signerName: currentUser.name,
-          signerRole: currentUser.role,
           signatureData,
-          contentToHash: meeting.discussion + meeting.title,
+          signatureType: activeTab,
+          intentConfirmed: true,
         }),
       });
+      const signatureResult = await signatureRes.json();
+      if (!signatureRes.ok) throw new Error(signatureResult.error || 'Signature could not be saved.');
     } catch (err) {
-      console.warn('Signature API fallback:', err);
+      setOtpError(err instanceof Error ? err.message : 'Signature could not be saved.');
+      setIsSubmitting(false);
+      return;
     }
 
-    setTimeout(() => {
-      setIsSubmitting(false);
-      onConfirmSignature(signatureData);
-      onClose();
-    }, 400);
+    setIsSubmitting(false);
+    onConfirmSignature(signatureData);
+    onClose();
   };
 
   return (

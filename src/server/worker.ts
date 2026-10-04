@@ -2,6 +2,8 @@ import { queueManager, QueueJob } from './queues/queue.service';
 import { emailService, EmailMessage } from './services/email.service';
 import { telegramService } from './services/telegram.service';
 import { logger } from './services/logger';
+import { meetingRepository } from './repositories/meeting.repository';
+import { generateMeetingPdf } from './services/document.service';
 
 export function initializeWorker() {
   logger.info('Initializing MetaMeet asynchronous background worker...');
@@ -9,7 +11,7 @@ export function initializeWorker() {
   // 1. Email consumer
   queueManager.registerHandler<EmailMessage>('metameet.email.send', async (job: QueueJob<EmailMessage>) => {
     logger.info(`Worker processing email job ${job.id} for ${job.payload.to}`);
-    await emailService.sendSignatureRequest(
+    const result = await emailService.sendSignatureRequest(
       job.payload.to,
       job.payload.metadata?.signerName || 'کاربر گرامی',
       job.payload.metadata?.meetingTitle || 'صورت‌جلسه سازمان',
@@ -17,6 +19,7 @@ export function initializeWorker() {
       job.payload.metadata?.signingLink || 'https://metameet.ir',
       job.payload.metadata?.expiresAt || '۲۴ ساعت آینده'
     );
+    if (!result.success) throw new Error(result.error || 'Email delivery failed.');
   });
 
   // 2. Telegram consumer
@@ -28,13 +31,21 @@ export function initializeWorker() {
   // 3. PDF generator consumer
   queueManager.registerHandler<{ meetingId: string; title: string }>('metameet.pdf.generate', async (job) => {
     logger.info(`Worker generating high-fidelity PDF artifact for meeting ${job.payload.meetingId}`);
-    // Simulate generation of signed sealed PDF artifact
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    const meeting = await meetingRepository.getById(job.payload.meetingId);
+    if (!meeting) throw new Error(`Meeting ${job.payload.meetingId} not found for PDF generation.`);
+    await generateMeetingPdf(meeting);
   });
 
   // 4. Audit record consumer
   queueManager.registerHandler<{ action: string; actor: string; timestamp: string }>('metameet.audit.record', async (job) => {
     logger.info(`Worker logging immutable audit trail: [${job.payload.action}] by ${job.payload.actor}`);
+  });
+
+  queueManager.registerHandler<{ text?: string; action?: string }>('metameet.ai.process', async (job) => {
+    if (!job.payload?.text || job.payload.text.length > 100_000) {
+      throw new Error('AI job payload is invalid or too large.');
+    }
+    logger.info(`Worker accepted AI processing job ${job.id} for action ${job.payload.action || 'default'}`);
   });
 
   logger.info('Worker initialized and listening on all queues.');

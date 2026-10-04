@@ -1,9 +1,11 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { logger } from './logger';
+import { getDb } from '../db/mongodb';
 
 export interface AuthSession {
   userId: string;
+  phoneNumber: string;
   email: string;
   name: string;
   role: string;
@@ -11,64 +13,121 @@ export interface AuthSession {
   expiresAt: number;
 }
 
+export interface AuthUser {
+  id: string;
+  phoneNumber: string;
+  email: string;
+  passwordHash: string;
+  name: string;
+  role: string;
+  organizationId: string;
+  telegramChatId?: string;
+  preferences?: Record<string, unknown>;
+}
+
+export interface MemberInvitation {
+  token: string;
+  phoneNumber: string;
+  email: string;
+  name: string;
+  role: string;
+  organizationId: string;
+  invitedBy: string;
+  expiresAt: number;
+}
+
+export function normalizePhoneNumber(phone: string): string {
+  const compact = phone.trim().replace(/[\s()-]/g, '');
+  const normalized = compact.startsWith('00') ? `+${compact.slice(2)}` : compact;
+  if (!/^\+?[1-9]\d{7,14}$/.test(normalized)) throw new Error('A valid international phone number is required.');
+  return normalized;
+}
+
 export class AuthService {
   private sessions = new Map<string, AuthSession>();
   private guestTokens = new Map<string, { meetingId: string; email: string; expiresAt: number }>();
-  private users = new Map<string, { id: string; email: string; passwordHash: string; name: string; role: string }>();
+  private invitations = new Map<string, MemberInvitation>();
+  private users = new Map<string, AuthUser>();
 
   constructor() {
-    // Seed default executive user
+    // Keep the local development account only in non-production environments.
+    if (process.env.NODE_ENV === 'production') return;
     const defaultHash = bcrypt.hashSync('MetaMeet@2028', 10);
     this.users.set('usr_arash', {
       id: 'usr_arash',
+      phoneNumber: '+989121234567',
       email: 'arash.fathi@metameet.ir',
       name: 'آرش فتحی',
       role: 'Owner',
       passwordHash: defaultHash,
+      organizationId: 'org_main',
     });
   }
 
-  async login(email: string, passwordPlain: string): Promise<{ sessionToken: string; user: AuthSession } | null> {
-    const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === email.toLowerCase());
+  async login(identifier: string, passwordPlain: string): Promise<{ sessionToken: string; user: AuthSession } | null> {
+    const normalizedIdentifier = identifier.includes('@') ? identifier.trim().toLowerCase() : normalizePhoneNumber(identifier);
+    const db = getDb();
+    let user: AuthUser | undefined = db
+      ? ((await db.collection<AuthUser>('users').findOne(identifier.includes('@') ? { email: normalizedIdentifier } : { phoneNumber: normalizedIdentifier })) || undefined) as AuthUser | undefined
+      : undefined;
     if (!user) {
-      logger.warn(`Failed login attempt for unknown email: ${email}`);
+      user = Array.from(this.users.values()).find((u) => identifier.includes('@') ? u.email.toLowerCase() === normalizedIdentifier : u.phoneNumber === normalizedIdentifier);
+    }
+    if (!user) {
+      logger.warn(`Failed login attempt for identifier: ${identifier}`);
       return null;
     }
 
     const isValid = await bcrypt.compare(passwordPlain, user.passwordHash);
     if (!isValid) {
-      logger.warn(`Invalid password for user: ${email}`);
+      logger.warn(`Invalid password for user identifier: ${identifier}`);
       return null;
+    }
+
+    if (db) {
+      await db.collection<AuthUser>('users').updateOne({ id: user.id }, { $setOnInsert: user }, { upsert: true });
     }
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const session: AuthSession = {
       userId: user.id,
+      phoneNumber: user.phoneNumber,
       email: user.email,
       name: user.name,
       role: user.role,
-      organizationId: 'org_main',
+      organizationId: user.organizationId || 'org_main',
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000, // 7 days
     };
 
     this.sessions.set(sessionToken, session);
+    if (db) {
+      await db.collection('sessions').insertOne({ token: sessionToken, ...session, createdAt: new Date() });
+    }
     logger.info(`User logged in: ${user.email}`);
     return { sessionToken, user: session };
   }
 
-  async register(email: string, passwordPlain: string, name: string, role: string = 'Participant') {
-    const existing = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === email.toLowerCase());
+  async register(email: string, passwordPlain: string, name: string, role: string = 'Participant', organizationId = 'org_main', phoneNumber = '') {
+    const userId = `usr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const normalizedEmail = email.trim().toLowerCase() || `${userId}@local.invalid`;
+    const normalizedPhone = normalizePhoneNumber(phoneNumber || email);
+    const db = getDb();
+    const existing = db
+      ? await db.collection<AuthUser>('users').findOne({ $or: [{ email: normalizedEmail }, { phoneNumber: normalizedPhone }] })
+      : Array.from(this.users.values()).find((u) => u.email.toLowerCase() === normalizedEmail || u.phoneNumber === normalizedPhone);
     if (existing) {
       throw new Error('کاربری با این آدرس ایمیل قبلاً ثبت نام نموده است.');
     }
 
     const passwordHash = await bcrypt.hash(passwordPlain, 10);
-    const userId = `usr_${Date.now()}`;
-    const newUser = { id: userId, email, passwordHash, name, role };
+    const newUser: AuthUser = { id: userId, phoneNumber: normalizedPhone, email: normalizedEmail, passwordHash, name, role, organizationId };
     this.users.set(userId, newUser);
+    if (db) {
+      await db.collection<AuthUser>('users').insertOne(newUser);
+    }
 
     logger.info(`New user registered: ${email}`);
-    return this.login(email, passwordPlain);
+    return this.login(normalizedPhone, passwordPlain);
   }
 
   verifySession(sessionToken: string): AuthSession | null {
@@ -81,6 +140,43 @@ export class AuthService {
     return session;
   }
 
+  async ensureBootstrapOwner(email?: string, password?: string, name = 'MetaMeet Owner', phoneNumber?: string): Promise<void> {
+    if (!email || !password || !phoneNumber || process.env.NODE_ENV !== 'production') return;
+    const db = getDb();
+    if (!db) return;
+    const normalizedEmail = email.trim().toLowerCase();
+    const exists = await db.collection<AuthUser>('users').findOne({ email: normalizedEmail });
+    if (exists) return;
+    const user: AuthUser = {
+      id: `usr_${crypto.randomUUID()}`,
+      phoneNumber: normalizePhoneNumber(phoneNumber),
+      email: normalizedEmail,
+      passwordHash: await bcrypt.hash(password, 12),
+      name,
+      role: 'Owner',
+      organizationId: 'org_main',
+    };
+    await db.collection<AuthUser>('users').insertOne(user);
+    logger.info('Bootstrap owner account created.');
+  }
+
+  async verifySessionAsync(sessionToken: string): Promise<AuthSession | null> {
+    const local = this.verifySession(sessionToken);
+    if (local) return local;
+
+    const db = getDb();
+    if (!db) return null;
+    const session = await db.collection<AuthSession & { token: string }>('sessions').findOne({ token: sessionToken });
+    if (!session || session.expiresAt < Date.now()) {
+      if (session) await db.collection('sessions').deleteOne({ token: sessionToken });
+      return null;
+    }
+
+    const { token: _token, _id: _id, ...authSession } = session as AuthSession & { token: string; _id?: unknown };
+    this.sessions.set(sessionToken, authSession);
+    return authSession;
+  }
+
   resetPassword(email: string, newPasswordPlain: string): boolean {
     const user = Array.from(this.users.values()).find((u) => u.email.toLowerCase() === email.toLowerCase());
     if (!user) return false;
@@ -91,8 +187,244 @@ export class AuthService {
     return true;
   }
 
+  async resetPasswordAsync(email: string, newPasswordPlain: string): Promise<boolean> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const db = getDb();
+    if (!db) return this.resetPassword(normalizedEmail, newPasswordPlain);
+
+    let user: AuthUser | null = (await db.collection<AuthUser>('users').findOne({ email: normalizedEmail })) as AuthUser | null;
+    if (!user) {
+      const localUser = Array.from(this.users.values()).find((candidate) => candidate.email === normalizedEmail);
+      if (!localUser) return false;
+      user = localUser;
+      await db.collection<AuthUser>('users').updateOne({ id: user.id }, { $setOnInsert: user }, { upsert: true });
+    }
+    const passwordHash = await bcrypt.hash(newPasswordPlain, 10);
+    await db.collection('users').updateOne(
+      { id: user.id },
+      { $set: { passwordHash, updatedAt: new Date().toISOString() } },
+    );
+    await this.logoutAll(user.id);
+    return true;
+  }
+
+  async resetPasswordByPhoneAsync(phoneNumber: string, newPasswordPlain: string): Promise<boolean> {
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    const db = getDb();
+    if (!db) {
+      const user = Array.from(this.users.values()).find((candidate) => candidate.phoneNumber === normalizedPhone);
+      if (!user) return false;
+      user.passwordHash = await bcrypt.hash(newPasswordPlain, 10);
+      this.users.set(user.id, user);
+      await this.logoutAll(user.id);
+      return true;
+    }
+    const user = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone });
+    if (!user) return false;
+    const passwordHash = await bcrypt.hash(newPasswordPlain, 10);
+    await db.collection('users').updateOne({ id: user.id }, { $set: { passwordHash, updatedAt: new Date().toISOString() } });
+    await this.logoutAll(user.id);
+    return true;
+  }
+
   logout(sessionToken: string): void {
     this.sessions.delete(sessionToken);
+    const db = getDb();
+    if (db) void db.collection('sessions').deleteOne({ token: sessionToken });
+  }
+
+  async logoutAll(userId: string): Promise<void> {
+    for (const [token, session] of this.sessions.entries()) {
+      if (session.userId === userId) this.sessions.delete(token);
+    }
+    const db = getDb();
+    if (db) await db.collection('sessions').deleteMany({ userId });
+  }
+
+  async getPreferences(userId: string): Promise<Record<string, unknown>> {
+    const db = getDb();
+    if (db) {
+      const user = await db.collection<AuthUser>('users').findOne({ id: userId }, { projection: { preferences: 1 } });
+      return user?.preferences || {};
+    }
+    return this.users.get(userId)?.preferences || {};
+  }
+
+  async updatePreferences(userId: string, preferences: Record<string, unknown>): Promise<void> {
+    const db = getDb();
+    if (db) {
+      await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { preferences, updatedAt: new Date().toISOString() } });
+      return;
+    }
+    const user = this.users.get(userId);
+    if (user) {
+      user.preferences = preferences;
+      this.users.set(userId, user);
+    }
+  }
+
+  async updateProfile(userId: string, name: string, phoneNumber?: string): Promise<boolean> {
+    const normalizedName = name.trim();
+    if (normalizedName.length < 2 || normalizedName.length > 120) return false;
+    const normalizedPhone = phoneNumber ? normalizePhoneNumber(phoneNumber) : undefined;
+    const db = getDb();
+    if (db) {
+      if (normalizedPhone) {
+        const duplicate = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } });
+        if (duplicate) return false;
+      }
+      const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}), updatedAt: new Date().toISOString() } });
+      if (!result.matchedCount) return false;
+    }
+    const user = this.users.get(userId);
+    if (user) {
+      const duplicate = normalizedPhone && Array.from(this.users.values()).some((candidate) => candidate.id !== userId && candidate.phoneNumber === normalizedPhone);
+      if (duplicate) return false;
+      this.users.set(userId, { ...user, name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}) });
+    }
+    for (const [token, session] of this.sessions.entries()) {
+      if (session.userId === userId) this.sessions.set(token, { ...session, name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}) });
+    }
+    return true;
+  }
+
+  async listUsers(organizationId = 'org_main'): Promise<Array<Pick<AuthUser, 'id' | 'phoneNumber' | 'email' | 'name' | 'role' | 'organizationId'>>> {
+    const db = getDb();
+    if (db) {
+      return db.collection<AuthUser>('users').find({ organizationId }, { projection: { passwordHash: 0 } }).map((user) => ({
+        id: user.id,
+        phoneNumber: user.phoneNumber,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        organizationId: user.organizationId,
+      })).toArray();
+    }
+    return Array.from(this.users.values()).filter((user) => user.organizationId === organizationId).map(({ id, phoneNumber, email, name, role, organizationId: userOrganizationId }) => ({ id, phoneNumber, email, name, role, organizationId: userOrganizationId }));
+  }
+
+  async removeUser(userId: string, organizationId = 'org_main'): Promise<boolean> {
+    if (userId === 'usr_arash') return false;
+    const db = getDb();
+    if (db) {
+      const result = await db.collection<AuthUser>('users').deleteOne({ id: userId, organizationId });
+      await this.logoutAll(userId);
+      return result.deletedCount > 0;
+    }
+    const user = this.users.get(userId);
+    const deleted = user?.organizationId === organizationId ? this.users.delete(userId) : false;
+    await this.logoutAll(userId);
+    return deleted;
+  }
+
+  async updateUserRole(userId: string, organizationId: string, role: string): Promise<boolean> {
+    const db = getDb();
+    if (db) {
+      const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { role, updatedAt: new Date().toISOString() } });
+      if (!result.matchedCount) return false;
+    }
+    const user = this.users.get(userId);
+    if (!user || user.organizationId !== organizationId) return false;
+    this.users.set(userId, { ...user, role });
+    for (const [token, session] of this.sessions.entries()) {
+      if (session.userId === userId) this.sessions.set(token, { ...session, role });
+    }
+    return true;
+  }
+
+  async updateUserPhone(userId: string, organizationId: string, phoneNumber: string): Promise<boolean> {
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    const db = getDb();
+    if (db) {
+      const duplicate = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } });
+      if (duplicate) return false;
+      const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { phoneNumber: normalizedPhone, updatedAt: new Date().toISOString() } });
+      return result.matchedCount > 0;
+    }
+    const user = this.users.get(userId);
+    if (!user || user.organizationId !== organizationId || Array.from(this.users.values()).some((candidate) => candidate.id !== userId && candidate.phoneNumber === normalizedPhone)) return false;
+    this.users.set(userId, { ...user, phoneNumber: normalizedPhone });
+    return true;
+  }
+
+  async linkTelegramChat(userId: string, organizationId: string, chatId: string): Promise<boolean> {
+    const db = getDb();
+    if (db) {
+      const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $set: { telegramChatId: chatId, updatedAt: new Date().toISOString() } });
+      return result.matchedCount > 0;
+    }
+    const user = this.users.get(userId);
+    if (!user || user.organizationId !== organizationId) return false;
+    this.users.set(userId, { ...user, telegramChatId: chatId });
+    return true;
+  }
+
+  async unlinkTelegramChat(userId: string, organizationId: string): Promise<boolean> {
+    const db = getDb();
+    if (db) {
+      const result = await db.collection<AuthUser>('users').updateOne({ id: userId, organizationId }, { $unset: { telegramChatId: '' } });
+      return result.matchedCount > 0;
+    }
+    const user = this.users.get(userId);
+    if (!user || user.organizationId !== organizationId) return false;
+    const { telegramChatId: _chatId, ...withoutChat } = user;
+    this.users.set(userId, withoutChat);
+    return true;
+  }
+
+  async findByTelegramChat(chatId: string): Promise<AuthUser | null> {
+    const db = getDb();
+    if (db) return (await db.collection<AuthUser>('users').findOne({ telegramChatId: chatId })) as AuthUser | null;
+    return Array.from(this.users.values()).find((user) => user.telegramChatId === chatId) || null;
+  }
+
+  async findById(userId: string, organizationId?: string): Promise<AuthUser | null> {
+    const db = getDb();
+    if (db) return await db.collection<AuthUser>('users').findOne({ id: userId, ...(organizationId ? { organizationId } : {}) });
+    const user = this.users.get(userId);
+    return user && (!organizationId || user.organizationId === organizationId) ? user : null;
+  }
+
+  async createMemberInvitation(email: string, name: string, role: string, invitedBy: string, organizationId = 'org_main', phoneNumber = ''): Promise<MemberInvitation> {
+    const invitation: MemberInvitation = {
+      token: crypto.randomBytes(32).toString('hex'),
+      phoneNumber: normalizePhoneNumber(phoneNumber),
+      email: email.trim().toLowerCase(),
+      name: name.trim(),
+      role,
+      organizationId,
+      invitedBy,
+      expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
+    };
+    this.invitations.set(invitation.token, invitation);
+    const db = getDb();
+    if (db) await db.collection<MemberInvitation>('member_invitations').insertOne(invitation);
+    return invitation;
+  }
+
+  async acceptMemberInvitation(token: string, password: string): Promise<{ sessionToken: string; user: AuthSession } | null> {
+    const db = getDb();
+    const invitation = db
+      ? ((await db.collection<MemberInvitation>('member_invitations').findOne({ token })) || this.invitations.get(token))
+      : this.invitations.get(token);
+    if (!invitation || invitation.expiresAt < Date.now()) return null;
+    const result = await this.register(invitation.email, password, invitation.name, invitation.role, invitation.organizationId, invitation.phoneNumber);
+    this.invitations.delete(token);
+    if (db) await db.collection('member_invitations').deleteOne({ token });
+    return result;
+  }
+
+  async cancelMemberInvitation(token: string, organizationId: string): Promise<boolean> {
+    const db = getDb();
+    if (db) {
+      const result = await db.collection<MemberInvitation>('member_invitations').deleteOne({ token, organizationId });
+      this.invitations.delete(token);
+      return result.deletedCount > 0;
+    }
+    const invitation = this.invitations.get(token);
+    if (!invitation || invitation.organizationId !== organizationId) return false;
+    this.invitations.delete(token);
+    return true;
   }
 
   createGuestSigningToken(meetingId: string, email: string): string {

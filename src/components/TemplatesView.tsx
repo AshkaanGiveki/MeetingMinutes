@@ -10,7 +10,6 @@ import {
   Layers,
   X
 } from 'lucide-react';
-import { sampleTemplates } from '../data/mockData';
 import { Template } from '../types';
 
 interface TemplatesViewProps {
@@ -18,7 +17,7 @@ interface TemplatesViewProps {
 }
 
 export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) => {
-  const [templates, setTemplates] = useState<Template[]>(sampleTemplates);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState('مدیریتی');
@@ -29,14 +28,8 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
   useEffect(() => {
     fetch('/api/templates')
       .then((res) => res.json())
-      .then((data) => {
-        if (data?.templates && data.templates.length > 0) {
-          setTemplates(data.templates);
-        }
-      })
-      .catch(() => {
-        // Fallback to sampleTemplates
-      });
+      .then((data) => setTemplates(data?.templates || []))
+      .catch(() => setTemplates([]));
   }, []);
 
   const handleCreateTemplate = async (e: React.FormEvent) => {
@@ -57,28 +50,25 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
     };
 
     try {
-      await fetch('/api/templates', {
+      const response = await fetch('/api/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createdTemplate),
       });
-    } catch {
-      // Local fallback
+      if (!response.ok) throw new Error('Unable to create template.');
+      const data = await response.json();
+      setTemplates((current) => [data.template || createdTemplate, ...current]);
+    } catch (error) {
+      return;
     }
-
-    setTemplates([createdTemplate, ...templates]);
     setIsCreateModalOpen(false);
     setNewTitle('');
     setNewDescription('');
   };
 
   const handleDeleteTemplate = async (id: string) => {
-    try {
-      await fetch(`/api/templates/${id}`, { method: 'DELETE' });
-    } catch {
-      // Local fallback
-    }
-    setTemplates(templates.filter((t) => t.id !== id));
+    const response = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
+    if (response.ok) setTemplates((current) => current.filter((t) => t.id !== id));
   };
 
   const handleDuplicate = (tpl: Template) => {
@@ -87,7 +77,15 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
       id: `tpl_${Date.now()}`,
       title: `${tpl.title} (کپی)`,
     };
-    setTemplates([copy, ...templates]);
+    void fetch('/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(copy),
+    }).then(async (response) => {
+      if (!response.ok) return;
+      const data = await response.json();
+      setTemplates((current) => [data.template || copy, ...current]);
+    });
   };
 
   return (

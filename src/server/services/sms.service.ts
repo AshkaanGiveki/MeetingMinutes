@@ -1,0 +1,66 @@
+import { logger } from './logger';
+
+export interface SmsResult {
+  success: boolean;
+  providerMessageId?: string;
+  error?: string;
+}
+
+function normalizePhone(phone: string): string {
+  const compact = phone.trim().replace(/[\s()-]/g, '');
+  if (compact.startsWith('00')) return `+${compact.slice(2)}`;
+  return compact;
+}
+
+export class SmsService {
+  private async sendSmsIr(phone: string, message: string): Promise<SmsResult> {
+    const apiKey = process.env.SMS_API_KEY;
+    const lineNumber = process.env.SMS_LINE_NUMBER;
+    if (!apiKey || !lineNumber) return { success: false, error: 'SMS.ir configuration is incomplete.' };
+
+    try {
+      const response = await fetch('https://api.sms.ir/v1/send/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': apiKey,
+        },
+        body: JSON.stringify({
+          lineNumber: Number(lineNumber),
+          MessageText: message,
+          Mobiles: [phone],
+        }),
+      });
+      const data = await response.json() as { status?: number; messageId?: number; packId?: number; message?: string };
+      if (!response.ok || (typeof data.status === 'number' && data.status !== 1 && data.status !== 200)) {
+        return { success: false, error: data.message || `SMS.ir rejected the message (${response.status}).` };
+      }
+      return { success: true, providerMessageId: String(data.messageId || data.packId || `smsir_${Date.now()}`) };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async sendMessage(phone: string, message: string): Promise<SmsResult> {
+    const normalized = normalizePhone(phone);
+    const provider = process.env.SMS_PROVIDER;
+    if (provider === 'sms.ir' || provider === 'smsir' || process.env.SMS_API_KEY) return this.sendSmsIr(normalized, message);
+    if (process.env.NODE_ENV === 'production') return { success: false, error: 'No production SMS provider is configured.' };
+    logger.info(`[DEV SMS] Message dispatched to ${normalized}`);
+    return { success: true, providerMessageId: `dev_sms_${Date.now()}` };
+  }
+
+  async sendOtp(phone: string, code: string): Promise<SmsResult> {
+    const normalized = normalizePhone(phone);
+    const provider = process.env.SMS_PROVIDER;
+    if (provider === 'sms.ir' || provider === 'smsir' || process.env.SMS_API_KEY) {
+      return this.sendSmsIr(normalized, `کد تأیید متامیت: ${code}`);
+    }
+
+    if (process.env.NODE_ENV === 'production') return { success: false, error: 'No production SMS provider is configured.' };
+    logger.info(`[DEV SMS] OTP dispatched to ${normalized}`);
+    return { success: true, providerMessageId: `dev_sms_${Date.now()}` };
+  }
+}
+
+export const smsService = new SmsService();

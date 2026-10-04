@@ -22,7 +22,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   isDark,
   onToggleTheme,
   onOpenSearch,
-  unreadCount = 2,
+  unreadCount = 0,
   onOpenNotifications,
   onOpenProfile,
   onOpenRoughNotes,

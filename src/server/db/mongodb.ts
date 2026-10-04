@@ -38,8 +38,8 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
       ...(isTls
         ? {
             tls: true,
-            tlsAllowInvalidCertificates: true,
-            tlsAllowInvalidHostnames: true,
+            tlsAllowInvalidCertificates: process.env.NODE_ENV !== 'production',
+            tlsAllowInvalidHostnames: process.env.NODE_ENV !== 'production',
           }
         : {}),
     };
@@ -82,8 +82,19 @@ async function setupIndexes(database: Db) {
     await database.collection('meetings').createIndex({ id: 1 }, { unique: true });
     await database.collection('meetings').createIndex({ status: 1 });
     await database.collection('meetings').createIndex({ 'organizer.id': 1 });
+    await database.collection('meetings').createIndex({ organizationId: 1, updatedAt: -1 });
     await database.collection('audit_logs').createIndex({ meetingId: 1, timestamp: -1 });
     await database.collection('users').createIndex({ email: 1 }, { unique: true });
+    await database.collection('users').createIndex({ phoneNumber: 1 }, { unique: true, sparse: true });
+    await database.collection('users').createIndex({ organizationId: 1, email: 1 });
+    await database.collection('sessions').createIndex({ token: 1 }, { unique: true });
+    await database.collection('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await database.collection('invitations').createIndex({ token: 1 }, { unique: true });
+    await database.collection('invitations').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await database.collection('notifications').createIndex({ userId: 1, createdAt: -1 });
+    await database.collection('ai_suggestions').createIndex({ meetingId: 1, createdAt: -1 });
+    await database.collection('queue_dead_letters').createIndex({ id: 1 }, { unique: true });
+    await database.collection('email_deliveries').createIndex({ createdAt: -1 });
   } catch (err) {
     logger.warn('Index setup note:', { metadata: { error: String(err) } });
   }

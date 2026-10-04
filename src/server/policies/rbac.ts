@@ -4,6 +4,7 @@ export type Permission =
   | 'meeting.edit'
   | 'meeting.delete'
   | 'meeting.finalize'
+  | 'meeting.review'
   | 'meeting.archive'
   | 'participant.invite'
   | 'participant.remove'
@@ -36,6 +37,7 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
     'meeting.edit',
     'meeting.delete',
     'meeting.finalize',
+    'meeting.review',
     'meeting.archive',
     'participant.invite',
     'participant.remove',
@@ -58,6 +60,7 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
     'meeting.edit',
     'meeting.delete',
     'meeting.finalize',
+    'meeting.review',
     'meeting.archive',
     'participant.invite',
     'participant.remove',
@@ -77,6 +80,7 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
     'meeting.read',
     'meeting.edit',
     'meeting.finalize',
+    'meeting.review',
     'participant.invite',
     'participant.remove',
     'comment.create',
@@ -96,6 +100,7 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
   ],
   Reviewer: [
     'meeting.read',
+    'meeting.review',
     'comment.create',
     'comment.resolve',
     'signature.sign',

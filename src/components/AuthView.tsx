@@ -18,7 +18,7 @@ import {
 import { OrganizationRole } from '../types';
 
 interface AuthViewProps {
-  onLoginSuccess: (user: { name: string; email: string; role: OrganizationRole }) => void;
+  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole }) => void;
   onBackToApp: () => void;
 }
 
@@ -29,8 +29,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
 
   // Login form state
-  const [loginEmail, setLoginEmail] = useState('arash.fathi@metameet.ir');
-  const [loginPassword, setLoginPassword] = useState('MetaMeet@2028');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   // Sign up form state
@@ -81,7 +81,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        body: JSON.stringify({ phoneNumber: loginEmail, password: loginPassword }),
       });
       const data = await res.json();
 
@@ -90,6 +90,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setTimeout(() => {
           onLoginSuccess({
             name: data.user.name,
+            phoneNumber: data.user.phoneNumber,
             email: data.user.email,
             role: data.user.role as OrganizationRole,
           });
@@ -98,6 +99,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setFeedback({ type: 'error', text: data.error || 'ایمیل یا رمز عبور اشتباه است.' });
       }
     } catch {
+      setFeedback({ type: 'error', text: 'Unable to reach the server.' });
+      return;
       // Offline fallback
       setFeedback({ type: 'success', text: 'ورود موفقیت‌آمیز به سامانه.' });
       setTimeout(() => {
@@ -135,7 +138,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: signupName.trim(),
-          email: signupEmail.trim(),
+          phoneNumber: signupEmail.trim(),
           password: signupPassword,
           role: signupRole,
         }),
@@ -147,6 +150,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setTimeout(() => {
           onLoginSuccess({
             name: data.user.name,
+            phoneNumber: data.user.phoneNumber,
             email: data.user.email,
             role: data.user.role as OrganizationRole,
           });
@@ -177,21 +181,23 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setFeedback(null);
 
     try {
-      const res = await fetch('/api/auth/forgot-password', {
+      const res = await fetch('/api/auth/forgot-password-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: recoveryEmail.trim() }),
+        body: JSON.stringify({ phoneNumber: recoveryEmail.trim() }),
       });
       const data = await res.json();
       if (res.ok) {
-        setDemoRecoveryCode(data.demoCode || '123456');
+        setDemoRecoveryCode(data.demoCode || '');
         setRecoveryStep(2);
         setFeedback({ type: 'success', text: 'کد بازیابی ۶ رقمی به ایمیل سازمانی شما ارسال شد.' });
       } else {
         setFeedback({ type: 'error', text: data.error || 'خطا در ارسال کد بازیابی.' });
       }
     } catch {
-      setDemoRecoveryCode('123456');
+      setDemoRecoveryCode('');
+      setFeedback({ type: 'error', text: 'ارسال کد بازیابی انجام نشد.' });
+      return;
       setRecoveryStep(2);
       setFeedback({ type: 'success', text: 'کد بازیابی ارسال گردید.' });
     } finally {
@@ -215,11 +221,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setFeedback(null);
 
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await fetch('/api/auth/reset-password-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: recoveryEmail.trim(),
+          phoneNumber: recoveryEmail.trim(),
           code: recoveryCode.trim(),
           newPassword: recoveryNewPassword,
         }),
@@ -353,11 +359,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
               </label>
               <div className="relative">
                 <input
-                  type="email"
+                  type="tel"
                   required
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="name@company.ir"
+                  placeholder="+989121234567"
                   className="w-full p-3 pr-10 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-sans"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
@@ -434,11 +440,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
               </label>
               <div className="relative">
                 <input
-                  type="email"
+                  type="tel"
                   required
                   value={signupEmail}
                   onChange={(e) => setSignupEmail(e.target.value)}
-                  placeholder="sara.ahmadi@company.ir"
+                  placeholder="+989121234567"
                   className="w-full p-2.5 pr-9 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-sans"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
@@ -561,11 +567,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </label>
                   <div className="relative">
                     <input
-                      type="email"
+                      type="tel"
                       required
                       value={recoveryEmail}
                       onChange={(e) => setRecoveryEmail(e.target.value)}
-                      placeholder="name@company.ir"
+                      placeholder="+989121234567"
                       className="w-full p-3 pr-10 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none font-sans"
                     />
                     <Mail className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />

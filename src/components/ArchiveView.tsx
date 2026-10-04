@@ -14,7 +14,6 @@ import {
   Award
 } from 'lucide-react';
 import { Meeting, AuditRecord } from '../types';
-import { sampleAuditLogs } from '../data/mockData';
 
 interface ArchiveViewProps {
   meetings: Meeting[];
@@ -30,13 +29,21 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAuditMeeting, setSelectedAuditMeeting] = useState<Meeting | null>(null);
   const [selectedCertificateMeeting, setSelectedCertificateMeeting] = useState<Meeting | null>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([]);
 
   const sealedMeetings = meetings.filter(
     (m) =>
-      m.status === 'SEALED' ||
-      m.status === 'ARCHIVED' ||
+      (m.status === 'SEALED' || m.status === 'ARCHIVED') &&
       m.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  React.useEffect(() => {
+    if (!selectedAuditMeeting) return;
+    fetch(`/api/audit/${selectedAuditMeeting.id}`)
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load audit trail')))
+      .then((data) => setAuditLogs(data.logs || []))
+      .catch(() => setAuditLogs([]));
+  }, [selectedAuditMeeting]);
 
   return (
     <div className="flex-1 max-w-6xl mx-auto flex flex-col gap-6 p-6">
@@ -209,7 +216,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                 بستن
               </button>
               <button
-                onClick={onPrintPdf}
+                onClick={() => window.open(`/api/meetings/${selectedCertificateMeeting.id}/pdf`, '_blank', 'noopener,noreferrer')}
                 className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/20 active:scale-98"
               >
                 <Printer className="w-3.5 h-3.5" />
@@ -242,7 +249,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
             </div>
 
             <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
-              {sampleAuditLogs.map((log) => (
+              {auditLogs.map((log) => (
                 <div
                   key={log.id}
                   className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs flex flex-col gap-1"

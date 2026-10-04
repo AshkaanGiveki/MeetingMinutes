@@ -1,5 +1,6 @@
 import { Client } from '@upstash/qstash';
 import { logger } from '../services/logger';
+import { getDb } from '../db/mongodb';
 
 export type QueueName =
   | 'metameet.email.send'
@@ -7,6 +8,14 @@ export type QueueName =
   | 'metameet.pdf.generate'
   | 'metameet.audit.record'
   | 'metameet.ai.process';
+
+export const QUEUE_NAMES: QueueName[] = [
+  'metameet.email.send',
+  'metameet.telegram.send',
+  'metameet.pdf.generate',
+  'metameet.audit.record',
+  'metameet.ai.process',
+];
 
 export interface QueueJob<T = unknown> {
   id: string;
@@ -98,12 +107,62 @@ export class QueueManager {
       } else {
         logger.error(`Job moved to Dead-Letter Queue (DLQ): ${job.id}`);
         this.deadLetterQueue.push(job);
+        await this.persistDeadLetter(job);
       }
     }
   }
 
   getDeadLetterQueue(): QueueJob[] {
     return [...this.deadLetterQueue];
+  }
+
+  async getDeadLetterQueueAsync(): Promise<QueueJob[]> {
+    const db = getDb();
+    if (!db) return this.getDeadLetterQueue();
+    const jobs = await db.collection<QueueJob>('queue_dead_letters').find({}).sort({ timestamp: -1 }).limit(100).toArray();
+    return jobs.map(({ _id: _ignored, ...job }) => job as QueueJob);
+  }
+
+  async replayDeadLetter(jobId: string): Promise<boolean> {
+    const db = getDb();
+    const job = db
+      ? await db.collection<QueueJob>('queue_dead_letters').findOne({ id: jobId })
+      : this.deadLetterQueue.find((item) => item.id === jobId);
+    if (!job) return false;
+    const replay = { ...job, attempts: 0, timestamp: new Date().toISOString() };
+    if (db) await db.collection('queue_dead_letters').deleteOne({ id: jobId });
+    this.inMemoryQueue.push(replay);
+    return true;
+  }
+
+  getDiagnostics() {
+    return {
+      configuredQueues: [...QUEUE_NAMES],
+      registeredHandlers: [...this.handlers.keys()],
+      pendingJobs: this.inMemoryQueue.length,
+      deadLetterJobs: this.deadLetterQueue.length,
+      externalBroker: Boolean(this.qstashClient),
+    };
+  }
+
+  async processExternalJob(job: QueueJob): Promise<void> {
+    if (job.idempotencyKey && !(await this.claimJob(job.idempotencyKey))) return;
+    const handler = this.handlers.get(job.queue);
+    if (!handler) throw new Error(`No handler registered for queue ${job.queue}.`);
+    await handler(job);
+  }
+
+  private processedJobs = new Set<string>();
+
+  private async claimJob(key: string): Promise<boolean> {
+    if (this.processedJobs.has(key)) return false;
+    this.processedJobs.add(key);
+    return true;
+  }
+
+  private async persistDeadLetter(job: QueueJob): Promise<void> {
+    const db = getDb();
+    if (db) await db.collection<QueueJob>('queue_dead_letters').updateOne({ id: job.id }, { $set: job }, { upsert: true });
   }
 }
 

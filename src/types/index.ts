@@ -68,6 +68,19 @@ export interface Meeting {
   sealedAt?: string;
   signatureCount: number;
   totalSignaturesRequired: number;
+  signatures?: SignatureRecord[];
+}
+
+export interface SignatureRecord {
+  id: string;
+  meetingId: string;
+  signerId: string;
+  signerName: string;
+  signerRole: string;
+  signatureType: 'draw' | 'type' | 'upload' | 'telegram';
+  signatureData: string;
+  signedAt: string;
+  documentHash: string;
 }
 
 export interface Template {

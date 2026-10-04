@@ -1,17 +1,23 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key, X, Trash2 } from 'lucide-react';
-import { sampleParticipants, currentUser } from '../data/mockData';
+import { currentUser } from '../data/mockData';
 import { Participant } from '../types';
 
 export const ContactsView: React.FC = () => {
-  const [members, setMembers] = useState<Participant[]>([
-    currentUser,
-    ...sampleParticipants,
-  ]);
+  const [members, setMembers] = useState<Participant[]>([]);
+  const [loadError, setLoadError] = useState('');
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
+  const [newPhone, setNewPhone] = useState('');
   const [newRole, setNewRole] = useState('مدیر فنی');
+
+  useEffect(() => {
+    fetch('/api/members')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('اعضای سازمان قابل دریافت نیستند.')))
+      .then((data) => setMembers((data.members || []).map((member: Participant) => ({ ...member, hasSigned: false }))))
+      .catch((error) => setLoadError(error instanceof Error ? error.message : 'اعضای سازمان قابل دریافت نیستند.'));
+  }, []);
 
   const permissionsList = [
     { code: 'meeting.create', label: 'ایجاد و ویرایش جلسه' },
@@ -22,7 +28,20 @@ export const ContactsView: React.FC = () => {
 
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim() || !newEmail.trim()) return;
+    if (!newName.trim() || !newPhone.trim()) return;
+
+    void fetch('/api/members/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: newEmail.trim(), phoneNumber: newPhone.trim(), name: newName.trim(), role: 'Participant' }),
+    }).then(async (response) => {
+      if (!response.ok) throw new Error((await response.json()).error || 'دعوت عضو انجام نشد.');
+      setNewName('');
+      setNewEmail('');
+      setNewPhone('');
+      setIsInviteModalOpen(false);
+    }).catch((error) => setLoadError(error instanceof Error ? error.message : 'دعوت عضو انجام نشد.'));
+    return;
 
     const newMember: Participant = {
       id: `usr_${Date.now()}`,
@@ -39,8 +58,9 @@ export const ContactsView: React.FC = () => {
     setIsInviteModalOpen(false);
   };
 
-  const handleRemoveMember = (id: string) => {
-    setMembers(members.filter((m) => m.id !== id));
+  const handleRemoveMember = async (id: string) => {
+    const response = await fetch(`/api/members/${id}`, { method: 'DELETE' });
+    if (response.ok) setMembers((current) => current.filter((member) => member.id !== id));
   };
 
   return (
@@ -69,6 +89,8 @@ export const ContactsView: React.FC = () => {
           <span>دعوت عضو جدید</span>
         </button>
       </div>
+
+      {loadError && <div className="rounded-xl bg-rose-50 px-4 py-3 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{loadError}</div>}
 
       {/* Permissions overview bar */}
       <div className="p-4 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
@@ -184,6 +206,14 @@ export const ContactsView: React.FC = () => {
                 <label className="font-semibold text-slate-700 dark:text-slate-300">
                   ایمیل سازمانی:
                 </label>
+                <input
+                  type="tel"
+                  required={false}
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="+989121234567"
+                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none"
+                />
                 <input
                   type="email"
                   required

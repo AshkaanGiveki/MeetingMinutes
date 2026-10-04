@@ -87,3 +87,20 @@ export const SealDocumentSchema = z.object({
 export const TelegramAuthVerifySchema = z.object({
   initData: z.string().min(10),
 });
+
+export const AiSuggestSchema = z.object({
+  meetingId: z.string().optional(),
+  action: z.string().max(80).optional(),
+  text: z.string().max(100_000).optional().default(''),
+  meetingTitle: z.string().max(500).optional(),
+  agenda: z.unknown().optional(),
+});
+
+export const AiSuggestionResponseSchema = z.object({
+  summary: z.string().max(20_000).optional(),
+  title: z.string().max(500).optional(),
+  discussion: z.string().max(100_000).optional(),
+  agenda: z.array(z.string().max(2_000)).max(50).optional(),
+  keyDecisions: z.array(z.string().max(2_000)).max(50).optional(),
+  suggestedTasks: z.array(z.record(z.string(), z.unknown())).max(50).optional(),
+});

@@ -18,6 +18,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [invitedSent, setInvitedSent] = useState(false);
+  const [inviteError, setInviteError] = useState('');
 
   if (!isOpen) return null;
 
@@ -29,14 +30,28 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSendEmail = (e: React.FormEvent) => {
+  const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailInput.trim()) return;
-    setInvitedSent(true);
-    setTimeout(() => {
-      setEmailInput('');
-      setInvitedSent(false);
-    }, 2500);
+    setInviteError('');
+    try {
+      const response = await fetch('/api/email/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.trim(), meetingId: meeting.id }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'ارسال دعوت‌نامه انجام نشد.');
+      }
+      setInvitedSent(true);
+      setTimeout(() => {
+        setEmailInput('');
+        setInvitedSent(false);
+      }, 2500);
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : 'ارسال دعوت‌نامه انجام نشد.');
+    }
   };
 
   return (
@@ -117,6 +132,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               {invitedSent ? 'ارسال شد ✓' : 'ارسال'}
             </button>
           </div>
+          {inviteError && <p className="text-[11px] text-rose-600 dark:text-rose-400">{inviteError}</p>}
         </form>
 
         {/* Telegram Mini App Action */}

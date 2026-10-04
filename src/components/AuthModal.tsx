@@ -26,7 +26,7 @@ interface AuthModalProps {
   onRoleChange: (role: OrganizationRole) => void;
   currentUserName: string;
   currentUserEmail?: string;
-  onLoginSuccess: (user: { name: string; email: string; role: OrganizationRole }) => void;
+  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole }) => void;
   onLogout: () => void;
 }
 
@@ -123,13 +123,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        body: JSON.stringify({ phoneNumber: loginEmail, password: loginPassword }),
       });
       const data = await res.json();
       if (res.ok && data.user) {
         setStatusMessage({ type: 'success', text: `خوش آمدید ${data.user.name}` });
         onLoginSuccess({
           name: data.user.name,
+          phoneNumber: data.user.phoneNumber,
           email: data.user.email,
           role: data.user.role as OrganizationRole,
         });
@@ -141,6 +142,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setStatusMessage({ type: 'success', text: 'ورود به حساب با موفقیت انجام شد.' });
       onLoginSuccess({
         name: currentUserName,
+        phoneNumber: loginEmail,
         email: loginEmail,
         role: currentRole,
       });
@@ -170,7 +172,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: signupName.trim(),
-          email: signupEmail.trim(),
+          phoneNumber: signupEmail.trim(),
           password: signupPassword,
           role: signupRole,
         }),
@@ -180,6 +182,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setStatusMessage({ type: 'success', text: 'ثبت‌نام و ورود با موفقیت انجام شد.' });
         onLoginSuccess({
           name: data.user.name,
+          phoneNumber: data.user.phoneNumber,
           email: data.user.email,
           role: data.user.role as OrganizationRole,
         });
@@ -191,6 +194,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setStatusMessage({ type: 'success', text: 'حساب کاربری جدید ایجاد شد.' });
       onLoginSuccess({
         name: signupName,
+        phoneNumber: signupEmail,
         email: signupEmail,
         role: signupRole,
       });
@@ -206,21 +210,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setStatusMessage(null);
 
     try {
-      const res = await fetch('/api/auth/forgot-password', {
+      const res = await fetch('/api/auth/forgot-password-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: forgotEmail.trim() }),
+        body: JSON.stringify({ phoneNumber: forgotEmail.trim() }),
       });
       const data = await res.json();
       if (res.ok) {
-        setDemoCode(data.demoCode || '123456');
+        setDemoCode(data.demoCode || '');
         setForgotStep(2);
         setStatusMessage({ type: 'success', text: 'کد بازیابی ۶ رقمی به ایمیل شما ارسال شد.' });
       } else {
         setStatusMessage({ type: 'error', text: data.error || 'خطا در ارسال کد بازیابی.' });
       }
     } catch {
-      setDemoCode('123456');
+      setDemoCode('');
+      setStatusMessage({ type: 'error', text: 'ارسال کد بازیابی انجام نشد.' });
+      return;
       setForgotStep(2);
       setStatusMessage({ type: 'success', text: 'کد بازیابی ارسال گردید.' });
     } finally {
@@ -243,11 +249,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setStatusMessage(null);
 
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await fetch('/api/auth/reset-password-sms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: forgotEmail.trim(),
+          phoneNumber: forgotEmail.trim(),
           code: forgotCode.trim(),
           newPassword: forgotNewPassword,
         }),
@@ -391,11 +397,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <label className="text-slate-700 dark:text-slate-300 font-semibold">ایمیل سازمانی:</label>
               <div className="relative">
                 <input
-                  type="email"
+                  type="tel"
                   required
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="name@company.ir"
+                  placeholder="+989121234567"
                   className="w-full p-2.5 pr-8 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:border-indigo-400"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute right-2.5 top-3" />
@@ -474,11 +480,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="flex flex-col gap-1">
               <label className="text-slate-700 dark:text-slate-300 font-semibold">ایمیل سازمانی:</label>
               <input
-                type="email"
+                type="tel"
                 required
                 value={signupEmail}
                 onChange={(e) => setSignupEmail(e.target.value)}
-                placeholder="sara@company.ir"
+                placeholder="+989121234567"
                 className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:border-indigo-400"
               />
             </div>
@@ -575,11 +581,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   ایمیل سازمانی خود را وارد کنید تا کد بازیابی ارسال شود.
                 </p>
                 <input
-                  type="email"
+                type="tel"
                   required
                   value={forgotEmail}
                   onChange={(e) => setForgotEmail(e.target.value)}
-                  placeholder="name@company.ir"
+                  placeholder="+989121234567"
                   className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none"
                 />
                 <button

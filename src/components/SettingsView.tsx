@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Settings,
   User,
@@ -13,16 +13,54 @@ import { currentUser } from '../data/mockData';
 
 export const SettingsView: React.FC = () => {
   const [name, setName] = useState(currentUser.name);
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [role, setRole] = useState(currentUser.role);
   const [emailNotification, setEmailNotification] = useState(true);
   const [telegramNotification, setTelegramNotification] = useState(true);
   const [autoSeal, setAutoSeal] = useState(true);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
-  const handleSave = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetch('/api/auth/me').then((response) => response.ok ? response.json() : null).then((data) => {
+      if (data?.user) {
+        setName(data.user.name || '');
+        setPhoneNumber(data.user.phoneNumber || '');
+        setRole(data.user.role || '');
+      }
+    }).catch(() => undefined);
+    fetch('/api/settings')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('تنظیمات قابل دریافت نیست.')))
+      .then((data) => {
+        const preferences = data.preferences || {};
+        if (typeof preferences.emailNotification === 'boolean') setEmailNotification(preferences.emailNotification);
+        if (typeof preferences.telegramNotification === 'boolean') setTelegramNotification(preferences.telegramNotification);
+        if (typeof preferences.autoSeal === 'boolean') setAutoSeal(preferences.autoSeal);
+      })
+      .catch(() => setSaveError('تنظیمات از سرور دریافت نشد.'));
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
+    setSaveError('');
+    try {
+      const profileResponse = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), phoneNumber: phoneNumber.trim() }),
+      });
+      if (!profileResponse.ok) throw new Error('Unable to save profile.');
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailNotification, telegramNotification, autoSeal }),
+      });
+      if (!response.ok) throw new Error('ذخیره تنظیمات انجام نشد.');
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'ذخیره تنظیمات انجام نشد.');
+    }
   };
 
   return (
@@ -64,13 +102,24 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div className="flex flex-col gap-1.5">
+              <label className="font-semibold text-slate-700 dark:text-slate-300">Phone number:</label>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                required
+                className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
               <label className="font-semibold text-slate-700 dark:text-slate-300">
                 عنوان شغلی:
               </label>
               <input
                 type="text"
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
+                readOnly
                 className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
               />
             </div>
@@ -162,6 +211,7 @@ export const SettingsView: React.FC = () => {
 
         {/* Submit */}
         <div className="flex items-center justify-end gap-3">
+          {saveError && <span className="text-xs text-rose-600 dark:text-rose-400">{saveError}</span>}
           {savedSuccess && (
             <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
               <CheckCircle2 className="w-4 h-4" />

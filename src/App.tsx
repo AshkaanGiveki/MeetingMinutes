@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { initialMeeting, sampleMeetingsList, currentUser as defaultUser } from './data/mockData';
+import { initialMeeting } from './data/mockData';
 import { Meeting, CommentItem, Participant, Template, OrganizationRole } from './types';
 import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
@@ -22,6 +22,7 @@ import { ReviewModal } from './components/ReviewModal';
 import { RoughNotesModal } from './components/RoughNotesModal';
 import { AuthModal } from './components/AuthModal';
 import { AuthView } from './components/AuthView';
+import { NotificationPanel } from './components/NotificationPanel';
 
 export default function App() {
   const [isDark, setIsDark] = useState(() => {
@@ -33,12 +34,14 @@ export default function App() {
   });
   const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'auth'>('meetings');
   const [viewMode, setViewMode] = useState<'hero' | 'list'>('hero');
-  const [meetings, setMeetings] = useState<Meeting[]>(sampleMeetingsList);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [activeMeeting, setActiveMeeting] = useState<Meeting>(initialMeeting);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Authenticated User State with localStorage persistence
   const [activeUser, setActiveUser] = useState<{
     name: string;
+    phoneNumber: string;
     email: string;
     role: OrganizationRole;
     avatar?: string;
@@ -49,6 +52,7 @@ export default function App() {
     } catch {}
     return {
       name: 'آرش فتحی',
+      phoneNumber: '+989121234567',
       email: 'arash.fathi@metameet.ir',
       role: 'Owner' as OrganizationRole,
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
@@ -75,6 +79,7 @@ export default function App() {
   const [isSealModalOpen, setIsSealModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
   const [isAddParticipantModalOpen, setIsAddParticipantModalOpen] = useState(false);
   const [isNewMeetingModalOpen, setIsNewMeetingModalOpen] = useState(false);
@@ -83,42 +88,44 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [hasUserSigned, setHasUserSigned] = useState(false);
+  const [operationError, setOperationError] = useState('');
 
-  // Load meetings and check auth session from server on mount
+  const loadMeetings = async () => {
+    const response = await fetch('/api/meetings');
+    if (!response.ok) throw new Error('Unable to load meetings');
+    const data = await response.json();
+    if (data?.meetings) {
+      setMeetings(data.meetings);
+      if (data.meetings.length > 0) {
+        setActiveMeeting((current) => data.meetings.find((m: Meeting) => m.id === current.id) || data.meetings[0]);
+      }
+    }
+  };
+
+  // Load authenticated session before loading protected meeting data.
   useEffect(() => {
-    fetch('/api/meetings')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.meetings && data.meetings.length > 0) {
-          setMeetings(data.meetings);
-          const current = data.meetings.find((m: Meeting) => m.id === activeMeeting.id);
-          if (current) {
-            setActiveMeeting(current);
-          }
-        }
-      })
-      .catch((err) => {
-        console.warn('Backend meetings API offline or fallback:', err);
-      });
-
-    // Verify session
     fetch('/api/auth/me')
       .then((res) => res.json())
       .then((data) => {
         if (data?.user) {
+          setIsAuthenticated(true);
           setActiveUser((prev) => ({
             ...prev,
             name: data.user.name,
+            phoneNumber: data.user.phoneNumber || prev.phoneNumber,
             email: data.user.email,
             role: (data.user.role as OrganizationRole) || prev.role,
           }));
+          return loadMeetings();
         }
+        setCurrentTab('auth');
       })
-      .catch(() => {});
+      .catch(() => setCurrentTab('auth'));
   }, []);
 
   // Handle meeting state updates
   const handleUpdateMeeting = async (updated: Partial<Meeting>) => {
+    const previousMeeting = activeMeeting;
     const newMeeting = { ...activeMeeting, ...updated };
     setActiveMeeting(newMeeting);
     setMeetings((prev) =>
@@ -127,14 +134,27 @@ export default function App() {
 
     // Sync to backend
     try {
-      await fetch(`/api/meetings/${newMeeting.id}`, {
+      const response = await fetch(`/api/meetings/${newMeeting.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
+        body: JSON.stringify({
+          ...updated,
+          version: (activeMeeting as Meeting & { version?: number }).version,
+        }),
       });
-    } catch {
-      // Local state is already updated
+      if (!response.ok) throw new Error('تغییرات جلسه ذخیره نشد.');
+    } catch (error) {
+      setActiveMeeting(previousMeeting);
+      setMeetings((prev) => prev.map((m) => (m.id === previousMeeting.id ? previousMeeting : m)));
+      setOperationError(error instanceof Error ? error.message : 'تغییرات جلسه ذخیره نشد.');
+      setTimeout(() => setOperationError(''), 3500);
     }
+  };
+
+  const applyMeetingLocally = (updated: Partial<Meeting>) => {
+    const next = { ...activeMeeting, ...updated };
+    setActiveMeeting(next);
+    setMeetings((prev) => prev.map((meeting) => meeting.id === next.id ? next : meeting));
   };
 
   // Add comment
@@ -146,6 +166,11 @@ export default function App() {
 
   // Add participant
   const handleAddParticipant = (p: Participant) => {
+    if (activeMeeting.participants.some((participant) => participant.email.toLowerCase() === p.email.toLowerCase())) {
+      setOperationError('This participant is already assigned to the meeting.');
+      setTimeout(() => setOperationError(''), 3500);
+      return;
+    }
     handleUpdateMeeting({
       participants: [...activeMeeting.participants, p],
       totalSignaturesRequired: activeMeeting.totalSignaturesRequired + 1,
@@ -170,9 +195,10 @@ export default function App() {
         }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Review submission failed.');
       if (res.ok) {
         if (action === 'approve') {
-          handleUpdateMeeting({
+          applyMeetingLocally({
             status: 'READY_FOR_SIGNATURE',
             statusLabel: 'آماده امضا',
           });
@@ -189,7 +215,7 @@ export default function App() {
             text: `[درخواست اصلاح در ${section || 'محتوا'}]: ${notes || 'نیازمند بازنگری'}`,
             timestamp: 'هم‌اکنون',
           };
-          handleUpdateMeeting({
+            applyMeetingLocally({
             status: 'IN_REVIEW',
             statusLabel: 'نیازمند اصلاح',
             comments: [newComment, ...activeMeeting.comments],
@@ -204,13 +230,23 @@ export default function App() {
   // Confirm Signature with Server Cryptographic SHA-256
   const handleConfirmSignature = async (signatureDataUrl: string) => {
     setHasUserSigned(true);
+    try {
+      await loadMeetings();
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'Unable to refresh the meeting.');
+      setTimeout(() => setOperationError(''), 3500);
+    }
+    return;
     const newCount = activeMeeting.signatureCount + 1;
     const isNowAllSigned = newCount >= activeMeeting.totalSignaturesRequired;
 
     try {
       const res = await fetch('/api/signature/sign', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${activeMeeting.id}:${activeUser.email}:${crypto.randomUUID()}`,
+        },
         body: JSON.stringify({
           meetingId: activeMeeting.id,
           signerName: activeUser.name,
@@ -221,8 +257,9 @@ export default function App() {
         }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Signature could not be recorded.');
       if (data?.documentHash) {
-        handleUpdateMeeting({
+      applyMeetingLocally({
           signatureCount: newCount,
           status: isNowAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
           statusLabel: isNowAllSigned ? 'آماده امضا' : 'در حال امضا',
@@ -230,11 +267,14 @@ export default function App() {
         });
         return;
       }
-    } catch (err) {
-      console.warn('Signature API error:', err);
+    } catch (err: unknown) {
+      setHasUserSigned(false);
+      setOperationError(String((err as { message?: unknown }).message || err));
+      setTimeout(() => setOperationError(''), 3500);
     }
 
-    // Local fallback
+    return;
+    // Local fallback is intentionally disabled when the server rejects the operation.
     handleUpdateMeeting({
       signatureCount: newCount,
       status: isNowAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
@@ -251,8 +291,9 @@ export default function App() {
         body: JSON.stringify({ meetingId: activeMeeting.id }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Document sealing failed.');
       if (data?.documentHash) {
-        handleUpdateMeeting({
+        applyMeetingLocally({
           status: 'SEALED',
           statusLabel: 'مهر و موم شده',
           sealedAt: data.sealedAt,
@@ -261,10 +302,12 @@ export default function App() {
         return;
       }
     } catch (err) {
-      console.warn('Seal API error:', err);
+      setOperationError(err instanceof Error ? err.message : 'Document sealing failed.');
+      setTimeout(() => setOperationError(''), 3500);
     }
 
-    // Local fallback
+    return;
+    // Local fallback is intentionally disabled when the server rejects the operation.
     handleUpdateMeeting({
       status: 'SEALED',
       statusLabel: 'مهر و موم شده',
@@ -287,6 +330,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'summarize_and_suggest',
+          meetingId: activeMeeting.id,
           meetingTitle: activeMeeting.title,
           text: activeMeeting.discussion,
           agenda: activeMeeting.agenda.map((a) => a.text),
@@ -315,8 +359,9 @@ export default function App() {
 
   // Create new meeting
   const handleCreateNewMeeting = async (newMeeting: Meeting) => {
+    let persistedMeeting = newMeeting;
     try {
-      await fetch('/api/meetings', {
+      const response = await fetch('/api/meetings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -327,12 +372,17 @@ export default function App() {
           description: newMeeting.discussion,
         }),
       });
-    } catch {
-      // Local fallback
+      if (!response.ok) throw new Error('ایجاد جلسه انجام نشد.');
+      const data = await response.json();
+      persistedMeeting = data.meeting || newMeeting;
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'ایجاد جلسه انجام نشد.');
+      setTimeout(() => setOperationError(''), 3500);
+      return;
     }
 
-    setMeetings([newMeeting, ...meetings]);
-    setActiveMeeting(newMeeting);
+    setMeetings((prev) => [persistedMeeting, ...prev]);
+    setActiveMeeting(persistedMeeting);
     setViewMode('hero');
     setCurrentTab('meetings');
   };
@@ -369,14 +419,18 @@ export default function App() {
     handleCreateNewMeeting(newMeeting);
   };
 
-  const handleLoginSuccess = (user: { name: string; email: string; role: OrganizationRole }) => {
+  const handleLoginSuccess = (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole }) => {
     const updated = {
       ...activeUser,
       name: user.name,
-      email: user.email,
+      phoneNumber: user.phoneNumber || activeUser.phoneNumber,
+      email: user.email || '',
       role: user.role,
     };
     setActiveUser(updated);
+    setIsAuthenticated(true);
+    setCurrentTab('meetings');
+    void loadMeetings();
     try {
       localStorage.setItem('metameet_user', JSON.stringify(updated));
     } catch {}
@@ -388,17 +442,23 @@ export default function App() {
     } catch {}
     const guestUser = {
       name: 'کاربر مهمان',
+      phoneNumber: '',
       email: '',
       role: 'Viewer' as OrganizationRole,
       avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80',
     };
     setActiveUser(guestUser);
+    setIsAuthenticated(false);
+    setMeetings([]);
+    setCurrentTab('auth');
     try {
       localStorage.removeItem('metameet_user');
     } catch {}
   };
 
-  const sealedCount = meetings.filter((m) => m.status === 'SEALED' || m.status === 'ARCHIVED').length;
+  const sealedCount = isAuthenticated
+    ? meetings.filter((m) => m.status === 'SEALED' || m.status === 'ARCHIVED').length
+    : 0;
 
   return (
     <div
@@ -406,6 +466,11 @@ export default function App() {
         isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'
       }`}
     >
+      {operationError && (
+        <div className="fixed top-4 left-1/2 z-[100] -translate-x-1/2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-lg">
+          {operationError}
+        </div>
+      )}
       {/* Ambient background glows */}
       <div className="fixed top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent rounded-full blur-3xl pointer-events-none -z-0" />
       <div className="fixed bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-sky-500/10 via-indigo-500/5 to-transparent rounded-full blur-3xl pointer-events-none -z-0" />
@@ -442,7 +507,7 @@ export default function App() {
             isDark={isDark}
             onToggleTheme={() => setIsDark(!isDark)}
             onOpenSearch={() => setIsSearchModalOpen(true)}
-            onOpenNotifications={() => setIsSearchModalOpen(true)}
+            onOpenNotifications={() => setIsNotificationsOpen(true)}
             onOpenProfile={() => setIsAuthModalOpen(true)}
             onOpenRoughNotes={() => setIsRoughNotesModalOpen(true)}
             currentUser={activeUser}
@@ -541,6 +606,7 @@ export default function App() {
         onClose={() => setIsSignModalOpen(false)}
         meeting={activeMeeting}
         onConfirmSignature={handleConfirmSignature}
+        currentUser={activeUser}
       />
 
       <SealingModal
@@ -566,6 +632,11 @@ export default function App() {
           setCurrentTab('meetings');
           setViewMode('hero');
         }}
+      />
+
+      <NotificationPanel
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
       />
 
       <AddParticipantModal
@@ -614,7 +685,7 @@ export default function App() {
           setActiveUser((prev) => ({ ...prev, role }));
         }}
         currentUserName={activeUser.name}
-        currentUserEmail={activeUser.email}
+        currentUserEmail={activeUser.phoneNumber}
         onLoginSuccess={handleLoginSuccess}
         onLogout={handleLogout}
       />

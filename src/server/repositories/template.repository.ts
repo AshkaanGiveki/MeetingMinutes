@@ -6,6 +6,10 @@ import { getDb } from '../db/mongodb';
 export class TemplateRepository {
   private templates: Map<string, Template> = new Map();
 
+  private get allowsLocalFallback() {
+    return process.env.NODE_ENV !== 'production';
+  }
+
   constructor() {
     sampleTemplates.forEach((t) => this.templates.set(t.id, { ...t }));
     logger.info(`Template repository initialized with ${this.templates.size} default templates.`);
@@ -16,17 +20,15 @@ export class TemplateRepository {
     if (db) {
       try {
         const docs = await db.collection('templates').find({}).toArray();
-        if (docs.length > 0) {
-          return docs.map((d) => {
-            const { _id, ...rest } = d;
-            return rest as unknown as Template;
-          });
-        }
+        return docs.map((d) => {
+          const { _id, ...rest } = d;
+          return rest as unknown as Template;
+        });
       } catch (err) {
         logger.warn('Failed to fetch templates from MongoDB:', { metadata: { error: String(err) } });
       }
     }
-    return Array.from(this.templates.values());
+    return this.allowsLocalFallback ? Array.from(this.templates.values()) : [];
   }
 
   async create(template: Template): Promise<Template> {
@@ -36,8 +38,12 @@ export class TemplateRepository {
       try {
         await db.collection('templates').insertOne({ ...template });
       } catch (err) {
+        if (!this.allowsLocalFallback) throw err;
         logger.warn('Failed to write template to MongoDB:', { metadata: { error: String(err) } });
       }
+    }
+    if (!getDb() && !this.allowsLocalFallback) {
+      throw new Error('Persistent database is required in production.');
     }
     logger.info(`Created template ${template.id}: ${template.title}`);
     return { ...template };
@@ -50,6 +56,7 @@ export class TemplateRepository {
       try {
         await db.collection('templates').deleteOne({ id });
       } catch (err) {
+        if (!this.allowsLocalFallback) throw err;
         logger.warn('Failed to delete template from MongoDB:', { metadata: { error: String(err) } });
       }
     }

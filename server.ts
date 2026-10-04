@@ -5,38 +5,75 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import cookieParser from 'cookie-parser';
 import { GoogleGenAI } from '@google/genai';
+import { Receiver } from '@upstash/qstash';
 
 import { logger } from './src/server/services/logger';
-import { authService } from './src/server/services/auth.service';
+import { authService, normalizePhoneNumber } from './src/server/services/auth.service';
+import type { AuthSession } from './src/server/services/auth.service';
 import { meetingRepository } from './src/server/repositories/meeting.repository';
-import { connectMongoDB } from './src/server/db/mongodb';
+import { connectMongoDB, getDb } from './src/server/db/mongodb';
 import { redisService } from './src/server/services/redis.service';
-import { queueManager } from './src/server/queues/queue.service';
+import { queueManager, QUEUE_NAMES, QueueJob, QueueName } from './src/server/queues/queue.service';
 import { telegramService } from './src/server/services/telegram.service';
+import { emailService } from './src/server/services/email.service';
+import { smsService } from './src/server/services/sms.service';
+import { notificationService } from './src/server/services/notification.service';
+import type { Meeting } from './src/types';
 import { initializeWorker } from './src/server/worker';
+import { documentExists, getMeetingPdfPath } from './src/server/services/document.service';
 import { templateRepository } from './src/server/repositories/template.repository';
 import { canTransitionMeeting, hasPermission, OrganizationRole } from './src/server/policies/rbac';
 import {
   SignDocumentSchema,
   CreateMeetingSchema,
   TelegramAuthVerifySchema,
+  AiSuggestSchema,
+  AiSuggestionResponseSchema,
 } from './src/server/schemas';
 
 dotenv.config();
+
+if (process.env.NODE_ENV === 'production') {
+  const requiredProductionEnv = ['APP_URL', 'MONGODB_URI', 'AUTH_SECRET'];
+  const missing = requiredProductionEnv.filter((key) => {
+    const value = process.env[key];
+    return !value || value.includes('YOUR_') || value.includes('<user>') || value.includes('<password>');
+  });
+  if (missing.length > 0) {
+    throw new Error(`Missing required production configuration: ${missing.join(', ')}`);
+  }
+  if (process.env.EMAIL_PROVIDER === 'smtp' && !process.env.SMTP_HOST) {
+    throw new Error('SMTP_HOST is required when EMAIL_PROVIDER=smtp.');
+  }
+  if (process.env.EMAIL_PROVIDER === 'resend' && !process.env.EMAIL_API_KEY) {
+    throw new Error('EMAIL_API_KEY is required when EMAIL_PROVIDER=resend.');
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'metameet_session';
+
+function canonicalize(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${canonicalize((value as Record<string, unknown>)[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
 
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
 // Initialize MongoDB Connection (if MONGODB_URI is provided)
-connectMongoDB().catch((err) => {
-  logger.warn('Initial MongoDB connection warning:', { metadata: { error: String(err) } });
-});
+connectMongoDB()
+  .then(() => authService.ensureBootstrapOwner(process.env.BOOTSTRAP_ADMIN_EMAIL, process.env.BOOTSTRAP_ADMIN_PASSWORD, process.env.BOOTSTRAP_ADMIN_NAME, process.env.BOOTSTRAP_ADMIN_PHONE))
+  .catch((err) => {
+    logger.warn('Initial MongoDB connection warning:', { metadata: { error: String(err) } });
+  });
 
 // Initialize background worker
 initializeWorker();
@@ -57,6 +94,67 @@ app.use((req, res, next) => {
   });
 
   next();
+});
+
+type RequestWithAuth = express.Request & { auth?: AuthSession };
+
+const publicApiPaths = [
+  /^\/api\/auth\/(login|register|forgot-password|reset-password|forgot-password-sms|reset-password-sms)$/,
+  /^\/api\/auth\/me$/,
+  /^\/api\/members\/invitations\/[^/]+\/accept$/,
+  /^\/api\/queues\/[^/]+$/,
+  /^\/api\/telegram\/webhook$/,
+  /^\/api\/health$/,
+  /^\/api\/ready$/,
+  /^\/api\/certificates\/[^/]+\/verify$/,
+  /^\/api\/documents\/[^/]+$/,
+];
+
+app.use(async (req, res, next) => {
+  if (!req.path.startsWith('/api/') || publicApiPaths.some((pattern) => pattern.test(req.path))) {
+    return next();
+  }
+
+  const token = req.cookies[SESSION_COOKIE_NAME];
+  const session = token ? await authService.verifySessionAsync(token) : null;
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+
+  (req as RequestWithAuth).auth = session;
+  return next();
+});
+
+function requirePermission(permission: Parameters<typeof hasPermission>[1]) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const auth = (req as RequestWithAuth).auth;
+    if (!auth || !hasPermission(auth.role as OrganizationRole, permission)) {
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
+    }
+    return next();
+  };
+}
+
+app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'metameet' }));
+
+app.get('/api/ready', (_req, res) => {
+  const databaseReady = Boolean(getDb());
+  const production = process.env.NODE_ENV === 'production';
+  const ready = !production || databaseReady;
+  return res.status(ready ? 200 : 503).json({
+    ok: ready,
+    service: 'metameet',
+    checks: { database: databaseReady, redis: true, configuration: true, queues: queueManager.getDiagnostics() },
+  });
+});
+
+app.get('/api/queue-dlq', requirePermission('organization.manage'), async (_req, res) => {
+  return res.json({ success: true, jobs: await queueManager.getDeadLetterQueueAsync() });
+});
+
+app.post('/api/queue-dlq/:id/replay', requirePermission('organization.manage'), async (req, res) => {
+  const replayed = await queueManager.replayDeadLetter(req.params.id);
+  return replayed ? res.json({ success: true }) : res.status(404).json({ error: 'Dead-letter job not found.' });
 });
 
 // Initialize Gemini Client
@@ -89,12 +187,12 @@ function isPasswordStrong(pwd: string): boolean {
   return true;
 }
 
-const passwordResetTokens = new Map<string, { email: string; code: string; expiresAt: number }>();
-const signatureOtpStore = new Map<string, { code: string; expiresAt: number }>();
+const passwordResetTokens = new Map<string, { phoneNumber?: string; email?: string; code: string; expiresAt: number; attempts?: number }>();
+const signatureOtpStore = new Map<string, { code: string; expiresAt: number; attempts?: number }>();
 
 app.post('/api/auth/register', async (req, res) => {
-  const { email, password, name, role } = req.body;
-  if (!email || !password || !name) {
+  const { phoneNumber, email = '', password, name } = req.body;
+  if (typeof phoneNumber !== 'string' || typeof password !== 'string' || typeof name !== 'string' || !phoneNumber.trim() || !name.trim()) {
     return res.status(400).json({ error: 'نام کامل، ایمیل سازمانی و رمز عبور الزامی است.' });
   }
 
@@ -105,12 +203,13 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   try {
-    const result = await authService.register(email, password, name, role || 'Participant');
+    // Public registration never accepts a privileged role from the client.
+    const result = await authService.register(email, password, name.trim(), 'Participant', 'org_main', phoneNumber);
     if (!result) {
       return res.status(400).json({ error: 'خطا در ثبت‌نام کاربر.' });
     }
 
-    res.cookie('metameet_session', result.sessionToken, {
+    res.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -124,7 +223,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/forgot-password', (req, res) => {
+app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'آدرس ایمیل الزامی است.' });
@@ -137,24 +236,35 @@ app.post('/api/auth/forgot-password', (req, res) => {
     code,
     expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
   });
+  await redisService.set(`password-reset:${email.toLowerCase()}`, JSON.stringify({ email: email.toLowerCase(), code, expiresAt: Date.now() + 10 * 60 * 1000, attempts: 0 }), 600);
 
-  logger.info(`Password reset requested for: ${email}, OTP Code: ${code}`);
+  logger.info(`Password reset requested for: ${email}`);
+  const delivery = await emailService.sendPasswordReset(email, code);
+  if (!delivery.success && process.env.NODE_ENV === 'production') {
+    return res.status(503).json({ error: 'Password reset email could not be delivered.' });
+  }
 
   return res.json({
     success: true,
     message: 'کد بازیابی ۶ رقمی به ایمیل سازمانی شما ارسال شد.',
-    demoCode: code,
+    ...(process.env.NODE_ENV !== 'production' ? { demoCode: code } : {}),
   });
 });
 
-app.post('/api/auth/reset-password', (req, res) => {
+app.post('/api/auth/reset-password', async (req, res) => {
   const { email, code, newPassword } = req.body;
   if (!email || !code || !newPassword) {
     return res.status(400).json({ error: 'ایمیل، کد تأیید و رمز عبور جدید الزامی هستند.' });
   }
 
-  const record = passwordResetTokens.get(email.toLowerCase());
+  const persistedRecord = await redisService.get(`password-reset:${email.toLowerCase()}`);
+  const record = persistedRecord ? JSON.parse(persistedRecord) as { email: string; code: string; expiresAt: number; attempts?: number } : passwordResetTokens.get(email.toLowerCase());
   if (!record || record.code !== String(code).trim() || record.expiresAt < Date.now()) {
+    if (record && persistedRecord) {
+      const attempts = (record.attempts || 0) + 1;
+      if (attempts >= 5) await redisService.del(`password-reset:${email.toLowerCase()}`);
+      else await redisService.set(`password-reset:${email.toLowerCase()}`, JSON.stringify({ ...record, attempts }), 600);
+    }
     return res.status(400).json({ error: 'کد تأیید نامعتبر است یا منقضی شده است.' });
   }
 
@@ -164,55 +274,119 @@ app.post('/api/auth/reset-password', (req, res) => {
     });
   }
 
-  const updated = authService.resetPassword(email.toLowerCase(), newPassword);
+  const updated = await authService.resetPasswordAsync(email.toLowerCase(), newPassword);
   if (!updated) {
     return res.status(404).json({ error: 'حساب کاربری با این ایمیل یافت نشد.' });
   }
 
   passwordResetTokens.delete(email.toLowerCase());
+  await redisService.del(`password-reset:${email.toLowerCase()}`);
   return res.json({ success: true, message: 'رمز عبور با موفقیت به‌روزرسانی شد. اکنون می‌توانید وارد شوید.' });
 });
 
 // -------------------------------------------------------------
 // Document Signature OTP Endpoints (2-Factor Legal Signing)
 // -------------------------------------------------------------
-app.post('/api/signature/otp/send', (req, res) => {
-  const { meetingId, signerEmail, signerPhone } = req.body;
+app.post('/api/auth/forgot-password-sms', async (req, res) => {
+  const { phoneNumber } = req.body || {};
+  if (typeof phoneNumber !== 'string') return res.status(400).json({ error: 'Phone number is required.' });
+  let normalizedPhone: string;
+  try { normalizedPhone = normalizePhoneNumber(phoneNumber); } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid phone number.' }); }
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 10 * 60 * 1000;
+  passwordResetTokens.set(normalizedPhone, { phoneNumber: normalizedPhone, code, expiresAt, attempts: 0 });
+  await redisService.set(`password-reset-phone:${normalizedPhone}`, JSON.stringify({ phoneNumber: normalizedPhone, code, expiresAt, attempts: 0 }), 600);
+  const delivery = await smsService.sendOtp(normalizedPhone, code);
+  if (!delivery.success && process.env.NODE_ENV === 'production') return res.status(503).json({ error: delivery.error || 'Password reset SMS could not be delivered.' });
+  return res.json({ success: true, ...(process.env.NODE_ENV !== 'production' ? { demoCode: code } : {}) });
+});
+
+app.post('/api/auth/reset-password-sms', async (req, res) => {
+  const { phoneNumber, code, newPassword } = req.body || {};
+  if (typeof phoneNumber !== 'string' || !code || typeof newPassword !== 'string') return res.status(400).json({ error: 'Phone number, code, and new password are required.' });
+  let normalizedPhone: string;
+  try { normalizedPhone = normalizePhoneNumber(phoneNumber); } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid phone number.' }); }
+  const persisted = await redisService.get(`password-reset-phone:${normalizedPhone}`);
+  const record = persisted ? JSON.parse(persisted) as { phoneNumber: string; code: string; expiresAt: number; attempts: number } : passwordResetTokens.get(normalizedPhone);
+  if (!record || record.code !== String(code).trim() || record.expiresAt < Date.now()) {
+    if (record && persisted) {
+      const attempts = (record.attempts || 0) + 1;
+      if (attempts >= 5) await redisService.del(`password-reset-phone:${normalizedPhone}`);
+      else await redisService.set(`password-reset-phone:${normalizedPhone}`, JSON.stringify({ ...record, attempts }), 600);
+    }
+    return res.status(400).json({ error: 'Invalid or expired verification code.' });
+  }
+  if (!isPasswordStrong(newPassword)) return res.status(400).json({ error: 'Password does not meet security requirements.' });
+  const updated = await authService.resetPasswordByPhoneAsync(normalizedPhone, newPassword);
+  if (!updated) return res.status(404).json({ error: 'No account was found for this phone number.' });
+  passwordResetTokens.delete(normalizedPhone);
+  await redisService.del(`password-reset-phone:${normalizedPhone}`);
+  return res.json({ success: true });
+});
+
+app.post('/api/signature/otp/send', async (req, res) => {
+  const { meetingId } = req.body;
+  const auth = (req as RequestWithAuth).auth!;
   if (!meetingId) {
     return res.status(400).json({ error: 'شناسه جلسه الزامی است.' });
   }
 
   const code = Math.floor(100000 + Math.random() * 900000).toString();
-  const key = `${meetingId}_${signerEmail || signerPhone || 'signer'}`;
+  const key = `${meetingId}_${auth.userId}`;
   signatureOtpStore.set(key, {
     code,
     expiresAt: Date.now() + 2 * 60 * 1000, // 2 minutes
   });
+  await redisService.set(`signature-otp:${key}`, JSON.stringify({
+    code,
+    expiresAt: Date.now() + 2 * 60 * 1000,
+    attempts: 0,
+  }), 120);
+  const delivery = await smsService.sendOtp(auth.phoneNumber, code);
+  if (!delivery.success && process.env.NODE_ENV === 'production') {
+    signatureOtpStore.delete(key);
+    await redisService.del(`signature-otp:${key}`);
+    return res.status(503).json({ error: delivery.error || 'Signature OTP SMS could not be delivered.' });
+  }
 
-  logger.info(`Signature OTP dispatched for meeting ${meetingId}: ${code}`);
+  logger.info(`Signature OTP dispatched for meeting ${meetingId}`);
   return res.json({
     success: true,
     message: 'کد یک‌بار مصرف ۶ رقمی جهت تأیید هویت و امضای رسمی ارسال گردید.',
-    demoOtp: code,
+    ...(process.env.NODE_ENV !== 'production' ? { demoOtp: code } : {}),
   });
 });
 
-app.post('/api/signature/otp/verify', (req, res) => {
-  const { meetingId, signerEmail, signerPhone, otp } = req.body;
-  const key = `${meetingId}_${signerEmail || signerPhone || 'signer'}`;
-  const record = signatureOtpStore.get(key);
+app.post('/api/signature/otp/verify', async (req, res) => {
+  const { meetingId, otp } = req.body;
+  const auth = (req as RequestWithAuth).auth!;
+  const key = `${meetingId}_${auth.userId}`;
+  const persisted = await redisService.get(`signature-otp:${key}`);
+  const record = persisted
+    ? JSON.parse(persisted) as { code: string; expiresAt: number; attempts: number }
+    : signatureOtpStore.get(key);
 
   if (!record || record.code !== String(otp).trim() || record.expiresAt < Date.now()) {
+    if (record && persisted) {
+      const attempts = (record.attempts || 0) + 1;
+      if (attempts >= 5) {
+        await redisService.del(`signature-otp:${key}`);
+      } else {
+        await redisService.set(`signature-otp:${key}`, JSON.stringify({ ...record, attempts }), 120);
+      }
+    }
     return res.status(400).json({ error: 'کد یک‌بار مصرف نامعتبر یا منقضی شده است.' });
   }
 
   signatureOtpStore.delete(key);
+  await redisService.del(`signature-otp:${key}`);
   return res.json({ success: true, verified: true });
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
+  const phoneNumber = req.body?.phoneNumber || req.body?.email;
+  const { password } = req.body;
+  if (!phoneNumber || !password) {
     return res.status(400).json({ error: 'ایمیل و رمز عبور الزامی است.' });
   }
 
@@ -222,12 +396,17 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(429).json({ error: 'تعداد تلاش‌های ناموفق بیش از حد مجاز است. لطفاً کمی صبر کنید.' });
   }
 
-  const result = await authService.login(email, password);
+  let result;
+  try {
+    result = await authService.login(phoneNumber, password);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid phone number.' });
+  }
   if (!result) {
     return res.status(401).json({ error: 'ایمیل یا رمز عبور اشتباه است.' });
   }
 
-  res.cookie('metameet_session', result.sessionToken, {
+  res.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -238,17 +417,18 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  const token = req.cookies['metameet_session'];
+  const token = req.cookies[SESSION_COOKIE_NAME];
   if (token) {
     authService.logout(token);
-    res.clearCookie('metameet_session');
+    res.clearCookie(SESSION_COOKIE_NAME);
   }
   return res.json({ success: true });
 });
 
-app.get('/api/auth/me', (req, res) => {
-  const token = req.cookies['metameet_session'];
+app.get('/api/auth/me', async (req, res) => {
+  const token = req.cookies[SESSION_COOKIE_NAME];
   if (!token) {
+    return res.status(401).json({ error: 'No active session.' });
     // Return default executive user session
     return res.json({
       user: {
@@ -260,7 +440,7 @@ app.get('/api/auth/me', (req, res) => {
     });
   }
 
-  const session = authService.verifySession(token);
+  const session = await authService.verifySessionAsync(token);
   if (!session) {
     return res.status(401).json({ error: 'نشست کاربری نامعتبر یا منقضی شده است.' });
   }
@@ -268,9 +448,158 @@ app.get('/api/auth/me', (req, res) => {
   return res.json({ user: session });
 });
 
+app.get('/api/settings', requirePermission('settings.manage'), async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const preferences = await authService.getPreferences(auth.userId);
+  return res.json({ success: true, preferences });
+});
+
+app.put('/api/profile', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  if (typeof req.body?.name !== 'string' || typeof req.body?.phoneNumber !== 'string') return res.status(400).json({ error: 'A valid name and phone number are required.' });
+  let updated = false;
+  try { updated = await authService.updateProfile(auth.userId, req.body.name, req.body.phoneNumber); } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid profile.' }); }
+  return updated ? res.json({ success: true, name: req.body.name.trim() }) : res.status(400).json({ error: 'Profile name is invalid.' });
+});
+
+app.get('/api/notifications', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const unreadOnly = String(req.query.unreadOnly || '') === 'true';
+  const notifications = await notificationService.list(auth.userId, unreadOnly);
+  return res.json({ success: true, notifications, unreadCount: notifications.filter((item) => !item.readAt).length });
+});
+
+app.post('/api/notifications/read-all', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  await notificationService.markAllRead(auth.userId);
+  return res.json({ success: true });
+});
+
+app.post('/api/notifications/:id/read', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const updated = await notificationService.markRead(auth.userId, req.params.id);
+  return updated ? res.json({ success: true }) : res.status(404).json({ error: 'Notification not found.' });
+});
+
+app.put('/api/settings', requirePermission('settings.manage'), async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const allowedKeys = ['emailNotification', 'telegramNotification', 'autoSeal'];
+  const preferences = Object.fromEntries(
+    Object.entries(req.body || {}).filter(([key, value]) => allowedKeys.includes(key) && typeof value === 'boolean'),
+  );
+  await authService.updatePreferences(auth.userId, preferences);
+  return res.json({ success: true, preferences });
+});
+
+app.get('/api/members', requirePermission('members.manage'), async (req, res) => {
+  return res.json({ success: true, members: await authService.listUsers((req as RequestWithAuth).auth!.organizationId) });
+});
+
+app.delete('/api/members/:id', requirePermission('members.manage'), async (req, res) => {
+  const removed = await authService.removeUser(req.params.id, (req as RequestWithAuth).auth!.organizationId);
+  if (!removed) return res.status(404).json({ error: 'Member could not be removed.' });
+  return res.json({ success: true });
+});
+
+app.post('/api/auth/logout-all', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth;
+  if (!auth) return res.status(401).json({ error: 'Authentication required.' });
+  await authService.logoutAll(auth.userId);
+  res.clearCookie(SESSION_COOKIE_NAME);
+  return res.json({ success: true });
+});
+
+app.post('/api/members/invite', requirePermission('members.manage'), async (req, res) => {
+  const { email = '', phoneNumber, name, role } = req.body || {};
+  if (!phoneNumber || !name || !role) return res.status(400).json({ error: 'Phone number, name, and role are required.' });
+  const auth = (req as RequestWithAuth).auth!;
+  const allowedRoles = ['Owner', 'Admin', 'Organizer', 'Editor', 'Reviewer', 'Participant', 'Viewer'];
+  if (!allowedRoles.includes(role)) return res.status(400).json({ error: 'Invalid member role.' });
+  if (auth.role !== 'Owner' && ['Owner', 'Admin'].includes(role)) {
+    return res.status(403).json({ error: 'Only owners can assign owner or admin roles.' });
+  }
+  const invitation = await authService.createMemberInvitation(
+    email,
+    name,
+    role,
+    auth.userId,
+    auth.organizationId,
+    phoneNumber,
+  );
+  const invitationUrl = `${process.env.APP_URL || ''}/accept-invitation/${invitation.token}`;
+  const delivery = await smsService.sendMessage(invitation.phoneNumber, `MetaMeet invitation: ${invitationUrl}`);
+  if (email) await emailService.sendMemberInvitation(invitation.email, invitation.name, invitationUrl);
+  if (!delivery.success && process.env.NODE_ENV === 'production') {
+    return res.status(503).json({ error: 'Invitation SMS could not be delivered.' });
+  }
+  return res.json({
+    success: true,
+    invitationUrl,
+    ...(process.env.NODE_ENV !== 'production' ? { invitationToken: invitation.token } : {}),
+  });
+});
+
+app.put('/api/members/:id/role', requirePermission('members.manage'), async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const role = req.body?.role;
+  const allowedRoles = ['Owner', 'Admin', 'Organizer', 'Editor', 'Reviewer', 'Participant', 'Viewer'];
+  if (!allowedRoles.includes(role)) return res.status(400).json({ error: 'Invalid member role.' });
+  if (auth.role !== 'Owner' && ['Owner', 'Admin'].includes(role)) return res.status(403).json({ error: 'Only owners can assign owner or admin roles.' });
+  if (req.params.id === auth.userId && role !== auth.role) return res.status(400).json({ error: 'You cannot change your own role.' });
+  const updated = await authService.updateUserRole(req.params.id, auth.organizationId, role);
+  return updated ? res.json({ success: true }) : res.status(404).json({ error: 'Member not found.' });
+});
+
+app.put('/api/members/:id/phone', requirePermission('members.manage'), async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  if (typeof req.body?.phoneNumber !== 'string') return res.status(400).json({ error: 'A valid phone number is required.' });
+  try {
+    const updated = await authService.updateUserPhone(req.params.id, auth.organizationId, req.body.phoneNumber);
+    return updated ? res.json({ success: true }) : res.status(409).json({ error: 'Phone number is already assigned or member was not found.' });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid phone number.' });
+  }
+});
+
+app.delete('/api/members/invitations/:token', requirePermission('members.manage'), async (req, res) => {
+  const cancelled = await authService.cancelMemberInvitation(
+    req.params.token,
+    (req as RequestWithAuth).auth!.organizationId,
+  );
+  return cancelled ? res.json({ success: true }) : res.status(404).json({ error: 'Invitation not found.' });
+});
+
+app.post('/api/members/invitations/:token/accept', async (req, res) => {
+  const { password } = req.body || {};
+  if (!password) return res.status(400).json({ error: 'Password is required.' });
+  try {
+    const result = await authService.acceptMemberInvitation(req.params.token, password);
+    if (!result) return res.status(400).json({ error: 'Invitation is invalid or expired.' });
+    res.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 3600 * 1000,
+    });
+    return res.json({ success: true, user: result.user });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Invitation acceptance failed.' });
+  }
+});
+
 // -------------------------------------------------------------
 // Meeting Endpoints
 // -------------------------------------------------------------
+app.use('/api/meetings/:id', async (req, res, next) => {
+  const auth = (req as RequestWithAuth).auth;
+  const meeting = await meetingRepository.getById(req.params.id);
+  const organizationId = (meeting as (typeof meeting & { organizationId?: string }) | null)?.organizationId;
+  if (!meeting || (organizationId && organizationId !== auth?.organizationId)) {
+    return res.status(404).json({ error: 'Meeting not found.' });
+  }
+  return next();
+});
+
 app.get('/api/meetings', async (req, res) => {
   const { search, status } = req.query;
   if (search || status) {
@@ -289,26 +618,102 @@ app.get('/api/meetings/:id', async (req, res) => {
   return res.json({ success: true, meeting });
 });
 
-app.post('/api/meetings', async (req, res) => {
+app.get('/api/meetings/:id/pdf', requirePermission('meeting.read'), async (req, res) => {
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
+  if (meeting.status !== 'SEALED' && meeting.status !== 'ARCHIVED') {
+    return res.status(400).json({ error: 'Only sealed or archived meetings can be downloaded.' });
+  }
+  if (!(await documentExists(meeting.id))) {
+    return res.status(404).json({ error: 'PDF artifact is not ready yet.' });
+  }
+  return res.download(getMeetingPdfPath(meeting.id), `${meeting.id}.pdf`);
+});
+
+app.post('/api/meetings/:id/pdf-link', requirePermission('meeting.read'), async (req, res) => {
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting || (meeting.status !== 'SEALED' && meeting.status !== 'ARCHIVED')) return res.status(404).json({ error: 'Sealed document not found.' });
+  if (!(await documentExists(meeting.id))) return res.status(404).json({ error: 'PDF artifact is not ready yet.' });
+  const token = crypto.randomBytes(32).toString('hex');
+  await redisService.set(`pdf-link:${token}`, JSON.stringify({ meetingId: meeting.id, organizationId: (req as RequestWithAuth).auth!.organizationId }), 900);
+  return res.json({ success: true, url: `${process.env.APP_URL || ''}/api/documents/${meeting.id}?token=${token}`, expiresInSeconds: 900 });
+});
+
+app.get('/api/documents/:id', async (req, res) => {
+  const token = String(req.query.token || '');
+  const stored = token ? await redisService.get(`pdf-link:${token}`) : null;
+  if (!stored) return res.status(401).json({ error: 'Download link is invalid or expired.' });
+  const link = JSON.parse(stored) as { meetingId: string };
+  if (link.meetingId !== req.params.id) return res.status(403).json({ error: 'Download link does not match the document.' });
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting || !(await documentExists(meeting.id))) return res.status(404).json({ error: 'PDF artifact not found.' });
+  await redisService.del(`pdf-link:${token}`);
+  return res.download(getMeetingPdfPath(meeting.id), `${meeting.id}.pdf`);
+});
+
+app.get('/api/meetings/:id/verify', requirePermission('meeting.read'), async (req, res) => {
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
+  const signatures = (meeting as Meeting & { signatures?: unknown[] }).signatures || [];
+  const canonicalDocument = {
+    actionItems: meeting.actionItems,
+    agenda: meeting.agenda,
+    decisions: meeting.decisions,
+    discussion: meeting.discussion,
+    signatures,
+    title: meeting.title,
+  };
+  const computedHash = crypto.createHash('sha256').update(canonicalize(canonicalDocument)).digest('hex');
+  return res.json({
+    success: true,
+    meetingId: meeting.id,
+    sealed: meeting.status === 'SEALED' || meeting.status === 'ARCHIVED',
+    valid: Boolean(meeting.documentHash) && meeting.documentHash === computedHash,
+    documentHash: meeting.documentHash || null,
+    computedHash,
+  });
+});
+
+app.get('/api/certificates/:id/verify', async (req, res) => {
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting || (meeting.status !== 'SEALED' && meeting.status !== 'ARCHIVED')) {
+    return res.status(404).json({ valid: false, error: 'Certificate not found.' });
+  }
+  const signatures = (meeting as Meeting & { signatures?: unknown[] }).signatures || [];
+  const canonicalDocument = {
+    actionItems: meeting.actionItems,
+    agenda: meeting.agenda,
+    decisions: meeting.decisions,
+    discussion: meeting.discussion,
+    signatures,
+    title: meeting.title,
+  };
+  const computedHash = crypto.createHash('sha256').update(canonicalize(canonicalDocument)).digest('hex');
+  return res.json({ valid: Boolean(meeting.documentHash) && meeting.documentHash === computedHash, meetingId: meeting.id, title: meeting.title, documentHash: meeting.documentHash });
+});
+
+app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) => {
   const parseResult = CreateMeetingSchema.safeParse(req.body);
   if (!parseResult.success) {
     return res.status(400).json({ error: parseResult.error.format() });
   }
 
   const data = parseResult.data;
+  const auth = (req as RequestWithAuth).auth!;
   const newMeeting = {
     id: `meet_${Date.now()}`,
     title: data.title,
+    organizationId: auth.organizationId,
     persianDate: data.persianDate,
     timeRange: data.timeRange,
     location: data.location,
     status: 'DRAFT' as const,
     statusLabel: 'پیش‌نویس',
     organizer: {
-      id: 'usr_arash',
+      id: auth.userId,
       name: 'آرش فتحی',
-      role: 'Owner',
-      email: 'arash.fathi@metameet.ir',
+      role: auth.role,
+      email: auth.email,
       hasSigned: true,
     },
     participants: [],
@@ -332,10 +737,18 @@ app.post('/api/meetings', async (req, res) => {
     documentHash: crypto.createHash('sha256').update(created.title).digest('hex'),
   });
 
+  await notificationService.create({
+    userId: auth.userId,
+    organizationId: auth.organizationId,
+    type: 'meeting',
+    title: 'Meeting created',
+    message: `Meeting "${created.title}" was created as a draft.`,
+    meetingId: created.id,
+  });
   return res.json({ success: true, meeting: created });
 });
 
-app.put('/api/meetings/:id', async (req, res) => {
+app.put('/api/meetings/:id', requirePermission('meeting.edit'), async (req, res) => {
   const meetingId = req.params.id;
   const existing = await meetingRepository.getById(meetingId);
   if (!existing) {
@@ -351,18 +764,54 @@ app.put('/api/meetings/:id', async (req, res) => {
 
   // State Transition Check
   if (req.body.status && req.body.status !== existing.status) {
-    const transitionCheck = canTransitionMeeting(existing.status, req.body.status, 'Owner');
+    const transitionCheck = canTransitionMeeting(
+      existing.status,
+      req.body.status,
+      (req as RequestWithAuth).auth!.role as OrganizationRole,
+    );
     if (!transitionCheck.allowed) {
       return res.status(400).json({ error: transitionCheck.reason });
     }
   }
 
-  const updated = await meetingRepository.update(meetingId, req.body);
+  const expectedVersion = req.body?.version === undefined ? undefined : Number(req.body.version);
+  if (expectedVersion !== undefined && !Number.isInteger(expectedVersion)) {
+    return res.status(400).json({ error: 'Invalid meeting version.' });
+  }
+  const { version: _version, ...updates } = req.body || {};
+  if (Array.isArray(updates.participants)) {
+    const ids = updates.participants.map((participant: { id?: string }) => participant?.id).filter(Boolean);
+    if (new Set(ids).size !== ids.length) return res.status(400).json({ error: 'Duplicate participants are not allowed.' });
+  }
+  const updated = await meetingRepository.update(meetingId, updates, expectedVersion);
+  if (!updated) return res.status(409).json({ error: 'Meeting changed on the server. Reload and retry.' });
+  return res.json({ success: true, meeting: updated });
+});
+
+app.post('/api/meetings/:id/archive', requirePermission('meeting.archive'), async (req, res) => {
+  const meeting = await meetingRepository.getById(req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
+  if (meeting.status !== 'SEALED') {
+    return res.status(400).json({ error: 'Only sealed meetings can be archived.' });
+  }
+
+  const updated = await meetingRepository.update(meeting.id, {
+    status: 'ARCHIVED',
+    statusLabel: 'Archived',
+  });
+  await meetingRepository.addAudit({
+    id: `aud_${Date.now()}`,
+    meetingId: meeting.id,
+    action: 'DOCUMENT_ARCHIVED',
+    actor: (req as RequestWithAuth).auth!.userId,
+    timestamp: new Date().toISOString(),
+    documentHash: meeting.documentHash || '',
+  });
   return res.json({ success: true, meeting: updated });
 });
 
 // Formal Review Workflow Endpoint
-app.post('/api/meetings/:id/review', async (req, res) => {
+app.post('/api/meetings/:id/review', requirePermission('meeting.review'), async (req, res) => {
   const meetingId = req.params.id;
   const { action, reviewerName, notes, section } = req.body;
 
@@ -458,7 +907,7 @@ app.get('/api/templates', async (_req, res) => {
   return res.json({ success: true, templates });
 });
 
-app.post('/api/templates', async (req, res) => {
+app.post('/api/templates', requirePermission('template.create'), async (req, res) => {
   const { title, category, description, agendaDefaults } = req.body;
   if (!title) {
     return res.status(400).json({ error: 'عنوان قالب الزامی است.' });
@@ -476,7 +925,7 @@ app.post('/api/templates', async (req, res) => {
   return res.json({ success: true, template: created });
 });
 
-app.delete('/api/templates/:id', async (req, res) => {
+app.delete('/api/templates/:id', requirePermission('template.delete'), async (req, res) => {
   await templateRepository.delete(req.params.id);
   return res.json({ success: true });
 });
@@ -484,13 +933,21 @@ app.delete('/api/templates/:id', async (req, res) => {
 // -------------------------------------------------------------
 // Digital Signature & Sealing Endpoints
 // -------------------------------------------------------------
-app.post('/api/signature/sign', async (req, res) => {
+app.post('/api/signature/sign', requirePermission('signature.sign'), async (req, res) => {
   const parseResult = SignDocumentSchema.safeParse(req.body);
   if (!parseResult.success) {
     return res.status(400).json({ error: parseResult.error.format() });
   }
 
-  const { meetingId, signerName, signerRole, signatureData, signatureType } = parseResult.data;
+  const { meetingId, signatureData, signatureType } = parseResult.data;
+  const authenticatedUser = (req as RequestWithAuth).auth!;
+  const signerName = authenticatedUser.name;
+  const signerRole = authenticatedUser.role;
+
+  const idempotencyKey = String(req.headers['idempotency-key'] || '').trim();
+  if (idempotencyKey && !(await redisService.checkIdempotency(`signature:${idempotencyKey}`))) {
+    return res.status(409).json({ error: 'This signature request has already been processed.' });
+  }
 
   // Rate Limit signatures per IP
   const rateLimit = await redisService.checkRateLimit(req.ip || 'ip', 'sign', 10, 60);
@@ -507,8 +964,32 @@ app.post('/api/signature/sign', async (req, res) => {
     return res.status(400).json({ error: 'این سند قبلاً مهر و موم شده و امکان ثبت امضای جدید ندارد.' });
   }
 
+  const isOrganizer = meeting.organizer?.id === authenticatedUser.userId;
+  const isParticipant = meeting.participants?.some((participant) => participant.id === authenticatedUser.userId);
+  if (!isOrganizer && !isParticipant) {
+    return res.status(403).json({ error: 'You are not an authorized signer for this meeting.' });
+  }
+
+  if (!['READY_FOR_SIGNATURE', 'SIGNING'].includes(meeting.status)) {
+    return res.status(400).json({ error: 'The meeting is not ready for signing.' });
+  }
+
+  const signatures = (meeting as typeof meeting & { signatures?: Array<{ signerId: string }> }).signatures || [];
+  if (signatures.some((signature) => signature.signerId === authenticatedUser.userId)) {
+    return res.status(409).json({ error: 'This user has already signed the meeting.' });
+  }
+
   // Compute SHA-256 integrity hash of document + signer
-  const contentToHash = `${meeting.id}:${meeting.title}:${meeting.discussion}:${signerName}:${Date.now()}`;
+  const contentToHash = JSON.stringify({
+    meetingId: meeting.id,
+    title: meeting.title,
+    discussion: meeting.discussion,
+    decisions: meeting.decisions,
+    agenda: meeting.agenda,
+    actionItems: meeting.actionItems,
+    signerId: authenticatedUser.userId,
+    signerName,
+  });
   const documentHash = crypto.createHash('sha256').update(contentToHash).digest('hex');
 
   const auditEntry = {
@@ -534,7 +1015,19 @@ app.post('/api/signature/sign', async (req, res) => {
 
   await meetingRepository.addAudit(auditEntry);
 
-  const newCount = meeting.signatureCount + 1;
+  const signatureRecord = {
+    id: `sig_${Date.now()}`,
+    meetingId,
+    signerId: authenticatedUser.userId,
+    signerName,
+    signerRole,
+    signatureType,
+    signatureData,
+    signedAt: new Date().toISOString(),
+    documentHash,
+  };
+  const updatedSignatures = [...signatures, signatureRecord];
+  const newCount = updatedSignatures.length;
   const isAllSigned = newCount >= meeting.totalSignaturesRequired;
 
   await meetingRepository.update(meetingId, {
@@ -542,7 +1035,8 @@ app.post('/api/signature/sign', async (req, res) => {
     status: isAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
     statusLabel: isAllSigned ? 'آماده امضا' : 'در حال امضا',
     documentHash,
-  });
+    signatures: updatedSignatures,
+  } as any);
 
   // Enqueue notification job
   await queueManager.enqueue('metameet.telegram.send', {
@@ -559,11 +1053,20 @@ app.post('/api/signature/sign', async (req, res) => {
   });
 });
 
-app.post('/api/meetings/seal', async (req, res) => {
+app.post('/api/meetings/seal', requirePermission('meeting.finalize'), async (req, res) => {
   const { meetingId } = req.body;
   const meeting = await meetingRepository.getById(meetingId);
   if (!meeting) {
     return res.status(404).json({ error: 'جلسه پیدا نشد.' });
+  }
+
+  if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') {
+    return res.status(409).json({ error: 'The meeting is already sealed or archived.' });
+  }
+
+  const persistedSignatures = (meeting as typeof meeting & { signatures?: unknown[] }).signatures || [];
+  if (persistedSignatures.length < meeting.totalSignaturesRequired) {
+    return res.status(400).json({ error: 'All required signatures must be completed before sealing.' });
   }
 
   // Acquire distributed lock for sealing
@@ -573,13 +1076,13 @@ app.post('/api/meetings/seal', async (req, res) => {
   }
 
   try {
-    const finalContent = JSON.stringify({
-      title: meeting.title,
-      discussion: meeting.discussion,
-      decisions: meeting.decisions,
-      agenda: meeting.agenda,
+    const finalContent = canonicalize({
       actionItems: meeting.actionItems,
-      signatures: meeting.signatureCount,
+      agenda: meeting.agenda,
+      decisions: meeting.decisions,
+      discussion: meeting.discussion,
+      signatures: persistedSignatures,
+      title: meeting.title,
     });
 
     const sealHash = crypto.createHash('sha256').update(finalContent).digest('hex');
@@ -591,12 +1094,13 @@ app.post('/api/meetings/seal', async (req, res) => {
       minute: '2-digit',
     }).format(new Date());
 
-    await meetingRepository.update(meetingId, {
+    const sealedMeeting = await meetingRepository.update(meetingId, {
       status: 'SEALED',
       statusLabel: 'مهر و موم شده',
       sealedAt,
       documentHash: sealHash,
     });
+    if (!sealedMeeting) return res.status(409).json({ error: 'Meeting changed while sealing. Retry.' });
 
     await meetingRepository.addAudit({
       id: `aud_${Date.now()}`,
@@ -625,15 +1129,37 @@ app.post('/api/meetings/seal', async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Telegram WebApp & Webhook Endpoints
+// Telegram bot, account-linking, and callback endpoints
 // -------------------------------------------------------------
+async function recordTelegramSignature(meetingId: string, userId: string, chatId: string) {
+  const user = await authService.findById(userId);
+  const meeting = await meetingRepository.getById(meetingId);
+  if (!user || !meeting) return { ok: false as const, status: 404, message: 'جلسه یا کاربر یافت نشد.' };
+  if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') return { ok: false as const, status: 400, message: 'این صورت‌جلسه قبلاً نهایی شده است.' };
+  if (!['READY_FOR_SIGNATURE', 'SIGNING'].includes(meeting.status)) return { ok: false as const, status: 400, message: 'این صورت‌جلسه هنوز آماده امضا نیست.' };
+  const allowed = meeting.organizer?.id === user.id || meeting.participants?.some((participant) => participant.id === user.id);
+  if (!allowed) return { ok: false as const, status: 403, message: 'این کاربر امضاکننده مجاز این صورت‌جلسه نیست.' };
+  const signatures = (meeting as typeof meeting & { signatures?: Array<{ signerId: string }> }).signatures || [];
+  if (signatures.some((signature) => signature.signerId === user.id)) return { ok: false as const, status: 409, message: 'این کاربر قبلاً صورت‌جلسه را امضا کرده است.' };
+  const signerName = user.name;
+  const contentToHash = canonicalize({ meetingId: meeting.id, title: meeting.title, discussion: meeting.discussion, decisions: meeting.decisions, agenda: meeting.agenda, actionItems: meeting.actionItems, signerId: user.id, signerName });
+  const documentHash = crypto.createHash('sha256').update(contentToHash).digest('hex');
+  const signatureId = `sig_${crypto.randomUUID()}`;
+  await meetingRepository.addAudit({ id: `aud_${crypto.randomUUID()}`, meetingId, action: 'SIGNATURE_COMPLETED', actor: `${signerName} (Telegram)`, timestamp: new Date().toISOString(), documentHash, metadata: { authMethod: 'Telegram Persian bot', chatId } });
+  const updatedSignatures = [...signatures, { id: signatureId, meetingId, signerId: user.id, signerName, signerRole: user.role, signatureType: 'telegram' as const, signatureData: `telegram:${chatId}`, signedAt: new Date().toISOString(), documentHash }];
+  const isAllSigned = updatedSignatures.length >= meeting.totalSignaturesRequired;
+  await meetingRepository.update(meetingId, { signatureCount: updatedSignatures.length, status: isAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING', statusLabel: isAllSigned ? 'آماده امضا' : 'در حال امضا', documentHash, signatures: updatedSignatures } as any);
+  return { ok: true as const, signatureId, documentHash, meetingTitle: meeting.title };
+}
+
 app.post('/api/telegram/verify', (req, res) => {
+  return res.status(410).json({ error: 'ورود از طریق Telegram WebApp پشتیبانی نمی‌شود؛ ربات فارسی را به حساب خود متصل کنید.' });
   const parseResult = TelegramAuthVerifySchema.safeParse(req.body);
   if (!parseResult.success) {
     return res.status(400).json({ error: 'فرمت داده‌های ورود تلگرام نامعتبر است.' });
   }
 
-  const verification = telegramService.verifyInitData(parseResult.data.initData);
+  const verification = telegramService.verifyInitData(parseResult.data!.initData);
   if (!verification.valid) {
     return res.status(401).json({ error: verification.error || 'اعتبارسنجی هویت تلگرام ناموفق بود.' });
   }
@@ -641,38 +1167,119 @@ app.post('/api/telegram/verify', (req, res) => {
   return res.json({ success: true, user: verification.user });
 });
 
-app.post('/api/telegram/webhook', (req, res) => {
+app.post('/api/telegram/webhook', async (req, res) => {
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (expectedSecret && req.headers['x-telegram-bot-api-secret-token'] !== expectedSecret) {
+    return res.status(401).json({ error: 'Invalid Telegram webhook secret.' });
+  }
   const update = req.body;
+  const messageText = update?.message?.text;
+  const chatId = update?.message?.chat?.id;
+  if (typeof messageText === 'string' && typeof chatId === 'number' && messageText.startsWith('/link ')) {
+    const token = messageText.slice(6).trim();
+    const linkRecord = await redisService.get(`telegram-link:${token}`);
+    if (linkRecord) {
+      const parsed = JSON.parse(linkRecord) as { userId: string; organizationId: string };
+      const linked = await authService.linkTelegramChat(parsed.userId, parsed.organizationId, String(chatId));
+      await redisService.del(`telegram-link:${token}`);
+      if (linked) await telegramService.sendNotification(chatId, '✅ حساب تلگرام شما با موفقیت به متامیت متصل شد.');
+    }
+  }
+  const callback = update?.callback_query;
+  const callbackData = callback?.data;
+  if (typeof callbackData === 'string' && callbackData.startsWith('mm:')) {
+    const callbackChatId = callback?.message?.chat?.id;
+    const telegramUserId = callback?.from?.id;
+    const [, action, token] = callbackData.split(':');
+    if (typeof callbackChatId === 'number' && typeof telegramUserId === 'number' && token && (action === 'accept' || action === 'reject')) {
+      const stored = await redisService.get(`telegram-sign:${token}`);
+      let resultText = 'درخواست نامعتبر یا منقضی شده است.';
+      if (stored) {
+        const request = JSON.parse(stored) as { meetingId: string; userId: string; organizationId: string; chatId: string; state?: string };
+        if (String(callbackChatId) !== request.chatId || request.state) {
+          resultText = request.state ? 'این درخواست قبلاً پاسخ داده شده است.' : 'این درخواست برای حساب تلگرام دیگری است.';
+        } else if (action === 'reject') {
+          await redisService.set(`telegram-sign:${token}`, JSON.stringify({ ...request, state: 'rejected' }), 86400);
+          const meeting = await meetingRepository.getById(request.meetingId);
+          if (meeting) await meetingRepository.addAudit({ id: `aud_${crypto.randomUUID()}`, meetingId: request.meetingId, action: 'TELEGRAM_SIGNATURE_REJECTED', actor: request.userId, timestamp: new Date().toISOString(), documentHash: meeting.documentHash || '', metadata: { chatId: request.chatId } });
+          resultText = 'درخواست امضا رد شد.';
+        } else {
+          const linkedUser = await authService.findByTelegramChat(String(telegramUserId));
+          if (!linkedUser || linkedUser.id !== request.userId || linkedUser.organizationId !== request.organizationId) resultText = 'حساب تلگرام شما به این کاربر متصل نیست.';
+          else {
+            const signed = await recordTelegramSignature(request.meetingId, request.userId, request.chatId);
+            resultText = signed.ok ? '✅ امضا با موفقیت ثبت شد.' : signed.message;
+            if (signed.ok) await redisService.set(`telegram-sign:${token}`, JSON.stringify({ ...request, state: 'accepted' }), 86400);
+          }
+        }
+      }
+      if (callback?.id) await telegramService.answerCallbackQuery(String(callback.id), resultText);
+    }
+  }
   logger.info('Telegram webhook payload received', { metadata: { updateId: update?.update_id } });
   return res.json({ ok: true });
 });
 
 app.post('/api/telegram/send-pm', async (req, res) => {
-  const { chatId, meetingId } = req.body;
+  const { meetingId } = req.body;
+  const auth = (req as RequestWithAuth).auth!;
+  const user = await authService.findById(auth.userId, auth.organizationId);
+  const chatId = user?.telegramChatId;
+  if (!user || !chatId) return res.status(400).json({ error: 'ابتدا حساب تلگرام خود را متصل کنید.' });
   const meeting = await meetingRepository.getById(meetingId);
   if (!meeting) {
     return res.status(404).json({ error: 'صورت‌جلسه یافت نشد.' });
   }
 
-  const success = await telegramService.sendSignRequestPM(
-    chatId || '@arash_fathi',
-    meeting.id,
-    meeting.title,
-    meeting.organizer.name
-  );
+  const isSigner = meeting.organizer?.id === auth.userId || meeting.participants?.some((participant) => participant.id === auth.userId);
+  if (!isSigner) return res.status(403).json({ error: 'شما امضاکننده این صورت‌جلسه نیستید.' });
+  const actionToken = crypto.randomBytes(18).toString('base64url');
+  await redisService.set(`telegram-sign:${actionToken}`, JSON.stringify({ meetingId: meeting.id, userId: auth.userId, organizationId: auth.organizationId, chatId: String(chatId) }), 48 * 60 * 60);
+  const success = await telegramService.sendSignRequestPM(chatId, meeting.id, meeting.title, meeting.organizer.name, actionToken);
 
   return res.json({ success, message: 'پیام تایید و امضای مستقیم تلگرام ارسال گردید.' });
 });
 
+app.post('/api/telegram/link-token', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const token = crypto.randomBytes(24).toString('hex');
+  await redisService.set(`telegram-link:${token}`, JSON.stringify({ userId: auth.userId, organizationId: auth.organizationId }), 600);
+  return res.json({ success: true, token, expiresInSeconds: 600 });
+});
+
 app.post('/api/telegram/auto-sign', async (req, res) => {
-  const { meetingId, telegramUser } = req.body;
-  const meeting = await meetingRepository.getById(meetingId);
+  return res.status(410).json({ error: 'این مسیر حذف شده است؛ از دکمه‌های ربات فارسی تلگرام استفاده کنید.' });
+  /* Legacy WebApp implementation retained temporarily for old clients. */
+  const { meetingId, initData } = req.body;
+  const verification = typeof initData === 'string'
+    ? telegramService.verifyInitData(initData)
+    : { valid: false, error: 'Telegram initData is required.' };
+  if (!verification.valid || !verification.user) {
+    return res.status(401).json({ error: verification.error || 'Telegram identity could not be verified.' });
+  }
+  const telegramUser = verification.user as NonNullable<typeof verification.user>;
+  const meeting = await meetingRepository.getById(meetingId) as Meeting;
   if (!meeting) {
     return res.status(404).json({ error: 'صورت‌جلسه یافت نشد.' });
   }
 
   const signerName = telegramUser?.first_name || 'کاربر تلگرام';
-  const contentToHash = `${meeting.id}:${meeting.title}:telegram:${signerName}:${Date.now()}`;
+  if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') {
+    return res.status(400).json({ error: 'The meeting is already sealed or archived.' });
+  }
+  const signerId = `telegram:${telegramUser.id}`;
+  const linkedUser = await authService.findByTelegramChat(String(telegramUser.id));
+  const telegramParticipant = meeting.participants?.some((participant) => participant.id === signerId || participant.id === linkedUser?.id || participant.email === linkedUser?.email)
+    || meeting.organizer?.id === signerId
+    || meeting.organizer?.id === linkedUser?.id;
+  if (!telegramParticipant) {
+    return res.status(403).json({ error: 'This Telegram account is not an authorized participant for the meeting.' });
+  }
+  const signatures = (meeting as typeof meeting & { signatures?: Array<{ signerId: string }> }).signatures || [];
+  if (signatures.some((signature) => signature.signerId === signerId)) {
+    return res.status(409).json({ error: 'This Telegram user has already signed the meeting.' });
+  }
+  const contentToHash = JSON.stringify({ meetingId: meeting.id, title: meeting.title, signerId, signerName });
   const documentHash = crypto.createHash('sha256').update(contentToHash).digest('hex');
 
   const auditEntry = {
@@ -694,7 +1301,18 @@ app.post('/api/telegram/auto-sign', async (req, res) => {
   };
 
   await meetingRepository.addAudit(auditEntry);
-  const newCount = meeting.signatureCount + 1;
+  const updatedSignatures = [...signatures, {
+    id: `sig_${Date.now()}`,
+    meetingId,
+    signerId,
+    signerName,
+    signerRole: 'Telegram Participant',
+    signatureType: 'telegram' as const,
+    signatureData: `telegram:${telegramUser.id}`,
+    signedAt: new Date().toISOString(),
+    documentHash,
+  }];
+  const newCount = updatedSignatures.length;
   const isAllSigned = newCount >= meeting.totalSignaturesRequired;
 
   await meetingRepository.update(meetingId, {
@@ -702,7 +1320,8 @@ app.post('/api/telegram/auto-sign', async (req, res) => {
     status: isAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
     statusLabel: isAllSigned ? 'آماده امضا' : 'در حال امضا',
     documentHash,
-  });
+    signatures: updatedSignatures,
+  } as any);
 
   return res.json({
     success: true,
@@ -714,13 +1333,16 @@ app.post('/api/telegram/auto-sign', async (req, res) => {
 // -------------------------------------------------------------
 // Transactional Email Invitations Endpoint
 // -------------------------------------------------------------
-app.post('/api/email/invite', async (req, res) => {
+app.post('/api/email/invite', requirePermission('participant.invite'), async (req, res) => {
   const { email, meetingId, signerName } = req.body;
   if (!email || !meetingId) {
     return res.status(400).json({ error: 'ایمیل و شناسه جلسه الزامی است.' });
   }
 
   const meeting = await meetingRepository.getById(meetingId);
+  if (!meeting) {
+    return res.status(404).json({ error: 'Meeting not found.' });
+  }
   const token = authService.createGuestSigningToken(meetingId, email);
   const signingLink = `${process.env.APP_URL || 'https://metameet.ir'}/meeting/${meetingId}?token=${token}`;
 
@@ -740,20 +1362,67 @@ app.post('/api/email/invite', async (req, res) => {
   return res.json({ success: true, message: 'دعوت‌نامه به صف ارسال افزوده شد.' });
 });
 
+app.post('/api/queues/:queue', async (req, res) => {
+  const queue = req.params.queue as QueueName;
+  if (!QUEUE_NAMES.includes(queue)) return res.status(404).json({ error: 'Unknown queue.' });
+
+  const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
+  const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY;
+  const signature = req.headers['upstash-signature'];
+  if (currentSigningKey || nextSigningKey) {
+    if (typeof signature !== 'string') return res.status(401).json({ error: 'Missing QStash signature.' });
+    const receiver = new Receiver({ currentSigningKey, nextSigningKey });
+    try {
+      await receiver.verify({
+        signature,
+        body: JSON.stringify(req.body),
+        url: `${process.env.APP_URL || ''}${req.originalUrl}`,
+      });
+    } catch {
+      return res.status(401).json({ error: 'Invalid QStash signature.' });
+    }
+  } else if (process.env.NODE_ENV === 'production') {
+    return res.status(503).json({ error: 'QStash signing keys are not configured.' });
+  }
+
+  try {
+    await queueManager.processExternalJob(req.body as QueueJob);
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Queue processing failed.' });
+  }
+});
+
 // -------------------------------------------------------------
 // Audit Trail Endpoint
 // -------------------------------------------------------------
-app.get('/api/audit/:meetingId', async (req, res) => {
-  const logs = await meetingRepository.getAuditLogs(req.params.meetingId);
-  return res.json({ success: true, logs });
+app.get('/api/audit/:meetingId', requirePermission('audit.read'), async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+  const logs = await meetingRepository.getAuditLogs(req.params.meetingId, page, limit);
+  return res.json({ success: true, logs, page, limit, hasMore: logs.length === limit });
 });
 
 // -------------------------------------------------------------
 // AI Assistant Endpoint (Powered by Gemini)
 // -------------------------------------------------------------
-app.post('/api/ai/suggest', async (req, res) => {
+app.post('/api/ai/suggest', requirePermission('meeting.read'), async (req, res) => {
   try {
-    const { action, text, meetingTitle, agenda } = req.body;
+    const parseResult = AiSuggestSchema.safeParse(req.body);
+    if (!parseResult.success) return res.status(400).json({ error: parseResult.error.format() });
+    const { action, text, meetingTitle, agenda, meetingId } = parseResult.data;
+    const auth = (req as RequestWithAuth).auth!;
+    if (meetingId) {
+      const meeting = await meetingRepository.getById(meetingId);
+      if (!meeting || ((meeting as Meeting & { organizationId?: string }).organizationId && (meeting as Meeting & { organizationId?: string }).organizationId !== auth.organizationId)) {
+        return res.status(404).json({ error: 'Meeting not found.' });
+      }
+      if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') return res.status(400).json({ error: 'AI changes are disabled for sealed meetings.' });
+    }
+    const persistAiSuggestion = async (data: unknown) => {
+      const db = getDb();
+      if (db && meetingId) await db.collection('ai_suggestions').insertOne({ meetingId, userId: auth.userId, action, data, createdAt: new Date().toISOString() });
+    };
 
     // Rate Limit AI requests
     const rateLimit = await redisService.checkRateLimit(req.ip || 'ip', 'ai', 20, 60);
@@ -809,8 +1478,10 @@ ${text}
         });
 
         const responseText = response.text || '{}';
-        const parsed = JSON.parse(responseText);
-        return res.json({ success: true, data: parsed });
+        const parsed = AiSuggestionResponseSchema.safeParse(JSON.parse(responseText));
+        if (!parsed.success) throw new Error('AI response did not match the expected structure.');
+        await persistAiSuggestion(parsed.data);
+        return res.json({ success: true, data: parsed.data });
       } catch (geminiErr: unknown) {
         const geminiMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
         logger.warn('Gemini API call failed, activating resilient built-in Persian NLP minutes engine:', {
@@ -880,6 +1551,18 @@ ${text}
       },
     });
   }
+});
+
+// Keep API failures JSON-shaped and avoid leaking implementation details.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'API endpoint not found.' });
+});
+
+app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const message = error instanceof Error ? error.message : String(error);
+  logger.error('Unhandled request error:', { route: req.originalUrl, metadata: { error: message } });
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'Internal server error.' });
 });
 
 // -------------------------------------------------------------
