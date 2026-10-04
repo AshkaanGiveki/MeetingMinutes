@@ -93,7 +93,7 @@ export default function App() {
     if (data?.meetings) {
       setMeetings(data.meetings);
       if (data.meetings.length > 0) {
-        setActiveMeeting((current) => data.meetings.find((m: Meeting) => m.id === current.id) || data.meetings[0]);
+        setActiveMeeting((current) => data.meetings.find((m: Meeting) => m.id === current?.id) || data.meetings[0]);
       }
     }
   };
