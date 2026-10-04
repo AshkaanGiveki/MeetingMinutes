@@ -539,10 +539,23 @@ export default function App() {
       </div>
     );
   }
+  if (!isAuthenticated && currentTab === 'auth') {
+    return (
+      <main className={`min-h-screen flex items-center justify-center px-4 py-10 ${isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'}`}>
+        <AuthView
+          onLoginSuccess={(user) => {
+            handleLoginSuccess(user);
+            window.history.replaceState({}, '', '/');
+          }}
+          onBackToApp={() => setCurrentTab('meetings')}
+        />
+      </main>
+    );
+  }
 
   return (
     <div
-      className={`min-h-screen flex text-slate-800 transition-colors duration-300 font-sans ${
+      className={`min-h-screen flex gap-3 p-3 text-slate-800 transition-colors duration-300 font-sans ${
         isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'
       }`}
     >
@@ -560,7 +573,7 @@ export default function App() {
         In standard Persian RTL (<html dir="rtl">), the first flex child is docked at the visual RIGHT edge.
         This provides a full-height, modern enterprise navigation sidebar directly on the right!
       */}
-      <div className="no-print">
+      <div className="no-print shrink-0">
         <RightSidebar
           currentTab={currentTab}
           onTabChange={(tab) => {
@@ -580,7 +593,7 @@ export default function App() {
       </div>
 
       {/* Main Workspace Frame to the left */}
-      <div className="flex-1 flex flex-col min-w-0 z-10 overflow-hidden">
+      <div className="flex-1 min-w-0 min-h-0 z-10 overflow-hidden rounded-3xl border border-slate-200/70 bg-white/20 shadow-sm dark:border-slate-800/80 dark:bg-slate-950/20">
         {/* Top Header */}
         <div className="no-print">
           <TopBar

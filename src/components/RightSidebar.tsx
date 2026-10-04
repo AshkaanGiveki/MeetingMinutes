@@ -94,7 +94,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   return (
     <aside
-      className={`h-screen sticky top-0 flex flex-col justify-between border-l z-30 transition-all duration-300 select-none ${
+      className={`h-[calc(100vh-1.5rem)] sticky top-3 flex flex-col justify-between rounded-3xl border z-30 transition-all duration-300 select-none ${
         isCollapsed ? 'w-20' : 'w-64'
       } ${
         isDark

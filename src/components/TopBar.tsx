@@ -19,8 +19,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenNotifications,
   onOpenRoughNotes,
 }) => (
-  <header className="h-16 px-6 flex items-center justify-between z-10 border-b border-slate-200/60 dark:border-slate-800/60 bg-white/40 dark:bg-slate-900/40 backdrop-blur-md">
-    <div className="flex items-center gap-3">
+  <header className="mx-3 mt-3 h-[4.5rem] rounded-3xl border border-white/80 bg-white/70 px-4 shadow-sm shadow-slate-200/30 backdrop-blur-2xl dark:border-slate-800/80 dark:bg-slate-900/70 dark:shadow-black/20 sm:px-5" dir="ltr">
+    <div className="grid h-full grid-cols-[1fr_minmax(220px,520px)_1fr] items-center gap-3">
+      <div className="flex items-center justify-start gap-2" dir="rtl">
       {onOpenRoughNotes && (
         <button onClick={onOpenRoughNotes} className="hidden sm:flex items-center gap-1.5 py-1.5 px-3 rounded-full bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60 text-xs font-semibold cursor-pointer shadow-xs transition-all">
           <Sparkles className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
@@ -33,13 +34,14 @@ export const TopBar: React.FC<TopBarProps> = ({
       </button>
       <ThemeToggleButton isDark={isDark} onToggleTheme={onToggleTheme} />
     </div>
-    <div className="w-full max-w-md mx-6">
-      <button onClick={onOpenSearch} className="w-full h-10 px-4 rounded-xl bg-white/90 dark:bg-slate-800/80 backdrop-blur-xs border border-slate-200/80 dark:border-slate-700/60 shadow-xs flex items-center justify-between text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:border-indigo-300 dark:hover:border-indigo-600 transition-all cursor-pointer group">
+    <div className="w-full max-w-xl justify-self-center">
+      <button onClick={onOpenSearch} className="group flex h-11 w-full items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/90 px-4 text-right shadow-sm shadow-slate-200/30 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/10 dark:border-slate-700/80 dark:bg-slate-800/90 dark:shadow-black/10 dark:hover:border-indigo-600" dir="rtl">
         <div className="flex items-center gap-2.5 text-xs"><Search className="w-4 h-4 text-slate-400 group-hover:text-indigo-500 transition-colors" /><span>جستجو در صورت‌جلسات، مصوبات و اعضا...</span></div>
         <kbd className="hidden sm:inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-slate-600">⌘ K</kbd>
       </button>
     </div>
-    <div className="w-16 hidden md:block" />
+    <div className="w-16 justify-self-end" />
+    </div>
   </header>
 );
 
