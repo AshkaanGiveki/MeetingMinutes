@@ -94,15 +94,25 @@ export default function App() {
   const [operationError, setOperationError] = useState('');
   const canCreateMeeting = ['Owner', 'Admin', 'Organizer'].includes(activeUser.role);
 
+  const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  };
+
   const loadOrganizations = async () => {
-    const response = await fetch('/api/organizations');
+    const response = await fetchWithTimeout('/api/organizations');
     if (!response.ok) throw new Error('Unable to load organizations');
     const data = await response.json();
     return data.organizations || [];
   };
 
   const loadMeetings = async () => {
-    const response = await fetch('/api/meetings');
+    const response = await fetchWithTimeout('/api/meetings');
     if (!response.ok) throw new Error('Unable to load meetings');
     const data = await response.json();
     if (data?.meetings) {
@@ -123,7 +133,7 @@ export default function App() {
     let cancelled = false;
     const bootstrap = async () => {
       try {
-        const response = await fetch('/api/auth/me');
+        const response = await fetchWithTimeout('/api/auth/me', {}, 10000);
         const data = await response.json();
         if (cancelled) return;
         if (!data?.user) {
@@ -140,10 +150,16 @@ export default function App() {
           role: (data.user.role as OrganizationRole) || prev.role,
           organizationId: data.user.organizationId || prev.organizationId,
         }));
-        await Promise.all([loadMeetings(), loadOrganizations()]);
-        if (!cancelled) {
-          setIsAuthenticated(true);
-          setCurrentTab('meetings');
+        // Authentication is sufficient to render the shell. Secondary data loads are
+        // independent and bounded so one stalled endpoint can never strand the app on
+        // the bootstrap screen.
+        setIsAuthenticated(true);
+        setCurrentTab('meetings');
+        setIsBootstrapping(false);
+        const results = await Promise.allSettled([loadMeetings(), loadOrganizations()]);
+        if (!cancelled && results.some((result) => result.status === 'rejected')) {
+          setOperationError('بخشی از اطلاعات بارگذاری نشد. برای تلاش دوباره صفحه را تازه‌سازی کنید.');
+          setTimeout(() => setOperationError(''), 5000);
         }
       } catch {
         if (!cancelled) {
@@ -478,7 +494,7 @@ export default function App() {
     setActiveUser(updated);
     setIsAuthenticated(true);
     setCurrentTab('meetings');
-    void Promise.all([loadMeetings(), loadOrganizations()]);
+    void Promise.allSettled([loadMeetings(), loadOrganizations()]);
     try {
       localStorage.setItem('metameet_user', JSON.stringify(updated));
     } catch {}
