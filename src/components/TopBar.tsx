@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { Search, Bell, Moon, Sun, Sparkles } from 'lucide-react';
 
 interface TopBarProps {
@@ -49,8 +50,10 @@ interface ThemeToggleButtonProps {
 
 const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({ isDark, onToggleTheme }) => {
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const transitionActiveRef = useRef(false);
 
   const handleClick = () => {
+    if (transitionActiveRef.current) return;
     const nextTheme = isDark ? 'light' : 'dark';
     const viewTransitionDocument = document as Document & {
       startViewTransition?: (callback: () => void) => { finished: Promise<void> };
@@ -76,15 +79,25 @@ const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({ isDark, onToggleT
     root.style.setProperty('--theme-transition-radius', `${radius}px`);
     root.classList.add(`theme-transition-to-${nextTheme}`);
 
-    const transition = viewTransitionDocument.startViewTransition(() => {
-      onToggleTheme();
-    });
-    transition.finished.finally(() => {
+    const cleanup = () => {
+      transitionActiveRef.current = false;
       root.classList.remove('theme-transition-to-dark', 'theme-transition-to-light');
       root.style.removeProperty('--theme-transition-x');
       root.style.removeProperty('--theme-transition-y');
       root.style.removeProperty('--theme-transition-radius');
-    });
+    };
+
+    transitionActiveRef.current = true;
+    try {
+      const transition = viewTransitionDocument.startViewTransition(() => {
+        // React must commit synchronously so the API captures a real new snapshot.
+        flushSync(onToggleTheme);
+      });
+      transition.finished.then(cleanup, cleanup);
+    } catch {
+      cleanup();
+      onToggleTheme();
+    }
   };
 
   return (
