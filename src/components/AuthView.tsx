@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
 import { OrganizationRole } from '../types';
+import { CustomSelect } from './CustomSelect';
 import {
   Shield,
   Lock,
-  Mail,
+  Phone,
   User,
   KeyRound,
   CheckCircle2,
   AlertCircle,
   Eye,
   EyeOff,
-  ArrowRight,
+  FileText,
+  Users,
   Sparkles,
   RefreshCw,
   Check,
@@ -97,7 +99,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           });
         }, 600);
       } else {
-        setFeedback({ type: 'error', text: data.error || 'ایمیل یا رمز عبور اشتباه است.' });
+        setFeedback({ type: 'error', text: data.error || 'شماره موبایل یا رمز عبور اشتباه است.' });
       }
     } catch {
       setFeedback({ type: 'error', text: 'ارتباط با سرور برقرار نشد.' });
@@ -174,7 +176,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       if (res.ok) {
         setDemoRecoveryCode(data.demoCode || '');
         setRecoveryStep(2);
-        setFeedback({ type: 'success', text: 'کد بازیابی ۶ رقمی به ایمیل سازمانی شما ارسال شد.' });
+        setFeedback({ type: 'success', text: 'کد بازیابی ۶ رقمی به شماره موبایل شما ارسال شد.' });
       } else {
         setFeedback({ type: 'error', text: data.error || 'خطا در ارسال کد بازیابی.' });
       }
@@ -239,28 +241,19 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const signupStrength = getPasswordStrength(signupPassword);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative select-none font-sans overflow-hidden">
+    <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[#f7f8fc] p-4 font-sans text-right select-none dark:bg-[#080d1d] sm:p-6 lg:p-8" dir="rtl">
       {/* Ambient background glows */}
-      <div className="fixed top-0 right-0 w-[550px] h-[550px] bg-gradient-to-br from-indigo-500/15 via-purple-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-0 left-0 w-[550px] h-[550px] bg-gradient-to-tr from-sky-500/15 via-indigo-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
+      <div className="pointer-events-none absolute -right-32 -top-32 h-[28rem] w-[28rem] rounded-full bg-indigo-400/10 blur-3xl dark:bg-indigo-500/10" />
+      <div className="pointer-events-none absolute -bottom-40 -left-32 h-[32rem] w-[32rem] rounded-full bg-violet-400/10 blur-3xl dark:bg-violet-500/10" />
 
-      {/* Back to App button */}
-      <button
-        onClick={onBackToApp}
-        className="fixed top-6 right-6 flex items-center gap-2 py-2 px-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors shadow-xs cursor-pointer z-20 group"
-      >
-        <ArrowRight className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-        <span>بازگشت به سامانه</span>
-      </button>
-
-      {/* Main Glass Authentication Card */}
-      <div className="relative w-full max-w-lg rounded-3xl bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl border border-white/80 dark:border-slate-800 shadow-2xl p-8 flex flex-col gap-6 text-right z-10">
+      <div className="relative z-10 w-full max-w-md">
+        {/* Authentication panel */}
+      <div className="flex w-full flex-col gap-6 rounded-[1.5rem] border border-slate-200/90 bg-white p-6 shadow-[0_20px_60px_-36px_rgba(30,41,99,0.35)] dark:border-slate-800 dark:bg-[#0f172a] sm:p-8">
         
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/30">
-            <div className="w-6 h-6 rounded-full border-2 border-white/90 border-t-transparent animate-[spin_10s_linear_infinite]" />
-            <div className="absolute w-2.5 h-2.5 bg-white rounded-full shadow-xs" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 dark:bg-indigo-500">
+            <span className="text-lg font-black tracking-[-0.16em]">M</span>
           </div>
           <h1 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
             سامانه سازمانی متا‌میت
@@ -271,14 +264,14 @@ export const AuthView: React.FC<AuthViewProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex rounded-2xl bg-slate-100 dark:bg-slate-800/80 p-1 text-xs font-semibold">
+        <div className="flex rounded-xl border border-slate-200/80 bg-slate-50 p-1 text-xs font-semibold dark:border-slate-800 dark:bg-slate-900/80">
           <button
             type="button"
             onClick={() => {
               setMode('login');
               setFeedback(null);
             }}
-            className={`flex-1 py-2.5 rounded-xl transition-all cursor-pointer ${
+            className={`flex-1 rounded-lg py-2.5 transition-all cursor-pointer ${
               mode === 'login'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -292,7 +285,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               setMode('signup');
               setFeedback(null);
             }}
-            className={`flex-1 py-2.5 rounded-xl transition-all cursor-pointer ${
+            className={`flex-1 rounded-lg py-2.5 transition-all cursor-pointer ${
               mode === 'signup'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -306,7 +299,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               setMode('forgot');
               setFeedback(null);
             }}
-            className={`flex-1 py-2.5 rounded-xl transition-all cursor-pointer ${
+            className={`flex-1 rounded-lg py-2.5 transition-all cursor-pointer ${
               mode === 'forgot'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -339,7 +332,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           <form onSubmit={handleLogin} className="flex flex-col gap-4 text-xs">
             <div className="flex flex-col gap-1.5">
               <label className="font-semibold text-slate-700 dark:text-slate-300">
-                ایمیل سازمانی:
+                شماره موبایل:
               </label>
               <div className="relative">
                 <input
@@ -350,7 +343,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   placeholder="+989121234567"
                   className="w-full p-3 pr-10 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-sans"
                 />
-                <Mail className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
+                <Phone className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
               </div>
             </div>
 
@@ -420,7 +413,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
             <div className="flex flex-col gap-1.5">
               <label className="font-semibold text-slate-700 dark:text-slate-300">
-                ایمیل سازمانی:
+                شماره موبایل:
               </label>
               <div className="relative">
                 <input
@@ -431,7 +424,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   placeholder="+989121234567"
                   className="w-full p-2.5 pr-9 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-sans"
                 />
-                <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+                <Phone className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
               </div>
             </div>
 
@@ -513,16 +506,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
               <label className="font-semibold text-slate-700 dark:text-slate-300">
                 نقش سازمانی:
               </label>
-              <select
+              <CustomSelect
                 value={signupRole}
-                onChange={(e) => setSignupRole(e.target.value as OrganizationRole)}
-                className="w-full p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none"
-              >
-                <option value="Organizer">تنظیم‌کننده جلسه (Organizer)</option>
-                <option value="Reviewer">بازبین رسمی (Reviewer)</option>
-                <option value="Participant">شرکت‌کننده عادی (Participant)</option>
-                <option value="Viewer">مشاهده‌گر اسناد (Viewer)</option>
-              </select>
+                onChange={(next) => setSignupRole(next as OrganizationRole)}
+                className="w-full"
+                options={[
+                  { value: 'Organizer', label: 'تنظیم‌کننده جلسه (Organizer)' },
+                  { value: 'Reviewer', label: 'بازبین رسمی (Reviewer)' },
+                  { value: 'Participant', label: 'شرکت‌کننده عادی (Participant)' },
+                  { value: 'Viewer', label: 'مشاهده‌گر اسناد (Viewer)' },
+                ]}
+              />
             </div>
 
             <button
@@ -542,12 +536,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
             {recoveryStep === 1 ? (
               <form onSubmit={handleRequestResetCode} className="flex flex-col gap-3.5">
                 <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                  ایمیل سازمانی خود را وارد کنید تا کد بازیابی رمز عبور برای شما ارسال گردد.
+                  شماره موبایل خود را وارد کنید تا کد بازیابی رمز عبور برای شما ارسال گردد.
                 </p>
 
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-slate-700 dark:text-slate-300">
-                    ایمیل سازمانی:
+                    شماره موبایل:
                   </label>
                   <div className="relative">
                     <input
@@ -558,7 +552,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       placeholder="+989121234567"
                       className="w-full p-3 pr-10 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none font-sans"
                     />
-                    <Mail className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
+                    <Phone className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
                   </div>
                 </div>
 
@@ -632,6 +626,40 @@ export const AuthView: React.FC<AuthViewProps> = ({
             )}
           </div>
         )}
+      </div>
+
+      {/* Reserved visual panel intentionally omitted: the auth flow stays focused and minimal. */}
+      <section className="hidden">
+        <div className="flex items-center justify-between" dir="ltr">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white dark:bg-indigo-500">
+              <span className="text-base font-black tracking-[-0.16em]">M</span>
+            </div>
+            <div className="text-left">
+              <div className="text-sm font-black tracking-tight">MetaMeet</div>
+              <div className="text-[10px] font-medium text-indigo-900/55 dark:text-indigo-200/55">Decisions, documented.</div>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-500 dark:text-indigo-300">Workspace</span>
+        </div>
+
+        <div className="my-auto max-w-lg py-16">
+          <div className="mb-8 flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-indigo-300/80 bg-white/70 text-indigo-600 shadow-sm dark:border-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+            <FileText className="h-9 w-9" strokeWidth={1.5} />
+          </div>
+          <p className="mb-4 text-sm font-semibold text-indigo-600 dark:text-indigo-300">از گفتگو تا تصمیم</p>
+          <h2 className="max-w-md text-4xl font-black leading-[1.35] tracking-tight sm:text-5xl">هر جلسه، یک قدم روشن‌تر.</h2>
+          <p className="mt-6 max-w-sm text-sm leading-8 text-indigo-900/65 dark:text-indigo-100/65">صورت‌جلسه، مصوبه و امضا را در یک جریان ساده و قابل اعتماد کنار هم نگه دارید.</p>
+        </div>
+
+        <div className="border-t border-indigo-200/80 pt-5 dark:border-indigo-800/70">
+          <div className="grid grid-cols-3 divide-x divide-x-reverse divide-indigo-200/80 text-[11px] dark:divide-indigo-800/70">
+            <div className="flex flex-col gap-2 pl-4"><FileText className="h-4 w-4 text-indigo-500 dark:text-indigo-300" /><span className="font-semibold">صورت‌جلسه روشن</span></div>
+            <div className="flex flex-col gap-2 px-4"><CheckCircle2 className="h-4 w-4 text-indigo-500 dark:text-indigo-300" /><span className="font-semibold">مصوبات قابل پیگیری</span></div>
+            <div className="flex flex-col gap-2 pr-4"><Users className="h-4 w-4 text-indigo-500 dark:text-indigo-300" /><span className="font-semibold">همکاری یکپارچه</span></div>
+          </div>
+        </div>
+      </section>
       </div>
     </div>
   );

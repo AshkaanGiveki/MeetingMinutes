@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Plus, Search, Calendar, Clock, MapPin, Users, ArrowLeft, Filter, FileText } from 'lucide-react';
+import { Plus, Search, Calendar, Clock, MapPin, Users, ArrowLeft, Filter, FileText, ClipboardList } from 'lucide-react';
 import { Meeting } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
+import { EmptyState } from './EmptyState';
+import { LoadingState } from './LoadingState';
 
 interface MeetingsListViewProps {
   meetings: Meeting[];
+  isLoading?: boolean;
   onSelectMeeting: (m: Meeting) => void;
   onOpenNewMeetingModal: () => void;
 }
 
 export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
   meetings,
+  isLoading = false,
   onSelectMeeting,
   onOpenNewMeetingModal,
 }) => {
@@ -108,6 +112,16 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
       </div>
 
       {/* Grid of Meeting Cards */}
+      {isLoading ? (
+        <LoadingState label="در حال بارگذاری صورت‌جلسه‌ها…" />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={ClipboardList}
+          title={search ? 'جلسه‌ای با این جست‌وجو پیدا نشد' : 'هنوز جلسه‌ای ثبت نشده است'}
+          description={search ? 'عبارت دیگری را امتحان کنید یا فیلترها را تغییر دهید.' : 'برای شروع، اولین صورت‌جلسه سازمان خود را ایجاد کنید.'}
+          action={!search ? <button onClick={onOpenNewMeetingModal} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/20">ایجاد جلسه جدید</button> : undefined}
+        />
+      ) : (
       <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
         {filtered.map((meeting) => {
           const isSealed = meeting.status === 'SEALED' || meeting.status === 'ARCHIVED';
@@ -154,12 +168,12 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
               {/* Card Footer */}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
                 <motion.div className="flex items-center -space-x-2 space-x-reverse" initial="hidden" animate="show" variants={staggerContainerVariants}>
-                  {meeting.participants.slice(0, 3).map((p) => (
+                  {meeting.participants.filter(Boolean).slice(0, 3).map((p, index) => (
                     <motion.img
-                      key={p.id}
+                      key={p.id || `participant-${index}`}
                       variants={staggerItemVariants}
-                      src={p.avatar}
-                      alt={p.name}
+                      src={p.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+                      alt={p.name || 'شرکت‌کننده'}
                       referrerPolicy="no-referrer"
                       className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-slate-900"
                     />
@@ -178,6 +192,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
           );
         })}
       </motion.div>
+      )}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Settings,
   User,
@@ -8,6 +8,7 @@ import {
   Save,
   PenTool,
   CheckCircle2
+  ,RotateCcw
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -19,6 +20,14 @@ export const SettingsView: React.FC = () => {
   const [autoSeal, setAutoSeal] = useState(true);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [signatureData, setSignatureData] = useState('');
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [isSavingSignature, setIsSavingSignature] = useState(false);
+  const [telegramLinked, setTelegramLinked] = useState(false);
+  const [telegramUsername, setTelegramUsername] = useState('');
+  const [telegramPairingUrl, setTelegramPairingUrl] = useState('');
+  const [isPairingTelegram, setIsPairingTelegram] = useState(false);
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     fetch('/api/auth/me').then((response) => response.ok ? response.json() : null).then((data) => {
@@ -26,6 +35,7 @@ export const SettingsView: React.FC = () => {
         setName(data.user.name || '');
         setPhoneNumber(data.user.phoneNumber || '');
         setRole(data.user.role || '');
+        setSignatureData(data.user.signatureData || '');
       }
     }).catch(() => undefined);
     fetch('/api/settings')
@@ -38,6 +48,122 @@ export const SettingsView: React.FC = () => {
       })
       .catch(() => setSaveError('تنظیمات از سرور دریافت نشد.'));
   }, []);
+
+  useEffect(() => {
+    fetch('/api/telegram/status')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Telegram status unavailable.')))
+      .then((data) => {
+        setTelegramLinked(Boolean(data.linked));
+        setTelegramUsername(data.username || '');
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const pairTelegram = async () => {
+    setIsPairingTelegram(true);
+    setSaveError('');
+    try {
+      const response = await fetch('/api/telegram/link-token', { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Unable to create a Telegram pairing link.');
+      if (!data.deepLink) throw new Error(data?.error || 'Telegram bot username is not configured.');
+      const pairingUrl = data.deepLink;
+      setTelegramPairingUrl(pairingUrl);
+      window.open(pairingUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to connect Telegram.');
+    } finally {
+      setIsPairingTelegram(false);
+    }
+  };
+
+  const unpairTelegram = async () => {
+    const response = await fetch('/api/telegram/link', { method: 'DELETE' });
+    if (!response.ok) return;
+    setTelegramLinked(false);
+    setTelegramUsername('');
+    setTelegramPairingUrl('');
+  };
+
+  useEffect(() => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas || !signatureData.startsWith('data:image/')) return;
+    const image = new Image();
+    image.onload = () => {
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    };
+    image.src = signatureData;
+  }, [signatureData]);
+
+  const getCanvasPoint = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const point = 'touches' in event ? event.touches[0] : event;
+    return {
+      x: (point.clientX - rect.left) * (canvas.width / rect.width),
+      y: (point.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  };
+
+  const startSignatureDrawing = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = signatureCanvasRef.current;
+    const point = getCanvasPoint(event);
+    if (!canvas || !point) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.strokeStyle = document.documentElement.classList.contains('dark') ? '#a5b4fc' : '#312e81';
+    context.lineWidth = 3;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+    setIsDrawing(true);
+  };
+
+  const drawSignature = (event: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const point = getCanvasPoint(event);
+    const context = signatureCanvasRef.current?.getContext('2d');
+    if (!point || !context) return;
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  };
+
+  const clearSignature = () => {
+    const canvas = signatureCanvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    setSignatureData('');
+  };
+
+  const saveSignature = async () => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    setIsSavingSignature(true);
+    setSaveError('');
+    try {
+      const nextSignature = canvas.toDataURL('image/png');
+      const response = await fetch('/api/profile/signature', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signatureData: nextSignature, replace: true }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'ذخیره امضا انجام نشد.');
+      setSignatureData(nextSignature);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'ذخیره امضا انجام نشد.');
+    } finally {
+      setIsSavingSignature(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,28 +258,35 @@ export const SettingsView: React.FC = () => {
             <span>پروفایل امضای دیجیتال شما</span>
           </div>
 
-          <p className="text-xs text-slate-500 leading-relaxed">
-            امضای ذخیره‌شده شما در زمان تأیید صورت‌جلسات مورد استفاده قرار می‌گیرد و با
-            کلید خصوصی SHA-256 کدگذاری می‌شود.
+          <p className="text-xs leading-relaxed text-slate-500">
+            امضای شما یک‌بار در پروفایل ذخیره می‌شود و هنگام امضای صورت‌جلسه‌های بعدی به‌صورت خودکار استفاده خواهد شد. هر زمان خواستید می‌توانید آن را جایگزین کنید.
           </p>
 
-          <div className="w-full h-28 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center">
-            <svg
-              className="w-48 h-16 text-indigo-700 dark:text-indigo-400"
-              viewBox="0 0 240 100"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M20 70 C 40 20, 60 85, 80 40 C 95 10, 110 60, 125 50 C 140 40, 150 70, 170 30 C 185 10, 190 65, 220 50 M 80 65 Q 120 75 160 60" />
-            </svg>
+          <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-indigo-200 bg-indigo-50/30 p-2 dark:border-indigo-900/70 dark:bg-indigo-950/20">
+            <canvas
+              ref={signatureCanvasRef}
+              width={900}
+              height={280}
+              onMouseDown={startSignatureDrawing}
+              onMouseMove={drawSignature}
+              onMouseUp={() => setIsDrawing(false)}
+              onMouseLeave={() => setIsDrawing(false)}
+              onTouchStart={startSignatureDrawing}
+              onTouchMove={drawSignature}
+              onTouchEnd={() => setIsDrawing(false)}
+              className="h-52 w-full cursor-crosshair touch-none rounded-xl bg-white dark:bg-slate-950 sm:h-64"
+            />
+            <span className="pointer-events-none absolute bottom-4 left-0 right-0 text-center text-[10px] text-slate-400">امضای خود را داخل کادر رسم کنید</span>
+            <button type="button" onClick={clearSignature} className="absolute left-4 top-4 flex items-center gap-1 rounded-lg bg-white/90 px-2 py-1.5 text-[10px] font-semibold text-slate-500 shadow-sm hover:text-rose-500 dark:bg-slate-900/90"><RotateCcw className="h-3 w-3" />پاک کردن</button>
+          </div>
+          {signatureData && <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" />امضای ذخیره‌شده فعال است</div>}
+          <div className="flex justify-end">
+            <button type="button" onClick={() => void saveSignature()} disabled={isSavingSignature} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-700 disabled:opacity-50"><Save className="h-3.5 w-3.5" />{isSavingSignature ? 'در حال ذخیره…' : 'ذخیره امضا'}</button>
           </div>
         </div>
 
         {/* Telegram Integration */}
-        <div className="p-6 rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm flex flex-col gap-4">
+        <div className="hidden">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
             <Smartphone className="w-4 h-4 text-sky-500" />
             <span>اتصال به تلگرام و ربات هوشمند</span>
@@ -172,6 +305,22 @@ export const SettingsView: React.FC = () => {
               متصل شد
             </span>
           </div>
+        </div>
+
+        <div className="rounded-3xl border border-sky-100 bg-white/90 p-6 shadow-sm dark:border-sky-900/60 dark:bg-slate-900/90">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold text-slate-900 dark:text-white">اتصال به تلگرام</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">درخواست‌های امضای صورت‌جلسه را مستقیم در گفت‌وگوی تلگرام دریافت کنید.</p>
+            </div>
+            {telegramLinked ? (
+              <button type="button" onClick={() => void unpairTelegram()} className="rounded-xl bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-200 dark:bg-rose-950/40 dark:text-rose-300">قطع اتصال</button>
+            ) : (
+              <button type="button" onClick={() => void pairTelegram()} disabled={isPairingTelegram} className="rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:opacity-60">{isPairingTelegram ? 'در حال آماده‌سازی…' : 'اتصال تلگرام'}</button>
+            )}
+          </div>
+          <p className="mt-4 text-xs font-semibold text-sky-700 dark:text-sky-300">{telegramLinked ? `حساب متصل${telegramUsername ? `: @${telegramUsername}` : ''}` : 'حسابی متصل نشده است'}</p>
+          {telegramPairingUrl && !telegramLinked && <p className="mt-3 break-all rounded-xl bg-slate-50 p-3 text-[10px] leading-5 text-slate-500 dark:bg-slate-950 dark:text-slate-400">لینک اتصال: {telegramPairingUrl}</p>}
         </div>
 
         {/* Notification & Organization Policies */}

@@ -15,15 +15,19 @@ import {
   Award
 } from 'lucide-react';
 import { Meeting, AuditRecord } from '../types';
+import { EmptyState } from './EmptyState';
+import { LoadingState } from './LoadingState';
 
 interface ArchiveViewProps {
   meetings: Meeting[];
+  isLoading?: boolean;
   onOpenMeeting: (meeting: Meeting) => void;
   onPrintPdf: () => void;
 }
 
 export const ArchiveView: React.FC<ArchiveViewProps> = ({
   meetings,
+  isLoading = false,
   onOpenMeeting,
   onPrintPdf,
 }) => {
@@ -92,7 +96,15 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {sealedMeetings.map((m, index) => (
+              {isLoading ? (
+                <tr><td colSpan={6} className="p-4"><LoadingState compact label="در حال بارگذاری آرشیو…" /></td></tr>
+              ) : sealedMeetings.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-4">
+                    <EmptyState icon={Archive} title={searchTerm ? 'سندی با این جست‌وجو پیدا نشد' : 'آرشیو هنوز خالی است'} description={searchTerm ? 'عنوان دیگری را جست‌وجو کنید.' : 'صورت‌جلسه‌های مهر و موم‌شده پس از تکمیل امضاها اینجا نمایش داده می‌شوند.'} compact />
+                  </td>
+                </tr>
+              ) : sealedMeetings.map((m, index) => (
                 <motion.tr
                   key={m.id}
                   initial={{ opacity: 0, x: index % 2 === 0 ? 10 : -10 }}
@@ -253,7 +265,9 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
             </div>
 
             <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
-              {auditLogs.map((log, index) => (
+              {auditLogs.length === 0 ? (
+                <EmptyState compact icon={History} title="گزارش ممیزی وجود ندارد" description="برای این سند هنوز رویداد قابل نمایشی ثبت نشده است." />
+              ) : auditLogs.map((log, index) => (
                 <motion.div
                   key={log.id}
                   initial={{ opacity: 0, y: 8 }}

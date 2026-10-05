@@ -90,6 +90,7 @@ async function setupIndexes(database: Db) {
     await database.collection('organizations').createIndex({ createdBy: 1, createdAt: -1 });
     await database.collection('organization_memberships').createIndex({ organizationId: 1, userId: 1 }, { unique: true });
     await database.collection('organization_memberships').createIndex({ userId: 1, status: 1 });
+    await database.collection('organization_memberships').createIndex({ organizationId: 1, status: 1 });
     await database.collection('organization_invitations').createIndex({ token: 1 }, { unique: true });
     await database.collection('organization_invitations').createIndex({ organizationId: 1, status: 1 });
     await database.collection('organization_invitations').createIndex({ phoneNumber: 1, status: 1 });

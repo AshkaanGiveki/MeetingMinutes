@@ -73,8 +73,8 @@ export const CreateMeetingSchema = z.object({
 export const SignDocumentSchema = z.object({
   meetingId: z.string(),
   signerId: z.string().optional(),
-  signerName: z.string().min(2),
-  signerRole: z.string(),
+  signerName: z.string().min(2).optional(),
+  signerRole: z.string().optional(),
   signatureType: z.enum(['draw', 'type', 'upload', 'telegram']),
   signatureData: z.string().min(1),
   intentConfirmed: z.boolean().refine(val => val === true, {

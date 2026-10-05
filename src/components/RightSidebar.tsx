@@ -1,21 +1,16 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  FileText,
   FolderArchive,
   Layers,
   Users,
   Settings,
-  Plus,
   LogOut,
   LogIn,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   Calendar,
-  CheckCircle2,
-  Lock
-  ,Shield
+  Shield
   ,Building2
   ,UserRound
   ,BookOpen
@@ -96,10 +91,49 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     },
   ];
 
+  const visibleNavItems = navItems.filter((item) => item.id !== 'auth');
+
+  const renderNavItem = (item: (typeof navItems)[number]) => {
+    const Icon = item.icon;
+    const isActive = currentTab === item.id;
+    return (
+      <motion.button
+        key={item.id}
+        onClick={() => onTabChange(item.id)}
+        variants={{ hidden: { opacity: 0, y: 7 }, show: { opacity: 1, y: 0 } }}
+        whileTap={{ scale: 0.98 }}
+        className={`relative group flex min-h-11 items-center gap-3 rounded-xl border px-3.5 py-2.5 text-right text-xs font-semibold transition-all duration-200 cursor-pointer overflow-hidden ${
+          isActive
+            ? 'border-indigo-200/80 text-indigo-700 shadow-[0_5px_14px_-10px_rgba(99,102,241,0.7)] dark:border-indigo-800/80 dark:text-indigo-300'
+            : 'border-transparent text-slate-500 hover:border-slate-200/80 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:border-slate-800 dark:hover:bg-slate-800/60 dark:hover:text-white'
+        }`}
+        title={item.label}
+      >
+        {isActive && <motion.span layoutId="sidebar-active-background" transition={{ type: 'spring', stiffness: 520, damping: 36 }} className="absolute inset-0 rounded-xl bg-indigo-50/75 dark:bg-indigo-950/55" />}
+        {isActive && <motion.span layoutId="sidebar-active-indicator" transition={{ type: 'spring', stiffness: 520, damping: 36 }} className="absolute right-0 top-2 bottom-2 z-20 w-0.5 bg-indigo-600 dark:bg-indigo-400 rounded-l-full" />}
+        <motion.span
+          key={`${item.id}-${isActive ? 'active' : 'idle'}`}
+          initial={isActive ? { scale: 0, opacity: 0 } : { scale: 1, opacity: 1 }}
+          animate={{ scale: isActive ? 1.05 : 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 24 }}
+          className={`relative z-10 flex shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-300' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300'}`}
+        >
+          <Icon className="h-[17px] w-[17px] stroke-[1.8]" />
+        </motion.span>
+        {!isCollapsed && (
+          <div className="relative z-10 flex flex-1 items-center justify-between">
+            <span>{item.label}</span>
+            {item.badge !== undefined && item.badge > 0 && <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${item.badgeColor}`}>{item.badge}</span>}
+          </div>
+        )}
+      </motion.button>
+    );
+  };
+
   return (
     <aside
-      className={`h-[calc(100vh-1.5rem)] sticky top-3 flex flex-col justify-between rounded-3xl border z-30 transition-all duration-300 select-none ${
-        isCollapsed ? 'w-20' : 'w-64'
+      className={`h-[calc(100vh-1.5rem)] sticky top-3 flex flex-col justify-between rounded-[22px] border z-30 transition-all duration-300 select-none ${
+        isCollapsed ? 'w-20' : 'w-72'
       } ${
         isDark
           ? 'bg-[#0b0f1f]/95 border-slate-800/80 text-slate-300 shadow-2xl shadow-black/40'
@@ -107,16 +141,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       }`}
     >
       {/* Top Header & Brand */}
-      <div className="flex flex-col p-4 gap-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/80">
+      <div className="flex flex-col gap-4 p-4">
+        <div className="flex items-center justify-between border-b border-slate-100/80 pb-4 dark:border-slate-800/80">
           <div
             onClick={() => onTabChange('meetings')}
             className="flex items-center gap-3 cursor-pointer group"
           >
-            {/* Spinning Neon Logo */}
-            <div className="relative w-10 h-10 rounded-2xl flex items-center justify-center bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 shadow-md shadow-indigo-500/30 group-hover:scale-105 transition-transform duration-300 shrink-0">
-              <div className="w-5 h-5 rounded-full border-2 border-white/90 border-t-transparent animate-[spin_8s_linear_infinite]" />
-              <div className="absolute w-2 h-2 bg-white rounded-full shadow-xs" />
+            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 transition-transform duration-300 group-hover:scale-105 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">
+              <Layers className="h-5 w-5" />
             </div>
 
             {!isCollapsed && (
@@ -150,82 +182,20 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           </button>
         </div>
 
-        {/* Quick Action: New Meeting */}
-        {onOpenNewMeeting && (
-          <button
-            onClick={onOpenNewMeeting}
-            className={`w-full py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 active:scale-98 transition-all cursor-pointer ${
-              isCollapsed ? 'px-0' : 'px-4'
-            }`}
-            title="تعریف صورت‌جلسه جدید"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            {!isCollapsed && <span>صورت‌جلسه جدید</span>}
-          </button>
-        )}
-
         {/* Main Navigation List */}
-        <motion.nav
-          className="flex flex-col gap-1.5 pt-2"
-          initial="hidden"
-          animate="show"
-          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.055 } } }}
-        >
-          {navItems.filter((item) => item.id !== 'auth').map((item) => {
-            const Icon = item.icon;
-            const isActive = currentTab === item.id;
-            return (
-              <motion.button
-                key={item.id}
-                onClick={() => onTabChange(item.id)}
-                variants={{ hidden: { opacity: 0, y: 7 }, show: { opacity: 1, y: 0 } }}
-                whileTap={{ scale: 0.98 }}
-                className={`relative group flex min-h-12 items-center gap-3.5 py-3.5 rounded-xl transition-all duration-200 cursor-pointer text-xs font-semibold text-right overflow-hidden ${
-                  isCollapsed ? 'justify-center px-0' : 'px-3.5'
-                } ${
-                  isActive
-                    ? 'text-indigo-600 dark:text-indigo-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
-                }`}
-                title={item.label}
-              >
-                {/* The active surface travels with the selected item, not just the edge indicator. */}
-                {isActive && <motion.span layoutId="sidebar-active-background" transition={{ type: 'spring', stiffness: 520, damping: 36 }} className="absolute inset-0 rounded-xl bg-indigo-50 dark:bg-indigo-950/70" />}
-                {isActive && <motion.span layoutId="sidebar-active-indicator" transition={{ type: 'spring', stiffness: 520, damping: 36 }} className="absolute right-0 top-2 bottom-2 z-20 w-1 bg-indigo-600 dark:bg-indigo-500 rounded-l-full" />}
-
-                <motion.span
-                  key={`${item.id}-${isActive ? 'active' : 'idle'}`}
-                  initial={isActive ? { scale: 0, opacity: 0 } : { scale: 1, opacity: 1 }}
-                  animate={{ scale: isActive ? 1.1 : 1, opacity: 1 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 24 }}
-                  className={`relative z-10 flex shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300'}`}
-                >
-                  <Icon className="w-4 h-4 stroke-[2]" />
-                </motion.span>
-
-                {!isCollapsed && (
-                  <div className="relative z-10 flex-1 flex items-center justify-between">
-                    {isActive ? <motion.span initial={{ opacity: 0, x: 7 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>{item.label}</motion.span> : <span>{item.label}</span>}
-                    {item.badge !== undefined && item.badge > 0 && (
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono ${item.badgeColor}`}
-                      >
-                        {item.badge}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </motion.button>
-            );
-          })}
+        <motion.nav className="flex flex-col gap-1 pt-1" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.055 } } }}>
+          {!isCollapsed && <div className="px-3 pb-1 text-[10px] font-bold text-slate-400">عملیات روزانه</div>}
+          {visibleNavItems.slice(0, 2).map(renderNavItem)}
+          {!isCollapsed && <div className="px-3 pb-1 pt-4 text-[10px] font-bold text-slate-400">مدیریت سامانه</div>}
+          {visibleNavItems.slice(2).map(renderNavItem)}
         </motion.nav>
       </div>
 
       {/* Bottom User Profile & Auth Section */}
-      <div className="relative p-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col gap-2">
+      <div className="relative border-t border-slate-100/80 p-4 dark:border-slate-800/80">
         {currentUser ? (
           <div
-            className={`relative rounded-2xl p-2.5 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex items-center gap-3 ${
+            className={`relative rounded-xl border border-slate-200/70 bg-slate-50/80 p-2.5 dark:border-slate-800 dark:bg-slate-800/50 flex items-center gap-3 ${
               isCollapsed ? 'justify-center' : 'justify-between'
             }`}
           >

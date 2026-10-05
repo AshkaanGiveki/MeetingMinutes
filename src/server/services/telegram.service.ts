@@ -14,6 +14,41 @@ export class TelegramService {
 
   constructor(botToken?: string) { this.botToken = botToken || process.env.TELEGRAM_BOT_TOKEN || ''; }
 
+  getBotUsername(): string {
+    return String(process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
+  }
+
+  async resolveBotUsername(): Promise<string> {
+    const configured = this.getBotUsername();
+    if (configured || !this.botToken) return configured;
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/getMe`);
+      const data = await response.json() as { ok?: boolean; result?: { username?: string } };
+      return data.ok && data.result?.username ? data.result.username : '';
+    } catch (err) {
+      logger.warn('Unable to resolve Telegram bot username.', { metadata: { error: String(err) } });
+      return '';
+    }
+  }
+
+  async ensureWebhook(webhookUrl: string, secretToken?: string): Promise<boolean> {
+    if (!this.botToken || !webhookUrl) return false;
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/setWebhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: webhookUrl, ...(secretToken ? { secret_token: secretToken } : {}) }),
+      });
+      const data = await response.json() as { ok?: boolean; description?: string };
+      if (!data.ok) logger.warn(`Telegram webhook registration failed: ${data.description || 'Unknown Telegram error.'}`);
+      else logger.info(`Telegram webhook registered at ${webhookUrl}`);
+      return !!data.ok;
+    } catch (err) {
+      logger.warn('Unable to register Telegram webhook.', { metadata: { error: String(err) } });
+      return false;
+    }
+  }
+
   verifyInitData(initData: string): { valid: boolean; user?: TelegramUserData; error?: string } {
     if (!this.botToken) return { valid: false, error: 'TELEGRAM_BOT_TOKEN not configured in server environment.' };
     try {

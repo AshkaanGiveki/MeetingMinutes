@@ -8,7 +8,7 @@ import {
   UserPlus,
   Check,
   LogOut,
-  Mail,
+  Phone,
   Lock,
   User as UserIcon,
   AlertCircle,
@@ -20,6 +20,7 @@ import {
 import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { OrganizationRole } from '../types';
+import { CustomSelect } from './CustomSelect';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -139,7 +140,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         });
         setTimeout(() => onClose(), 600);
       } else {
-        setStatusMessage({ type: 'error', text: data.error || 'ایمیل یا رمز عبور اشتباه است.' });
+        setStatusMessage({ type: 'error', text: data.error || 'شماره موبایل یا رمز عبور اشتباه است.' });
       }
     } catch {
       setStatusMessage({ type: 'error', text: 'ارتباط با سرور برقرار نشد.' });
@@ -208,7 +209,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (res.ok) {
         setDemoCode(data.demoCode || '');
         setForgotStep(2);
-        setStatusMessage({ type: 'success', text: 'کد بازیابی ۶ رقمی به ایمیل شما ارسال شد.' });
+        setStatusMessage({ type: 'success', text: 'کد بازیابی ۶ رقمی به شماره موبایل شما ارسال شد.' });
       } else {
         setStatusMessage({ type: 'error', text: data.error || 'خطا در ارسال کد بازیابی.' });
       }
@@ -383,7 +384,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {activeTab === 'login' && (
           <form onSubmit={handleLogin} className="flex flex-col gap-3 text-xs">
             <div className="flex flex-col gap-1">
-              <label className="text-slate-700 dark:text-slate-300 font-semibold">ایمیل سازمانی:</label>
+              <label className="text-slate-700 dark:text-slate-300 font-semibold">شماره موبایل:</label>
               <div className="relative">
                 <input
                   type="tel"
@@ -393,7 +394,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   placeholder="+989121234567"
                   className="w-full p-2.5 pr-8 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:border-indigo-400"
                 />
-                <Mail className="w-4 h-4 text-slate-400 absolute right-2.5 top-3" />
+                <Phone className="w-4 h-4 text-slate-400 absolute right-2.5 top-3" />
               </div>
             </div>
 
@@ -467,7 +468,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-slate-700 dark:text-slate-300 font-semibold">ایمیل سازمانی:</label>
+              <label className="text-slate-700 dark:text-slate-300 font-semibold">شماره موبایل:</label>
               <input
                 type="tel"
                 required
@@ -529,16 +530,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div className="flex flex-col gap-1">
               <label className="text-slate-700 dark:text-slate-300 font-semibold">نقش اولیه در سازمان:</label>
-              <select
+              <CustomSelect
                 value={signupRole}
-                onChange={(e) => setSignupRole(e.target.value as OrganizationRole)}
-                className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none"
-              >
-                <option value="Organizer">تنظیم‌کننده جلسه (Organizer)</option>
-                <option value="Reviewer">بازبین رسمی (Reviewer)</option>
-                <option value="Participant">شرکت‌کننده عادی (Participant)</option>
-                <option value="Viewer">مشاهده‌گر (Viewer)</option>
-              </select>
+                onChange={(next) => setSignupRole(next as OrganizationRole)}
+                options={[
+                  { value: 'Organizer', label: 'تنظیم‌کننده جلسه (Organizer)' },
+                  { value: 'Reviewer', label: 'بازبین رسمی (Reviewer)' },
+                  { value: 'Participant', label: 'شرکت‌کننده عادی (Participant)' },
+                  { value: 'Viewer', label: 'مشاهده‌گر (Viewer)' },
+                ]}
+              />
             </div>
 
             <div className="flex items-center gap-2 pt-2">
@@ -567,7 +568,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {forgotStep === 1 ? (
               <form onSubmit={handleForgotRequest} className="flex flex-col gap-3">
                 <p className="text-[11px] text-slate-600 dark:text-slate-300">
-                  ایمیل سازمانی خود را وارد کنید تا کد بازیابی ارسال شود.
+                  شماره موبایل خود را وارد کنید تا کد بازیابی ارسال شود.
                 </p>
                 <input
                 type="tel"

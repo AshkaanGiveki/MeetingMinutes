@@ -103,20 +103,50 @@ export class OrganizationService {
     });
     if (!membership) return null;
     const organization = await db.collection<OrganizationRecord>('organizations').findOne({ id: membership.organizationId });
-    return organization ? { organization, membership } : null;
+    if (!organization) return null;
+    return {
+      organization,
+      membership: {
+        ...membership,
+        // Older memberships may not have persisted permission arrays.
+        permissions: Array.isArray(membership.permissions)
+          ? membership.permissions
+          : (RolePermissionsMap[membership.role] || []),
+      },
+    };
   }
 
   async listForUser(userId: string): Promise<Array<OrganizationContext & { memberCount: number }>> {
     const db = requireDb();
     const memberships = await db.collection<OrganizationMembership>('organization_memberships').find({ userId, status: 'active' }).toArray();
-    const result: Array<OrganizationContext & { memberCount: number }> = [];
-    for (const membership of memberships) {
-      const organization = await db.collection<OrganizationRecord>('organizations').findOne({ id: membership.organizationId });
-      if (!organization) continue;
-      const memberCount = await db.collection('organization_memberships').countDocuments({ organizationId: organization.id, status: 'active' });
-      result.push({ organization, membership, memberCount });
-    }
-    return result;
+    if (memberships.length === 0) return [];
+
+    const organizationIds = memberships.map((membership) => membership.organizationId);
+    const [organizations, memberCounts] = await Promise.all([
+      db.collection<OrganizationRecord>('organizations').find({ id: { $in: organizationIds } }).toArray(),
+      db.collection<OrganizationMembership>('organization_memberships').aggregate<{ _id: string; count: number }>([
+        { $match: { organizationId: { $in: organizationIds }, status: 'active' } },
+        { $group: { _id: '$organizationId', count: { $sum: 1 } } },
+      ]).toArray(),
+    ]);
+
+    const organizationById = new Map(organizations.map((organization) => [organization.id, organization]));
+    const memberCountByOrganization = new Map(memberCounts.map((entry) => [entry._id, entry.count]));
+
+    return memberships.flatMap((membership) => {
+      const organization = organizationById.get(membership.organizationId);
+      if (!organization) return [];
+      return [{
+        organization,
+        membership: {
+          ...membership,
+          permissions: Array.isArray(membership.permissions)
+            ? membership.permissions
+            : (RolePermissionsMap[membership.role] || []),
+        },
+        memberCount: memberCountByOrganization.get(organization.id) || 0,
+      }];
+    });
   }
 
   async invite(input: Omit<OrganizationInvitation, 'id' | 'token' | 'status' | 'createdAt' | 'expiresAt'>): Promise<OrganizationInvitation> {
@@ -136,10 +166,6 @@ export class OrganizationService {
     const db = requireDb();
     const user = await db.collection<{ id: string; phoneNumber: string; email: string }>('users').findOne({ id: userId });
     if (!user) return [];
-    await db.collection<OrganizationInvitation>('organization_invitations').updateMany(
-      { status: 'pending', expiresAt: { $lte: Date.now() } },
-      { $set: { status: 'expired' } },
-    );
     const recipientFilters = [{ phoneNumber: user.phoneNumber }, ...(user.email ? [{ email: user.email }] : [])];
     const invitations = await db.collection<OrganizationInvitation>('organization_invitations').find({
       status: 'pending',

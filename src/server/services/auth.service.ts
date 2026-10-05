@@ -14,6 +14,9 @@ export interface AuthSession {
   organizationId: string;
   organizationName?: string;
   permissions?: Permission[];
+  signatureData?: string;
+  telegramChatId?: string;
+  telegramUsername?: string;
   expiresAt: number;
 }
 
@@ -24,7 +27,9 @@ export interface AuthUser {
   passwordHash: string;
   name: string;
   telegramChatId?: string;
+  telegramUsername?: string;
   preferences?: Record<string, unknown>;
+  signatureData?: string;
 }
 
 export function normalizePhoneNumber(phone: string): string {
@@ -71,6 +76,9 @@ export class AuthService {
       organizationId: context.organization.id,
       organizationName: context.organization.name,
       permissions: context.membership.permissions,
+      signatureData: user.signatureData,
+      telegramChatId: user.telegramChatId,
+      telegramUsername: user.telegramUsername,
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000, // 7 days
     };
 
@@ -143,6 +151,9 @@ export class AuthService {
       organizationId: context.organization.id,
       organizationName: context.organization.name,
       permissions: context.membership.permissions,
+      signatureData: user.signatureData,
+      telegramChatId: user.telegramChatId,
+      telegramUsername: user.telegramUsername,
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
     };
     await this.requireDb().collection('sessions').updateOne({ token: sessionToken, userId }, { $set: session });
@@ -209,6 +220,19 @@ export class AuthService {
     return true;
   }
 
+  async saveSignature(userId: string, signatureData: string, allowReplace = false): Promise<boolean> {
+    if (!signatureData || signatureData.length > 5_000_000) return false;
+    const db = this.requireDb();
+    const result = await db.collection<AuthUser>('users').updateOne(
+      allowReplace ? { id: userId } : { id: userId, $or: [{ signatureData: { $exists: false } }, { signatureData: '' }] },
+      { $set: { signatureData, updatedAt: new Date().toISOString() } },
+    );
+    if (result.modifiedCount > 0) {
+      await db.collection('sessions').updateMany({ userId }, { $set: { signatureData } });
+    }
+    return result.modifiedCount > 0;
+  }
+
   async listUsers(organizationId = 'org_main') {
     return organizationService.listMembers(organizationId);
   }
@@ -241,13 +265,24 @@ export class AuthService {
     return result.matchedCount > 0;
   }
 
-  async linkTelegramChat(userId: string, organizationId: string, chatId: string): Promise<boolean> {
-    const result = await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId }, { $set: { telegramChatId: chatId, updatedAt: new Date().toISOString() } });
+  async linkTelegramChat(userId: string, organizationId: string, chatId: string, username?: string): Promise<boolean> {
+    void organizationId;
+    const db = this.requireDb();
+    const result = await db.collection<AuthUser>('users').updateOne(
+      { id: userId },
+      { $set: { telegramChatId: chatId, ...(username ? { telegramUsername: username } : {}), updatedAt: new Date().toISOString() } },
+    );
+    if (result.matchedCount > 0) {
+      await db.collection('sessions').updateMany({ userId }, { $set: { telegramChatId: chatId, ...(username ? { telegramUsername: username } : {}) } });
+    }
     return result.matchedCount > 0;
   }
 
   async unlinkTelegramChat(userId: string, organizationId: string): Promise<boolean> {
-    const result = await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId }, { $unset: { telegramChatId: '' } });
+    void organizationId;
+    const db = this.requireDb();
+    const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $unset: { telegramChatId: '', telegramUsername: '' } });
+    if (result.matchedCount > 0) await db.collection('sessions').updateMany({ userId }, { $unset: { telegramChatId: '', telegramUsername: '' } });
     return result.matchedCount > 0;
   }
 

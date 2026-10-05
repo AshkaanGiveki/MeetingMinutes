@@ -36,9 +36,11 @@ import {
   Eraser,
   X
 } from 'lucide-react';
+import { CustomSelect } from './CustomSelect';
 import { Meeting, AgendaItem, DecisionItem, ActionItem, Participant } from '../types';
 import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
+import { EmptyState } from './EmptyState';
 
 interface MeetingHeroProps {
   meeting: Meeting;
@@ -647,7 +649,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
 
           {/* Agenda items list with In-Place Edit */}
           <motion.div className="flex flex-col gap-2" initial="hidden" animate="show" variants={staggerContainerVariants}>
-            {meeting.agenda.map((item, idx) => (
+            {meeting.agenda.length === 0 ? <EmptyState compact icon={List} title="دستور جلسه‌ای ثبت نشده است" description="برای ساختاردهی جلسه، اولین بند دستور جلسه را اضافه کنید." /> : meeting.agenda.map((item, idx) => (
               <motion.div
                 key={item.id}
                 variants={staggerItemVariants}
@@ -1042,7 +1044,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
           )}
 
           <motion.div className="flex flex-col gap-2" initial="hidden" animate="show" variants={staggerContainerVariants}>
-            {meeting.decisions.map((dec) => (
+            {meeting.decisions.length === 0 ? <EmptyState compact icon={CheckCircle2} title="مصوبه‌ای ثبت نشده است" description="مصوبات جلسه پس از ثبت در این بخش نمایش داده می‌شوند." /> : meeting.decisions.map((dec) => (
               <motion.div
                 key={dec.id}
                 variants={staggerItemVariants}
@@ -1159,17 +1161,15 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               <div className="flex items-center justify-between pt-1">
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">مسئول:</span>
-                  <select
+                  <CustomSelect
                     value={newTaskAssigneeId}
-                    onChange={(e) => setNewTaskAssigneeId(e.target.value)}
-                    className="p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-sky-300 dark:border-sky-700 text-slate-800 dark:text-slate-100 text-xs focus:outline-none"
-                  >
-                    {meeting.participants.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.role})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setNewTaskAssigneeId}
+                    className="min-w-[10rem]"
+                    options={meeting.participants.filter(Boolean).map((p, index) => ({
+                      value: p.id || `participant-${index}`,
+                      label: `${p.name} (${p.role})`,
+                    }))}
+                  />
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1203,7 +1203,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                 </tr>
               </thead>
               <motion.tbody className="divide-y divide-slate-100 dark:divide-slate-800/80" initial="hidden" animate="show" variants={staggerContainerVariants}>
-                {meeting.actionItems.map((act) => (
+                {meeting.actionItems.length === 0 ? <tr><td colSpan={5} className="p-3"><EmptyState compact icon={CheckSquare} title="اقدامی ثبت نشده است" description="وظایف و مسئولیت‌های جلسه را برای پیگیری اضافه کنید." /></td></tr> : meeting.actionItems.map((act) => (
                   <motion.tr
                     key={act.id}
                     variants={staggerItemVariants}
@@ -1228,13 +1228,13 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                       <div className="flex items-center gap-2">
                         <img
                           src={
-                            act.assignee.avatar ||
+                            act.assignee?.avatar ||
                             'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'
                           }
-                          alt={act.assignee.name}
+                          alt={act.assignee?.name || 'بدون مسئول'}
                           className="w-5 h-5 rounded-full object-cover"
                         />
-                        <span className="text-slate-600 dark:text-slate-300">{act.assignee.name}</span>
+                        <span className="text-slate-600 dark:text-slate-300">{act.assignee?.name || 'بدون مسئول'}</span>
                       </div>
                     </td>
                     <td className="py-2.5 px-4 font-mono text-slate-500 text-[11px]">

@@ -1,7 +1,7 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 import crypto from 'crypto';
 import cookieParser from 'cookie-parser';
 import { GoogleGenAI } from '@google/genai';
@@ -31,8 +31,6 @@ import {
   AiSuggestSchema,
   AiSuggestionResponseSchema,
 } from './src/server/schemas';
-
-dotenv.config();
 
 if (process.env.NODE_ENV === 'production') {
   const requiredProductionEnv = ['APP_URL', 'MONGODB_URI', 'AUTH_SECRET'];
@@ -91,6 +89,12 @@ app.use('/api', async (req, res, next) => {
 
 // Initialize background worker
 initializeWorker();
+
+const telegramWebhookUrl = process.env.TELEGRAM_WEBHOOK_URL
+  || `${String(process.env.APP_URL || '').replace(/\/$/, '')}/api/telegram/webhook`;
+if (process.env.NODE_ENV === 'production' && telegramWebhookUrl.startsWith('http')) {
+  void telegramService.ensureWebhook(telegramWebhookUrl, process.env.TELEGRAM_WEBHOOK_SECRET);
+}
 
 // Structured Request Logging Middleware
 app.use((req, res, next) => {
@@ -527,9 +531,18 @@ app.post('/api/signature/otp/verify', async (req, res) => {
   if (typeof meetingId !== 'string' || !(await canAccessMeeting(req, meetingId, 'signature.sign'))) return res.status(403).json({ error: 'شما اجازه امضای این جلسه را ندارید.' });
   const key = `${meetingId}_${auth.userId}`;
   const persisted = await redisService.get(`signature-otp:${key}`);
-  const record = persisted
-    ? JSON.parse(persisted) as { code: string; expiresAt: number; attempts: number }
-    : signatureOtpStore.get(key);
+  type SignatureOtpRecord = { code: string; expiresAt: number; attempts: number };
+  let record = signatureOtpStore.get(key) as SignatureOtpRecord | undefined;
+  if (persisted) {
+    try {
+      const parsed = typeof persisted === 'string' ? JSON.parse(persisted) : persisted;
+      if (parsed && typeof parsed === 'object' && typeof (parsed as SignatureOtpRecord).code === 'string') {
+        record = parsed as SignatureOtpRecord;
+      }
+    } catch {
+      logger.warn(`Ignoring malformed Redis signature OTP record for ${key}; using the local OTP record.`);
+    }
+  }
 
   if (!record || record.code !== String(otp).trim() || record.expiresAt < Date.now()) {
     if (record && persisted) {
@@ -720,6 +733,14 @@ app.put('/api/profile', async (req, res) => {
   let updated = false;
   try { updated = await authService.updateProfile(auth.userId, req.body.name, req.body.phoneNumber); } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid profile.' }); }
   return updated ? res.json({ success: true, name: req.body.name.trim() }) : res.status(400).json({ error: 'Profile name is invalid.' });
+});
+
+app.put('/api/profile/signature', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const signatureData = typeof req.body?.signatureData === 'string' ? req.body.signatureData : '';
+  if (!signatureData || signatureData.length > 5_000_000) return res.status(400).json({ error: 'A valid signature is required.' });
+  const saved = await authService.saveSignature(auth.userId, signatureData, req.body?.replace === true);
+  return res.json({ success: true, saved });
 });
 
 app.get('/api/notifications', async (req, res) => {
@@ -1164,6 +1185,13 @@ app.post('/api/meetings/:id/review', requireMeetingPermission('meeting.review'),
       statusLabel: 'آماده امضا',
     });
 
+    await notifyPendingSignersOnTelegram(
+      meeting,
+      (meeting as Meeting & { signatures?: Array<{ signerId: string }> }).signatures || [],
+      (req as RequestWithAuth).auth!.organizationId,
+      reviewerName,
+    );
+
     await meetingRepository.addAudit({
       id: `aud_${Date.now()}`,
       meetingId,
@@ -1369,6 +1397,30 @@ app.post('/api/signature/sign', async (req, res) => {
     signatures: updatedSignatures,
   } as any);
 
+  // Keep the first verified signature on the user's profile for future meetings.
+  await authService.saveSignature(authenticatedUser.userId, signatureData);
+
+  // Prompt every remaining meeting member to sign. Notification failures must
+  // never invalidate a signature that was already recorded successfully.
+  if (!isAllSigned) {
+    const organizationId = (meeting as Meeting & { organizationId?: string }).organizationId || authenticatedUser.organizationId;
+    const signedIds = new Set(updatedSignatures.map((signature) => signature.signerId));
+    const candidates = [meeting.organizer, ...(meeting.participants || [])]
+      .filter((participant): participant is typeof meeting.organizer => Boolean(participant?.id))
+      .filter((participant, index, all) => all.findIndex((item) => item.id === participant.id) === index)
+      .filter((participant) => !signedIds.has(participant.id));
+
+    await Promise.allSettled(candidates.map((participant) => notificationService.create({
+      userId: participant.id,
+      organizationId,
+      type: 'signature',
+      title: 'نیاز به امضای شما',
+      message: `صورت‌جلسه «${meeting.title}» پس از ثبت امضای ${signerName}، در انتظار امضای شماست.`,
+      meetingId: meeting.id,
+    })));
+    await notifyPendingSignersOnTelegram(meeting, updatedSignatures, organizationId, signerName);
+  }
+
   // Enqueue notification job
   await queueManager.enqueue('metameet.telegram.send', {
     chatId: '@metameet_alerts',
@@ -1463,6 +1515,33 @@ app.post('/api/meetings/seal', async (req, res) => {
 // -------------------------------------------------------------
 // Telegram bot, account-linking, and callback endpoints
 // -------------------------------------------------------------
+async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Array<{ signerId: string }>, organizationId: string, actorName?: string) {
+  const signedIds = new Set(signatures.map((signature) => signature.signerId));
+  const candidates = [meeting.organizer, ...(meeting.participants || [])]
+    .filter((participant): participant is typeof meeting.organizer => Boolean(participant?.id))
+    .filter((participant, index, all) => all.findIndex((item) => item.id === participant.id) === index)
+    .filter((participant) => !signedIds.has(participant.id));
+
+  await Promise.allSettled(candidates.map(async (participant) => {
+    const user = await authService.findById(participant.id, organizationId);
+    if (!user?.telegramChatId) return;
+    const actionToken = crypto.randomBytes(18).toString('base64url');
+    await redisService.set(`telegram-sign:${actionToken}`, JSON.stringify({
+      meetingId: meeting.id,
+      userId: participant.id,
+      organizationId,
+      chatId: String(user.telegramChatId),
+    }), 48 * 60 * 60);
+    await telegramService.sendSignRequestPM(
+      user.telegramChatId,
+      meeting.id,
+      meeting.title,
+      actorName || meeting.organizer.name,
+      actionToken,
+    );
+  }));
+}
+
 async function recordTelegramSignature(meetingId: string, userId: string, chatId: string, organizationId?: string) {
   const user = await authService.findById(userId);
   const meeting = await meetingRepository.getById(meetingId);
@@ -1484,6 +1563,7 @@ async function recordTelegramSignature(meetingId: string, userId: string, chatId
   const updatedSignatures = [...signatures, { id: signatureId, meetingId, signerId: user.id, signerName, signerRole: 'Participant', signatureType: 'telegram' as const, signatureData: `telegram:${chatId}`, signedAt: new Date().toISOString(), documentHash }];
   const isAllSigned = updatedSignatures.length >= meeting.totalSignaturesRequired;
   await meetingRepository.update(meetingId, { signatureCount: updatedSignatures.length, status: isAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING', statusLabel: isAllSigned ? 'آماده امضا' : 'در حال امضا', documentHash, signatures: updatedSignatures } as any);
+  if (!isAllSigned) await notifyPendingSignersOnTelegram(meeting, updatedSignatures, organizationId || (meeting as Meeting & { organizationId?: string }).organizationId || '', signerName);
   return { ok: true as const, signatureId, documentHash, meetingTitle: meeting.title };
 }
 
@@ -1510,12 +1590,18 @@ app.post('/api/telegram/webhook', async (req, res) => {
   const update = req.body;
   const messageText = update?.message?.text;
   const chatId = update?.message?.chat?.id;
-  if (typeof messageText === 'string' && typeof chatId === 'number' && messageText.startsWith('/link ')) {
-    const token = messageText.slice(6).trim();
+  if (typeof messageText === 'string' && typeof chatId === 'number' && (messageText.startsWith('/link ') || messageText.startsWith('/start link_'))) {
+    const token = messageText.startsWith('/link ') ? messageText.slice(6).trim() : messageText.slice('/start link_'.length).trim();
     const linkRecord = await redisService.get(`telegram-link:${token}`);
     if (linkRecord) {
-      const parsed = JSON.parse(linkRecord) as { userId: string; organizationId: string };
-      const linked = await authService.linkTelegramChat(parsed.userId, parsed.organizationId, String(chatId));
+      let parsed: { userId: string; organizationId: string } | null = null;
+      try {
+        parsed = (typeof linkRecord === 'string' ? JSON.parse(linkRecord) : linkRecord) as { userId: string; organizationId: string };
+      } catch {
+        logger.warn('Ignoring malformed Telegram account-link record.');
+      }
+      const telegramUser = update?.message?.from;
+      const linked = parsed ? await authService.linkTelegramChat(parsed.userId, parsed.organizationId, String(chatId), typeof telegramUser?.username === 'string' ? telegramUser.username : undefined) : false;
       await redisService.del(`telegram-link:${token}`);
       if (linked) await telegramService.sendNotification(chatId, '✅ حساب تلگرام شما با موفقیت به متامیت متصل شد.');
     }
@@ -1578,9 +1664,28 @@ app.post('/api/telegram/send-pm', async (req, res) => {
 
 app.post('/api/telegram/link-token', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
+  const botUsername = await telegramService.resolveBotUsername();
+  if (!botUsername) return res.status(503).json({ error: 'Telegram bot username is not configured or could not be resolved.' });
   const token = crypto.randomBytes(24).toString('hex');
   await redisService.set(`telegram-link:${token}`, JSON.stringify({ userId: auth.userId, organizationId: auth.organizationId }), 600);
-  return res.json({ success: true, token, expiresInSeconds: 600 });
+  return res.json({ success: true, token, deepLink: `https://t.me/${botUsername}?start=link_${token}`, botUsername, expiresInSeconds: 600 });
+});
+
+app.get('/api/telegram/status', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const user = await authService.findById(auth.userId, auth.organizationId);
+  return res.json({
+    linked: Boolean(user?.telegramChatId),
+    username: user?.telegramUsername || null,
+    chatId: user?.telegramChatId ? `${user.telegramChatId.slice(0, 3)}•••${user.telegramChatId.slice(-2)}` : null,
+    botUsername: await telegramService.resolveBotUsername() || null,
+  });
+});
+
+app.delete('/api/telegram/link', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const unlinked = await authService.unlinkTelegramChat(auth.userId, auth.organizationId);
+  return unlinked ? res.json({ success: true }) : res.status(404).json({ error: 'Telegram account is not connected.' });
 });
 
 app.post('/api/telegram/auto-sign', async (req, res) => {

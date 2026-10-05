@@ -11,6 +11,7 @@ import {
 import { Meeting, Participant, CommentItem } from '../types';
 import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
+import { EmptyState } from './EmptyState';
 
 interface LeftSidebarProps {
   meeting: Meeting;
@@ -106,12 +107,12 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
         {/* Avatar Stack with +2 */}
         <motion.div className="flex items-center justify-center -space-x-2.5 space-x-reverse py-1" initial="hidden" animate="show" variants={staggerContainerVariants}>
-          {meeting.participants.slice(0, 4).map((p) => (
+          {meeting.participants.filter(Boolean).slice(0, 4).map((p, index) => (
             <motion.img
-              key={p.id}
+              key={p.id || `participant-${index}`}
               variants={staggerItemVariants}
-              src={p.avatar}
-              alt={p.name}
+              src={p.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+              alt={p.name || 'شرکت‌کننده'}
               referrerPolicy="no-referrer"
               className="w-10 h-10 rounded-full object-cover ring-2 ring-white dark:ring-slate-900 shadow-sm"
               title={`${p.name} (${p.role})`}
@@ -148,9 +149,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
         {/* Participants list */}
         <motion.div className="flex flex-col gap-2.5 max-h-56 overflow-y-auto pr-0.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
-          {meeting.participants.map((p) => (
+          {meeting.participants.filter(Boolean).map((p, index) => (
             <motion.div
-              key={p.id}
+              key={p.id || `participant-${index}`}
               variants={staggerItemVariants}
               className="flex items-center justify-between p-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
             >
@@ -251,6 +252,17 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           })}
         </motion.div>
 
+        {meeting.status === 'DRAFT' && onStatusChange && (
+          <button
+            type="button"
+            onClick={() => onStatusChange('IN_REVIEW')}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-3 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-600/20 transition-colors hover:bg-indigo-700"
+          >
+            <Send className="h-3.5 w-3.5" />
+            <span>ارسال برای بررسی</span>
+          </button>
+        )}
+
         {meeting.status === 'IN_REVIEW' && onOpenReviewModal && (
           <button
             onClick={onOpenReviewModal}
@@ -276,22 +288,22 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
         {/* Comments list */}
         <motion.div className="flex flex-col gap-3 max-h-48 overflow-y-auto pr-0.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
-          {meeting.comments.map((comment) => (
+          {meeting.comments.length === 0 ? <EmptyState compact icon={MessageSquare} title="هنوز یادداشتی ثبت نشده است" description="اولین نظر یا یادداشت خود را برای این جلسه اضافه کنید." /> : meeting.comments.map((comment) => (
             <motion.div
               key={comment.id}
               variants={staggerItemVariants}
               className="flex items-start gap-2.5 text-xs p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800"
             >
               <img
-                src={comment.author.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80'}
-                alt={comment.author.name}
+                src={comment.author?.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80'}
+                alt={comment.author?.name || 'کاربر'}
                 referrerPolicy="no-referrer"
                 className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5"
               />
               <div className="flex-1 flex flex-col">
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="font-semibold text-slate-800 dark:text-slate-200 text-[11px]">
-                    {comment.author.name}
+                    {comment.author?.name || 'کاربر'}
                   </span>
                   <span className="text-[9px] text-slate-400 font-mono">
                     {comment.timestamp}

@@ -3,9 +3,13 @@ import { motion } from 'motion/react';
 import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key, X, Trash2 } from 'lucide-react';
 import { Participant } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
+import { EmptyState } from './EmptyState';
+import { LoadingState } from './LoadingState';
+import { CustomSelect } from './CustomSelect';
 
 export const ContactsView: React.FC = () => {
   const [members, setMembers] = useState<Participant[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -16,9 +20,13 @@ export const ContactsView: React.FC = () => {
   useEffect(() => {
     fetch('/api/members')
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('اعضای سازمان قابل دریافت نیستند.')))
-      .then((data) => setMembers((data.members || []).map((member: Participant) => ({ ...member, hasSigned: false }))))
+      .then((data) => { setMembers((data.members || []).map((member: Participant) => ({ ...member, hasSigned: false }))); setIsLoading(false); })
       .catch((error) => setLoadError(error instanceof Error ? error.message : 'اعضای سازمان قابل دریافت نیستند.'));
   }, []);
+
+  useEffect(() => {
+    if (loadError) setIsLoading(false);
+  }, [loadError]);
 
   const permissionsList = [
     { code: 'meeting.create', label: 'ایجاد و ویرایش جلسه' },
@@ -127,7 +135,15 @@ export const ContactsView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {members.map((m, index) => (
+              {isLoading ? (
+                <tr><td colSpan={5} className="p-4"><LoadingState compact label="در حال بارگذاری اعضا…" /></td></tr>
+              ) : members.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-4">
+                    <EmptyState compact icon={Users} title="عضوی پیدا نشد" description="هنوز عضوی به این سازمان اضافه نشده است." action={<button onClick={() => setIsInviteModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">دعوت عضو جدید</button>} />
+                  </td>
+                </tr>
+              ) : members.map((m, index) => (
                 <motion.tr
                   key={m.id}
                   initial={{ opacity: 0, y: 8 }}
@@ -233,17 +249,17 @@ export const ContactsView: React.FC = () => {
                 <label className="font-semibold text-slate-700 dark:text-slate-300">
                   سمت سازمانی:
                 </label>
-                <select
+                <CustomSelect
                   value={newRole}
-                  onChange={(e) => setNewRole(e.target.value)}
-                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none"
-                >
-                  <option value="مدیر ارشد">مدیر ارشد</option>
-                  <option value="مدیر محصول">مدیر محصول</option>
-                  <option value="توسعه‌دهنده ارشد">توسعه‌دهنده ارشد</option>
-                  <option value="کارشناس حقوقی">کارشناس حقوقی</option>
-                  <option value="طراح محصول">طراح محصول</option>
-                </select>
+                  onChange={setNewRole}
+                  options={[
+                    { value: 'مدیر ارشد', label: 'مدیر ارشد' },
+                    { value: 'مدیر محصول', label: 'مدیر محصول' },
+                    { value: 'توسعه‌دهنده ارشد', label: 'توسعه‌دهنده ارشد' },
+                    { value: 'کارشناس حقوقی', label: 'کارشناس حقوقی' },
+                    { value: 'طراح محصول', label: 'طراح محصول' },
+                  ]}
+                />
               </div>
 
               <div className="flex items-center gap-2 pt-2">

@@ -3,11 +3,13 @@ import { Search, X, Calendar, FileText, CheckCircle, User, ArrowLeft } from 'luc
 import { Meeting } from '../types';
 import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
+import { LoadingState } from './LoadingState';
 
 interface SearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   meetings: Meeting[];
+  isLoading?: boolean;
   onSelectMeeting: (meeting: Meeting) => void;
 }
 
@@ -15,6 +17,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   isOpen,
   onClose,
   meetings,
+  isLoading = false,
   onSelectMeeting,
 }) => {
   const [query, setQuery] = useState('');
@@ -78,7 +81,9 @@ export const SearchModal: React.FC<SearchModalProps> = ({
 
         {/* Results List */}
         <motion.div className="max-h-96 overflow-y-auto p-3 flex flex-col gap-1.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
-          {filteredMeetings.length === 0 ? (
+          {isLoading ? (
+            <LoadingState compact label="در حال جست‌وجوی صورت‌جلسه‌ها…" />
+          ) : filteredMeetings.length === 0 ? (
             <div className="py-12 text-center text-slate-400 text-xs">
               موردی مطابق با جستجوی شما یافت نشد.
             </div>

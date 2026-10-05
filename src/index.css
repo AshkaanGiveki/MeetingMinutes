@@ -57,6 +57,30 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Shared interaction affordances for every actionable control. */
+button:not(:disabled),
+a[href],
+[role='button'],
+summary {
+  cursor: pointer;
+  transition-property: background-color, border-color, color, box-shadow, opacity, filter;
+  transition-duration: 180ms;
+  transition-timing-function: ease-out;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+@media (hover: hover) {
+  button:not(:disabled):hover,
+  a[href]:hover,
+  [role='button']:hover,
+  summary:hover {
+    filter: brightness(0.985);
+  }
+}
+
 /* Custom subtle scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

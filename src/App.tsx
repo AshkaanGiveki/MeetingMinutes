@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Meeting, CommentItem, Participant, Template, OrganizationRole } from './types';
 import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
@@ -23,10 +24,13 @@ import { AuthView } from './components/AuthView';
 import { NotificationPanel } from './components/NotificationPanel';
 import { OrganizationsView } from './components/OrganizationsView';
 import { GuestSigningView } from './components/GuestSigningView';
+import { LoadingState } from './components/LoadingState';
 
 export default function App() {
-  const guestLink = typeof window !== 'undefined' && window.location.pathname.startsWith('/meeting/')
-    ? { meetingId: window.location.pathname.split('/')[2] || '', token: new URLSearchParams(window.location.search).get('token') || '' }
+  const location = useLocation();
+  const navigate = useNavigate();
+  const guestLink = location.pathname.startsWith('/meeting/')
+    ? { meetingId: location.pathname.split('/')[2] || '', token: new URLSearchParams(location.search).get('token') || '' }
     : null;
   const [isDark, setIsDark] = useState(() => {
     try {
@@ -35,9 +39,26 @@ export default function App() {
       return false;
     }
   });
-  const [currentTab, setCurrentTab] = useState<'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'auth'>('auth');
-  const [viewMode, setViewMode] = useState<'hero' | 'list'>('hero');
+  type AppTab = 'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'auth';
+  const meetingDetailMatch = location.pathname.match(/^\/meetings\/([^/]+)$/);
+  const meetingDetailId = meetingDetailMatch?.[1];
+  const currentTab: AppTab = location.pathname.startsWith('/archive')
+    ? 'archive'
+    : location.pathname.startsWith('/templates')
+      ? 'templates'
+      : location.pathname.startsWith('/contacts')
+        ? 'contacts'
+        : location.pathname.startsWith('/settings')
+          ? 'settings'
+          : location.pathname.startsWith('/organizations')
+            ? 'organizations'
+            : location.pathname.startsWith('/auth')
+              ? 'auth'
+              : 'meetings';
+  const setCurrentTab = (tab: AppTab) => navigate(tab === 'meetings' ? '/meetings' : `/${tab}`);
+  const [viewMode, setViewMode] = useState<'hero' | 'list'>('list');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [isMeetingsLoading, setIsMeetingsLoading] = useState(true);
   const [activeMeeting, setActiveMeeting] = useState<Meeting>(null as unknown as Meeting);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
@@ -48,8 +69,10 @@ export default function App() {
     phoneNumber: string;
     email: string;
     role: OrganizationRole;
+    userId?: string;
     organizationId?: string;
     avatar?: string;
+    signatureData?: string;
   }>(() => {
     try {
       const saved = localStorage.getItem('metameet_user');
@@ -112,16 +135,40 @@ export default function App() {
   };
 
   const loadMeetings = async () => {
-    const response = await fetchWithTimeout('/api/meetings');
-    if (!response.ok) throw new Error('Unable to load meetings');
-    const data = await response.json();
-    if (data?.meetings) {
-      setMeetings(data.meetings);
-      if (data.meetings.length > 0) {
-        setActiveMeeting((current) => data.meetings.find((m: Meeting) => m.id === current?.id) || data.meetings[0]);
+    setIsMeetingsLoading(true);
+    try {
+      const response = await fetchWithTimeout('/api/meetings');
+      if (!response.ok) throw new Error('Unable to load meetings');
+      const data = await response.json();
+      if (data?.meetings) {
+        setMeetings(data.meetings);
+        if (data.meetings.length > 0) {
+          setActiveMeeting((current) => data.meetings.find((m: Meeting) => m.id === current?.id) || data.meetings[0]);
+        }
       }
+    } finally {
+      setIsMeetingsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!meetingDetailId || meetings.length === 0) return;
+    const routeMeeting = meetings.find((meeting) => meeting.id === meetingDetailId);
+    if (routeMeeting) setActiveMeeting(routeMeeting);
+  }, [meetingDetailId, meetings]);
+
+  // Keep the signature CTA correct after a refresh or when a notification opens
+  // a meeting that the current user has already signed.
+  useEffect(() => {
+    if (!activeMeeting) return;
+    setHasUserSigned(Boolean(activeMeeting.signatures?.some((signature) =>
+      signature.signerId === activeUser.userId || signature.signerName === activeUser.name,
+    )));
+  }, [activeMeeting, activeUser.userId, activeUser.name]);
+
+  useEffect(() => {
+    setViewMode(meetingDetailId ? 'hero' : 'list');
+  }, [meetingDetailId]);
 
   // Load authenticated session before loading protected meeting data.
   useEffect(() => {
@@ -138,23 +185,25 @@ export default function App() {
         if (cancelled) return;
         if (!data?.user) {
           setIsAuthenticated(false);
-          setCurrentTab('auth');
+          navigate('/auth', { replace: true });
           return;
         }
 
         setActiveUser((prev) => ({
           ...prev,
+          userId: data.user.userId || prev.userId,
           name: data.user.name,
           phoneNumber: data.user.phoneNumber || prev.phoneNumber,
           email: data.user.email,
           role: (data.user.role as OrganizationRole) || prev.role,
           organizationId: data.user.organizationId || prev.organizationId,
+          signatureData: data.user.signatureData || prev.signatureData,
         }));
         // Authentication is sufficient to render the shell. Secondary data loads are
         // independent and bounded so one stalled endpoint can never strand the app on
         // the bootstrap screen.
         setIsAuthenticated(true);
-        setCurrentTab('meetings');
+        navigate('/meetings');
         setIsBootstrapping(false);
         const results = await Promise.allSettled([loadMeetings(), loadOrganizations()]);
         if (!cancelled && results.some((result) => result.status === 'rejected')) {
@@ -164,7 +213,7 @@ export default function App() {
       } catch {
         if (!cancelled) {
           setIsAuthenticated(false);
-          setCurrentTab('auth');
+          navigate('/auth', { replace: true });
         }
       } finally {
         if (!cancelled) setIsBootstrapping(false);
@@ -283,14 +332,6 @@ export default function App() {
 
   // Confirm Signature with Server Cryptographic SHA-256
   const handleConfirmSignature = async (signatureDataUrl: string) => {
-    setHasUserSigned(true);
-    try {
-      await loadMeetings();
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : 'Unable to refresh the meeting.');
-      setTimeout(() => setOperationError(''), 3500);
-    }
-    return;
     const newCount = activeMeeting.signatureCount + 1;
     const isNowAllSigned = newCount >= activeMeeting.totalSignaturesRequired;
 
@@ -313,12 +354,20 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Signature could not be recorded.');
       if (data?.documentHash) {
-      applyMeetingLocally({
+        setHasUserSigned(true);
+        setActiveUser((previous) => {
+          if (previous.signatureData) return previous;
+          const updated = { ...previous, signatureData: signatureDataUrl };
+          try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+        applyMeetingLocally({
           signatureCount: newCount,
           status: isNowAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
           statusLabel: isNowAllSigned ? 'آماده امضا' : 'در حال امضا',
           documentHash: data.documentHash,
         });
+        await loadMeetings();
         return;
       }
     } catch (err: unknown) {
@@ -446,8 +495,7 @@ export default function App() {
 
     setMeetings((prev) => [persistedMeeting, ...prev]);
     setActiveMeeting(persistedMeeting);
-    setViewMode('hero');
-    setCurrentTab('meetings');
+    navigate(`/meetings/${persistedMeeting.id}`);
   };
 
   // Use Template
@@ -493,7 +541,7 @@ export default function App() {
     };
     setActiveUser(updated);
     setIsAuthenticated(true);
-    setCurrentTab('meetings');
+    navigate('/meetings');
     void Promise.allSettled([loadMeetings(), loadOrganizations()]);
     try {
       localStorage.setItem('metameet_user', JSON.stringify(updated));
@@ -514,7 +562,7 @@ export default function App() {
     setActiveUser(guestUser);
     setIsAuthenticated(false);
     setMeetings([]);
-    setCurrentTab('auth');
+    navigate('/auth', { replace: true });
     try {
       localStorage.removeItem('metameet_user');
     } catch {}
@@ -545,7 +593,6 @@ export default function App() {
         <AuthView
           onLoginSuccess={(user) => {
             handleLoginSuccess(user);
-            window.history.replaceState({}, '', '/');
           }}
           onBackToApp={() => setCurrentTab('meetings')}
         />
@@ -578,9 +625,6 @@ export default function App() {
           currentTab={currentTab}
           onTabChange={(tab) => {
             setCurrentTab(tab as typeof currentTab);
-            if (tab === 'meetings') {
-              setViewMode('hero');
-            }
           }}
           isDark={isDark}
           totalMeetingsCount={meetings.length}
@@ -610,10 +654,10 @@ export default function App() {
           {currentTab === 'archive' ? (
             <ArchiveView
               meetings={meetings}
+              isLoading={isMeetingsLoading}
               onOpenMeeting={(m) => {
                 setActiveMeeting(m);
-                setCurrentTab('meetings');
-                setViewMode('hero');
+                navigate(`/meetings/${m.id}`);
               }}
               onPrintPdf={handlePrintPdf}
             />
@@ -647,6 +691,8 @@ export default function App() {
               }}
               onBackToApp={() => setCurrentTab('meetings')}
             />
+          ) : isMeetingsLoading ? (
+            <LoadingState label="در حال بارگذاری صورت‌جلسه‌ها…" />
           ) : meetings.length === 0 ? (
             <div className="min-h-[60vh] flex items-center justify-center text-center">
               <div className="max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-8 shadow-sm">
@@ -658,9 +704,10 @@ export default function App() {
           ) : viewMode === 'list' || !activeMeeting ? (
             <MeetingsListView
               meetings={meetings}
+              isLoading={isMeetingsLoading}
               onSelectMeeting={(m) => {
                 setActiveMeeting(m);
-                setViewMode('hero');
+                navigate(`/meetings/${m.id}`);
               }}
               onOpenNewMeetingModal={() => {
                 if (canCreateMeeting) setIsNewMeetingModalOpen(true);
@@ -701,7 +748,7 @@ export default function App() {
               <MeetingHero
                 meeting={activeMeeting}
                 onUpdateMeeting={handleUpdateMeeting}
-                onBackToList={() => setViewMode('list')}
+                onBackToList={() => navigate('/meetings')}
                 onTriggerAI={handleTriggerAI}
                 isAiLoading={isAiLoading}
                 onPrintPdf={handlePrintPdf}
@@ -747,10 +794,10 @@ export default function App() {
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
         meetings={meetings}
+        isLoading={isMeetingsLoading}
         onSelectMeeting={(m) => {
           setActiveMeeting(m);
-          setCurrentTab('meetings');
-          setViewMode('hero');
+          navigate(`/meetings/${m.id}`);
         }}
       />
 

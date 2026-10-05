@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, CheckCircle, AlertTriangle, MessageSquare, ShieldCheck, ArrowRight } from 'lucide-react';
 import { Meeting } from '../types';
+import { CustomSelect } from './CustomSelect';
 
 interface ReviewModalProps {
   isOpen: boolean;
@@ -119,16 +120,17 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
                 <label className="text-slate-700 dark:text-slate-300 font-semibold text-[11px]">
                   بخش مورد نظر:
                 </label>
-                <select
+                <CustomSelect
                   value={section}
-                  onChange={(e) => setSection(e.target.value)}
-                  className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none"
-                >
-                  <option value="دستور جلسه">دستور جلسه (Agenda)</option>
-                  <option value="متن بحث و گفتگو">متن بحث و گفتگو (Discussion)</option>
-                  <option value="تصمیمات مصوب">تصمیمات مصوب (Decisions)</option>
-                  <option value="جدول وظایف و اقدامات">جدول وظایف و اقدامات (Action Items)</option>
-                </select>
+                  onChange={setSection}
+                  className="w-full"
+                  options={[
+                    { value: 'دستور جلسه', label: 'دستور جلسه (Agenda)' },
+                    { value: 'متن بحث و گفتگو', label: 'متن بحث و گفتگو (Discussion)' },
+                    { value: 'تصمیمات مصوب', label: 'تصمیمات مصوب (Decisions)' },
+                    { value: 'جدول وظایف و اقدامات', label: 'جدول وظایف و اقدامات (Action Items)' },
+                  ]}
+                />
               </div>
 
               <div className="flex flex-col gap-1">

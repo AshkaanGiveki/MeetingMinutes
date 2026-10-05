@@ -16,12 +16,14 @@ import {
 } from 'lucide-react';
 import { Meeting } from '../types';
 
+const toLatinDigits = (value: string) => value.replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)));
+
 interface SignatureModalProps {
   isOpen: boolean;
   onClose: () => void;
   meeting: Meeting;
   onConfirmSignature: (signatureDataUrl: string) => void;
-  currentUser: { name: string; phoneNumber: string; email: string; role: string };
+  currentUser: { name: string; phoneNumber: string; email: string; role: string; signatureData?: string };
 }
 
 export const SignatureModal: React.FC<SignatureModalProps> = ({
@@ -55,12 +57,20 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
       if (ctx) {
         const isDark = document.documentElement.classList.contains('dark');
         ctx.strokeStyle = isDark ? '#a5b4fc' : '#312e81';
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 3;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        if (currentUser.signatureData?.startsWith('data:image/')) {
+          const savedSignature = new Image();
+          savedSignature.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(savedSignature, 0, 0, canvas.width, canvas.height);
+          };
+          savedSignature.src = currentUser.signatureData;
+        }
       }
     }
-  }, [isOpen, step, activeTab]);
+  }, [isOpen, step, activeTab, currentUser.signatureData]);
 
   // Countdown timer for OTP
   useEffect(() => {
@@ -79,12 +89,19 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setStep('sign');
+      if (currentUser.signatureData?.startsWith('typed:')) {
+        setActiveTab('type');
+        setTypedName(currentUser.signatureData.slice('typed:'.length) || currentUser.name);
+      } else {
+        setActiveTab('draw');
+        setTypedName(currentUser.name);
+      }
       setAgreedToTerms(false);
       setOtpCode('');
       setOtpError('');
       setTimerSeconds(120);
     }
-  }, [isOpen]);
+  }, [isOpen, currentUser.name, currentUser.signatureData]);
 
   if (!isOpen) return null;
 
@@ -100,7 +117,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
     ctx.beginPath();
-    ctx.moveTo(clientX - rect.left, clientY - rect.top);
+    ctx.moveTo((clientX - rect.left) * (canvas.width / rect.width), (clientY - rect.top) * (canvas.height / rect.height));
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
@@ -114,7 +131,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
-    ctx.lineTo(clientX - rect.left, clientY - rect.top);
+    ctx.lineTo((clientX - rect.left) * (canvas.width / rect.width), (clientY - rect.top) * (canvas.height / rect.height));
     ctx.stroke();
   };
 
@@ -162,7 +179,8 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
 
   // Step 2: Verify OTP and finalize signature
   const handleVerifyOtpAndSign = async () => {
-    if (otpCode.length < 6) {
+    const normalizedOtp = toLatinDigits(otpCode).replace(/\D/g, '');
+    if (normalizedOtp.length < 6) {
       setOtpError('لطفاً کد ۶ رقمی را به صورت کامل وارد کنید.');
       return;
     }
@@ -185,7 +203,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
         body: JSON.stringify({
           meetingId: meeting.id,
           signerPhone: currentUser.phoneNumber,
-          otp: otpCode,
+          otp: normalizedOtp,
         }),
       });
       const verifyData = await verifyRes.json();
@@ -202,6 +220,8 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
         body: JSON.stringify({
           meetingId: meeting.id,
+          signerName: currentUser.name,
+          signerRole: currentUser.role,
           signatureData,
           signatureType: activeTab,
           intentConfirmed: true,
@@ -301,13 +321,13 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             </div>
 
             {/* Signature drawing/typing canvas */}
-            <div className="relative rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950/40 p-2 flex flex-col items-center justify-center min-h-[150px]">
+            <div className="relative rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950/40 p-2 flex flex-col items-center justify-center min-h-[250px]">
               {activeTab === 'draw' ? (
                 <>
                   <canvas
                     ref={canvasRef}
-                    width={420}
-                    height={140}
+                    width={720}
+                    height={240}
                     onMouseDown={startDrawing}
                     onMouseMove={draw}
                     onMouseUp={stopDrawing}
@@ -315,7 +335,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                     onTouchStart={startDrawing}
                     onTouchMove={draw}
                     onTouchEnd={stopDrawing}
-                    className="w-full h-[140px] cursor-crosshair touch-none"
+                    className="w-full h-[220px] sm:h-[240px] cursor-crosshair touch-none"
                   />
                   <button
                     onClick={clearCanvas}
@@ -412,7 +432,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                 autoFocus
                 value={otpCode}
                 onChange={(e) => {
-                  setOtpCode(e.target.value.replace(/[^0-9]/g, ''));
+                  setOtpCode(toLatinDigits(e.target.value).replace(/[^0-9]/g, ''));
                   setOtpError('');
                 }}
                 placeholder="• • • • • •"

@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { X, Calendar, Clock, MapPin, Plus, Sparkles } from 'lucide-react';
 import { Meeting, Participant, Template } from '../types';
+import { JalaliDatePicker } from './JalaliDatePicker';
+import { TimeRangePicker } from './TimeRangePicker';
+import { CustomSelect } from './CustomSelect';
 
 interface NewMeetingModalProps {
   isOpen: boolean;
@@ -21,13 +24,16 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   const [location, setLocation] = useState('اتاق جلسات اصلی');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [isTemplatesLoading, setIsTemplatesLoading] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
+    setIsTemplatesLoading(true);
     fetch('/api/templates')
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load templates')))
       .then((data) => setTemplates(Array.isArray(data?.templates) ? data.templates : []))
-      .catch(() => setTemplates([]));
+      .catch(() => setTemplates([]))
+      .finally(() => setIsTemplatesLoading(false));
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -119,12 +125,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
               </label>
               <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                 <Calendar className="w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  value={persianDate}
-                  onChange={(e) => setPersianDate(e.target.value)}
-                  className="w-full bg-transparent focus:outline-none text-slate-800 dark:text-slate-100 font-mono"
-                />
+                <JalaliDatePicker value={persianDate} onChange={setPersianDate} />
               </div>
             </div>
 
@@ -134,12 +135,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
               </label>
               <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                 <Clock className="w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  value={timeRange}
-                  onChange={(e) => setTimeRange(e.target.value)}
-                  className="w-full bg-transparent focus:outline-none text-slate-800 dark:text-slate-100 font-mono"
-                />
+                <TimeRangePicker value={timeRange} onChange={setTimeRange} />
               </div>
             </div>
           </div>
@@ -163,18 +159,16 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
             <label className="font-semibold text-slate-700 dark:text-slate-300">
               قالب پیش‌فرض (اختیاری):
             </label>
-            <select
+            <CustomSelect
               value={selectedTemplateId}
-              onChange={(e) => setSelectedTemplateId(e.target.value)}
-              className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
-            >
-              <option value="">بدون قالب (سند خام)</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.title} ({t.category})
-                </option>
-              ))}
-            </select>
+              disabled={isTemplatesLoading}
+              onChange={setSelectedTemplateId}
+              className="w-full"
+              options={[
+                { value: '', label: 'بدون قالب (سند خام)' },
+                ...templates.map((t) => ({ value: t.id, label: `${t.title} (${t.category})` })),
+              ]}
+            />
           </div>
 
           <div className="flex items-center gap-2 pt-2">

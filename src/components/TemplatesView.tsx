@@ -13,6 +13,29 @@ import {
 } from 'lucide-react';
 import { Template } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
+import { EmptyState } from './EmptyState';
+import { LoadingState } from './LoadingState';
+import { CustomSelect } from './CustomSelect';
+
+const templateGridVariants = {
+  hidden: {},
+  show: {
+    transition: {
+      delayChildren: 0.08,
+      staggerChildren: 0.1,
+    },
+  },
+};
+
+const templateCardVariants = {
+  hidden: { opacity: 0, y: 24, scale: 0.98 },
+  show: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.42, ease: 'easeOut' as const },
+  },
+};
 
 interface TemplatesViewProps {
   onUseTemplate: (template: Template) => void;
@@ -20,6 +43,7 @@ interface TemplatesViewProps {
 
 export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) => {
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState('مدیریتی');
@@ -31,7 +55,8 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
     fetch('/api/templates')
       .then((res) => res.json())
       .then((data) => setTemplates(data?.templates || []))
-      .catch(() => setTemplates([]));
+      .catch(() => setTemplates([]))
+      .finally(() => setIsLoading(false));
   }, []);
 
   const handleCreateTemplate = async (e: React.FormEvent) => {
@@ -118,11 +143,27 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
       </div>
 
       {/* Grid of Templates */}
-      <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
+      {isLoading ? (
+        <LoadingState label="در حال بارگذاری قالب‌ها…" />
+      ) : templates.length === 0 ? (
+        <EmptyState
+          icon={Layers}
+          title="هنوز قالبی ساخته نشده است"
+          description="یک قالب استاندارد بسازید تا ایجاد صورت‌جلسه‌های بعدی سریع‌تر و منظم‌تر انجام شود."
+          action={<button onClick={() => setIsCreateModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/20">ایجاد قالب جدید</button>}
+        />
+      ) : (
+      <motion.div
+        key={templates.map((template) => template.id).join('|') || 'empty'}
+        className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        initial="hidden"
+        animate="show"
+        variants={templateGridVariants}
+      >
         {templates.map((tpl) => (
           <motion.div
             key={tpl.id}
-            variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: { duration: 0.34, ease: 'easeOut' } } }}
+            variants={templateCardVariants}
             layout
             className="p-5 rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm flex flex-col justify-between gap-4 group hover:border-indigo-200 dark:hover:border-indigo-800/60 transition-all hover:shadow-md"
           >
@@ -184,6 +225,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
           </motion.div>
         ))}
       </motion.div>
+      )}
 
       {/* Modal for creating a new template */}
       {isCreateModalOpen && (
@@ -220,16 +262,17 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
                 <label className="font-semibold text-slate-700 dark:text-slate-300">
                   دسته‌بندی:
                 </label>
-                <select
+                <CustomSelect
                   value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="مدیریتی">مدیریتی</option>
-                  <option value="فنی و محصول">فنی و محصول</option>
-                  <option value="حقوقی">حقوقی</option>
-                  <option value="مالی و منابع انسانی">مالی و منابع انسانی</option>
-                </select>
+                  onChange={setNewCategory}
+                  className="w-full"
+                  options={[
+                    { value: 'مدیریتی', label: 'مدیریتی' },
+                    { value: 'فنی و محصول', label: 'فنی و محصول' },
+                    { value: 'حقوقی', label: 'حقوقی' },
+                    { value: 'مالی و منابع انسانی', label: 'مالی و منابع انسانی' },
+                  ]}
+                />
               </div>
 
               <div className="flex flex-col gap-1">

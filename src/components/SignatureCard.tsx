@@ -108,12 +108,12 @@ export const SignatureCard: React.FC<SignatureCardProps> = ({
             {meeting.signatureCount} از {meeting.totalSignaturesRequired} امضا
           </span>
           <motion.div className="flex items-center -space-x-2 space-x-reverse" initial="hidden" animate="show" variants={staggerContainerVariants}>
-            {meeting.participants.slice(0, 3).map((p) => (
+            {meeting.participants.filter(Boolean).slice(0, 3).map((p, index) => (
               <motion.img
-                key={p.id}
+                key={p.id || `participant-${index}`}
                 variants={staggerItemVariants}
-                src={p.avatar}
-                alt={p.name}
+                src={p.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+                alt={p.name || 'شرکت‌کننده'}
                 referrerPolicy="no-referrer"
                 className="w-6 h-6 rounded-full object-cover ring-2 ring-white dark:ring-slate-900 shadow-2xs"
                 title={`${p.name} (${p.statusText || 'امضا کرده'})`}
