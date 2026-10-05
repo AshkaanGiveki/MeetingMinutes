@@ -17,6 +17,8 @@ import {
   KeyRound,
   CheckCircle2
 } from 'lucide-react';
+import { motion } from 'motion/react';
+import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { OrganizationRole } from '../types';
 
 interface AuthModalProps {
@@ -626,12 +628,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
               تغییر نقش فعال جهت آزمودن قوانین امنیتی و دسترسی‌ها:
             </span>
-            <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
+            <motion.div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1" initial="hidden" animate="show" variants={staggerContainerVariants}>
               {roles.map((r) => {
                 const isSelected = currentRole === r.role;
                 return (
-                  <button
+                  <motion.button
                     key={r.role}
+                    variants={staggerItemVariants}
                     type="button"
                     onClick={() => {
                       onRoleChange(r.role);
@@ -657,10 +660,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         <Check className="w-3 h-3" />
                       </div>
                     )}
-                  </button>
+                  </motion.button>
                 );
               })}
-            </div>
+            </motion.div>
 
             {/* Logout button */}
             <div className="pt-2 border-t border-slate-100 dark:border-slate-800">

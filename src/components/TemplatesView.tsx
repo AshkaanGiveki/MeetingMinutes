@@ -12,6 +12,7 @@ import {
   X
 } from 'lucide-react';
 import { Template } from '../types';
+import { staggerContainerVariants, staggerItemVariants } from './stagger';
 
 interface TemplatesViewProps {
   onUseTemplate: (template: Template) => void;
@@ -158,19 +159,19 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
 
             <div className="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
               <div className="text-[11px] text-slate-400 font-medium">بندهای پیش‌فرض:</div>
-              <ul className="flex flex-col gap-1 text-[11px] text-slate-600 dark:text-slate-400">
+              <motion.ul className="flex flex-col gap-1 text-[11px] text-slate-600 dark:text-slate-400" initial="hidden" animate="show" variants={staggerContainerVariants}>
                 {tpl.agendaDefaults.slice(0, 3).map((item, idx) => (
-                  <li key={idx} className="flex items-center gap-1.5">
+                  <motion.li key={idx} variants={staggerItemVariants} className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                     <span className="truncate">{item}</span>
-                  </li>
+                  </motion.li>
                 ))}
                 {tpl.agendaDefaults.length > 3 && (
-                  <li className="text-[10px] text-slate-400">
+                  <motion.li variants={staggerItemVariants} className="text-[10px] text-slate-400">
                     + {tpl.agendaDefaults.length - 3} بند دیگر...
-                  </li>
+                  </motion.li>
                 )}
-              </ul>
+              </motion.ul>
 
               <button
                 onClick={() => onUseTemplate(tpl)}

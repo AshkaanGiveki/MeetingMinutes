@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Plus, Search, Calendar, Clock, MapPin, Users, ArrowLeft, Filter, FileText } from 'lucide-react';
 import { Meeting } from '../types';
+import { staggerContainerVariants, staggerItemVariants } from './stagger';
 
 interface MeetingsListViewProps {
   meetings: Meeting[];
@@ -152,10 +153,11 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
 
               {/* Card Footer */}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                <div className="flex items-center -space-x-2 space-x-reverse">
+                <motion.div className="flex items-center -space-x-2 space-x-reverse" initial="hidden" animate="show" variants={staggerContainerVariants}>
                   {meeting.participants.slice(0, 3).map((p) => (
-                    <img
+                    <motion.img
                       key={p.id}
+                      variants={staggerItemVariants}
                       src={p.avatar}
                       alt={p.name}
                       referrerPolicy="no-referrer"
@@ -165,7 +167,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
                   <span className="text-[11px] text-slate-400 mr-3">
                     {meeting.signatureCount} از {meeting.totalSignaturesRequired} امضا
                   </span>
-                </div>
+                </motion.div>
 
                 <div className="flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 group-hover:-translate-x-1 transition-transform">
                   <span>مشاهده سند</span>

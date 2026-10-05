@@ -37,6 +37,8 @@ import {
   X
 } from 'lucide-react';
 import { Meeting, AgendaItem, DecisionItem, ActionItem, Participant } from '../types';
+import { motion } from 'motion/react';
+import { staggerContainerVariants, staggerItemVariants } from './stagger';
 
 interface MeetingHeroProps {
   meeting: Meeting;
@@ -644,10 +646,11 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
           )}
 
           {/* Agenda items list with In-Place Edit */}
-          <div className="flex flex-col gap-2">
+          <motion.div className="flex flex-col gap-2" initial="hidden" animate="show" variants={staggerContainerVariants}>
             {meeting.agenda.map((item, idx) => (
-              <div
+              <motion.div
                 key={item.id}
+                variants={staggerItemVariants}
                 className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/80 hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors group text-xs text-slate-700 dark:text-slate-300"
               >
                 {editingAgendaId === item.id ? (
@@ -724,9 +727,9 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                     </div>
                   </>
                 )}
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         </section>
 
         {/* Section 2: مشروح مذاکرات (Functional Rich Text Editor) */}
@@ -1038,10 +1041,11 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             </form>
           )}
 
-          <div className="flex flex-col gap-2">
+          <motion.div className="flex flex-col gap-2" initial="hidden" animate="show" variants={staggerContainerVariants}>
             {meeting.decisions.map((dec) => (
-              <div
+              <motion.div
                 key={dec.id}
+                variants={staggerItemVariants}
                 className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 group transition-all"
               >
                 {editingDecisionId === dec.id ? (
@@ -1107,9 +1111,9 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                     </div>
                   </>
                 )}
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         </section>
 
         {/* Section 5: اقدامات و وظایف (Action Items Table) */}
@@ -1198,10 +1202,11 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                   <th className="py-2.5 px-4 w-12 text-center">حذف</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+              <motion.tbody className="divide-y divide-slate-100 dark:divide-slate-800/80" initial="hidden" animate="show" variants={staggerContainerVariants}>
                 {meeting.actionItems.map((act) => (
-                  <tr
+                  <motion.tr
                     key={act.id}
+                    variants={staggerItemVariants}
                     className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${
                       act.completed ? 'opacity-60 bg-slate-50/30 dark:bg-slate-900/30' : ''
                     }`}
@@ -1244,9 +1249,9 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </td>
-                  </tr>
+                  </motion.tr>
                 ))}
-              </tbody>
+              </motion.tbody>
             </table>
           </div>
         </section>

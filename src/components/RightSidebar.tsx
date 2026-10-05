@@ -17,6 +17,9 @@ import {
   Lock
   ,Shield
   ,Building2
+  ,UserRound
+  ,BookOpen
+  ,ChevronUp
 } from 'lucide-react';
 import { OrganizationRole } from '../types';
 
@@ -49,6 +52,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onLogout,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   const navItems = [
     {
@@ -176,30 +180,31 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 onClick={() => onTabChange(item.id)}
                 variants={{ hidden: { opacity: 0, y: 7 }, show: { opacity: 1, y: 0 } }}
                 whileTap={{ scale: 0.98 }}
-                className={`relative group flex items-center gap-3.5 py-2.5 rounded-2xl transition-all duration-200 cursor-pointer text-xs font-semibold text-right ${
+                className={`relative group flex min-h-12 items-center gap-3.5 py-3.5 rounded-xl transition-all duration-200 cursor-pointer text-xs font-semibold text-right overflow-hidden ${
                   isCollapsed ? 'justify-center px-0' : 'px-3.5'
                 } ${
                   isActive
-                    ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    ? 'text-indigo-600 dark:text-indigo-400 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
                 }`}
                 title={item.label}
               >
-                {/* Active Indicator Bar on visual right */}
-                {isActive && <motion.span layoutId="sidebar-active-indicator" transition={{ type: 'spring', stiffness: 520, damping: 36 }} className="absolute right-0 top-2 bottom-2 w-1 bg-indigo-600 dark:bg-indigo-500 rounded-l-full" />}
+                {/* The active surface travels with the selected item, not just the edge indicator. */}
+                {isActive && <motion.span layoutId="sidebar-active-background" transition={{ type: 'spring', stiffness: 520, damping: 36 }} className="absolute inset-0 rounded-xl bg-indigo-50 dark:bg-indigo-950/70" />}
+                {isActive && <motion.span layoutId="sidebar-active-indicator" transition={{ type: 'spring', stiffness: 520, damping: 36 }} className="absolute right-0 top-2 bottom-2 z-20 w-1 bg-indigo-600 dark:bg-indigo-500 rounded-l-full" />}
 
                 <motion.span
                   key={`${item.id}-${isActive ? 'active' : 'idle'}`}
                   initial={isActive ? { scale: 0, opacity: 0 } : { scale: 1, opacity: 1 }}
                   animate={{ scale: isActive ? 1.1 : 1, opacity: 1 }}
                   transition={{ type: 'spring', stiffness: 500, damping: 24 }}
-                  className={`flex shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300'}`}
+                  className={`relative z-10 flex shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300'}`}
                 >
                   <Icon className="w-4 h-4 stroke-[2]" />
                 </motion.span>
 
                 {!isCollapsed && (
-                  <div className="flex-1 flex items-center justify-between">
+                  <div className="relative z-10 flex-1 flex items-center justify-between">
                     {isActive ? <motion.span initial={{ opacity: 0, x: 7 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.24, ease: 'easeOut' }}>{item.label}</motion.span> : <span>{item.label}</span>}
                     {item.badge !== undefined && item.badge > 0 && (
                       <span
@@ -217,15 +222,57 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       </div>
 
       {/* Bottom User Profile & Auth Section */}
-      <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col gap-2">
+      <div className="relative p-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col gap-2">
         {currentUser ? (
           <div
-            className={`rounded-2xl p-2.5 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex items-center gap-3 ${
+            className={`relative rounded-2xl p-2.5 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex items-center gap-3 ${
               isCollapsed ? 'justify-center' : 'justify-between'
             }`}
           >
+            {isProfileMenuOpen && !isCollapsed && (
+              <div role="menu" aria-label="منوی حساب کاربری" className="absolute bottom-[calc(100%+0.75rem)] right-0 left-0 z-50 overflow-hidden rounded-2xl border border-slate-200/90 bg-white text-right shadow-2xl shadow-slate-300/30 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40" dir="rtl">
+                <div className="p-1.5">
+                  <button role="menuitem" onClick={() => { setIsProfileMenuOpen(false); onOpenAuth?.(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
+                    <UserRound className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span>مشاهده پروفایل</span>
+                    <span className="mr-auto text-[10px] text-slate-400">⌘↵</span>
+                  </button>
+                  <button role="menuitem" onClick={() => { setIsProfileMenuOpen(false); onTabChange('settings'); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
+                    <Settings className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span>تنظیمات حساب</span>
+                    <span className="mr-auto text-[10px] text-slate-400">⌘S</span>
+                  </button>
+                  <button role="menuitem" onClick={() => setIsProfileMenuOpen(false)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
+                    <BookOpen className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span>مستندات</span>
+                  </button>
+                </div>
+                <div className="border-t border-slate-100 dark:border-slate-800" />
+                <div className="p-3">
+                  <p className="mb-2 text-[10px] font-bold text-slate-400">تغییر حساب</p>
+                  <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-2.5 py-2 dark:bg-slate-800/70">
+                    <div className="relative shrink-0">
+                      <img src={currentUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'} alt={currentUser.name} referrerPolicy="no-referrer" className="h-8 w-8 rounded-lg object-cover" />
+                      <span className="absolute -bottom-0.5 -left-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-slate-50 dark:ring-slate-800" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold text-slate-800 dark:text-slate-100">{currentUser.name}</p>
+                      <p className="truncate text-[10px] text-slate-400">{currentUser.email}</p>
+                    </div>
+                    <span className="h-2.5 w-2.5 rounded-full border border-slate-300 dark:border-slate-600" />
+                  </div>
+                  {onLogout && (
+                    <button role="menuitem" onClick={() => { setIsProfileMenuOpen(false); onLogout(); }} className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:text-slate-300 dark:hover:bg-rose-950/40 dark:hover:text-rose-300">
+                      <LogOut className="h-4 w-4 shrink-0" />
+                      <span>خروج از حساب</span>
+                      <span className="mr-auto text-[10px] text-slate-400">⌥⇧Q</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             <div
-              onClick={onOpenAuth}
+              onClick={() => setIsProfileMenuOpen((open) => !open)}
               className="flex items-center gap-2.5 cursor-pointer min-w-0"
               title="تغییر نقش کاربری یا تنظیمات حساب"
             >
@@ -255,6 +302,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 </div>
               )}
             </div>
+
+            {!isCollapsed && <ChevronUp className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isProfileMenuOpen ? 'rotate-180' : ''}`} />}
 
             {!isCollapsed && onLogout && (
               <button

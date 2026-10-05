@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Search, X, Calendar, FileText, CheckCircle, User, ArrowLeft } from 'lucide-react';
 import { Meeting } from '../types';
+import { motion } from 'motion/react';
+import { staggerContainerVariants, staggerItemVariants } from './stagger';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -75,15 +77,16 @@ export const SearchModal: React.FC<SearchModalProps> = ({
         </div>
 
         {/* Results List */}
-        <div className="max-h-96 overflow-y-auto p-3 flex flex-col gap-1.5">
+        <motion.div className="max-h-96 overflow-y-auto p-3 flex flex-col gap-1.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {filteredMeetings.length === 0 ? (
             <div className="py-12 text-center text-slate-400 text-xs">
               موردی مطابق با جستجوی شما یافت نشد.
             </div>
           ) : (
             filteredMeetings.map((meeting) => (
-              <button
+              <motion.button
                 key={meeting.id}
+                variants={staggerItemVariants}
                 onClick={() => {
                   onSelectMeeting(meeting);
                   onClose();
@@ -112,10 +115,10 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                 </div>
 
                 <ArrowLeft className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors" />
-              </button>
+              </motion.button>
             ))
           )}
-        </div>
+        </motion.div>
 
         {/* Footer info */}
         <div className="p-3 bg-slate-50 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 flex items-center justify-between px-5">

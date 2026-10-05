@@ -593,7 +593,7 @@ export default function App() {
       </div>
 
       {/* Main Workspace Frame to the left */}
-      <div className="flex-1 min-w-0 min-h-0 z-10 overflow-hidden rounded-3xl border border-slate-200/70 bg-white/20 shadow-sm dark:border-slate-800/80 dark:bg-slate-950/20">
+      <div className="flex-1 min-w-0 min-h-0 z-10 overflow-visible">
         {/* Top Header */}
         <div className="no-print">
           <TopBar

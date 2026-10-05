@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key, X, Trash2 } from 'lucide-react';
 import { Participant } from '../types';
+import { staggerContainerVariants, staggerItemVariants } from './stagger';
 
 export const ContactsView: React.FC = () => {
   const [members, setMembers] = useState<Participant[]>([]);
@@ -98,17 +99,18 @@ export const ContactsView: React.FC = () => {
           <Key className="w-4 h-4 text-indigo-500" />
           <span>سیاست‌های مجوز سازمان:</span>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+        <motion.div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {permissionsList.map((p) => (
-            <span
+            <motion.span
               key={p.code}
+              variants={staggerItemVariants}
               className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center gap-1.5"
             >
               <CheckCircle2 className="w-3 h-3 text-emerald-500" />
               <span>{p.label}</span>
-            </span>
+            </motion.span>
           ))}
-        </div>
+        </motion.div>
       </div>
 
       {/* Members Table */}

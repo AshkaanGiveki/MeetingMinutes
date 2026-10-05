@@ -1,4 +1,6 @@
 import React from 'react';
+import { motion } from 'motion/react';
+import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { PenTool, CheckCircle2, ShieldCheck, Lock } from 'lucide-react';
 import { Meeting } from '../types';
 
@@ -105,10 +107,11 @@ export const SignatureCard: React.FC<SignatureCardProps> = ({
           <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
             {meeting.signatureCount} از {meeting.totalSignaturesRequired} امضا
           </span>
-          <div className="flex items-center -space-x-2 space-x-reverse">
+          <motion.div className="flex items-center -space-x-2 space-x-reverse" initial="hidden" animate="show" variants={staggerContainerVariants}>
             {meeting.participants.slice(0, 3).map((p) => (
-              <img
+              <motion.img
                 key={p.id}
+                variants={staggerItemVariants}
                 src={p.avatar}
                 alt={p.name}
                 referrerPolicy="no-referrer"
@@ -116,7 +119,7 @@ export const SignatureCard: React.FC<SignatureCardProps> = ({
                 title={`${p.name} (${p.statusText || 'امضا کرده'})`}
               />
             ))}
-          </div>
+          </motion.div>
         </div>
       </div>
 

@@ -9,6 +9,8 @@ import {
   UserPlus
 } from 'lucide-react';
 import { Meeting, Participant, CommentItem } from '../types';
+import { motion } from 'motion/react';
+import { staggerContainerVariants, staggerItemVariants } from './stagger';
 
 interface LeftSidebarProps {
   meeting: Meeting;
@@ -103,10 +105,11 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </div>
 
         {/* Avatar Stack with +2 */}
-        <div className="flex items-center justify-center -space-x-2.5 space-x-reverse py-1">
+        <motion.div className="flex items-center justify-center -space-x-2.5 space-x-reverse py-1" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {meeting.participants.slice(0, 4).map((p) => (
-            <img
+            <motion.img
               key={p.id}
+              variants={staggerItemVariants}
               src={p.avatar}
               alt={p.name}
               referrerPolicy="no-referrer"
@@ -117,7 +120,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 font-bold text-xs flex items-center justify-center ring-2 ring-white dark:ring-slate-900 shadow-sm">
             +۲
           </div>
-        </div>
+        </motion.div>
 
         {/* Share Button (Vibrant purple gradient matching screenshot) */}
         <button
@@ -144,10 +147,11 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </div>
 
         {/* Participants list */}
-        <div className="flex flex-col gap-2.5 max-h-56 overflow-y-auto pr-0.5">
+        <motion.div className="flex flex-col gap-2.5 max-h-56 overflow-y-auto pr-0.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {meeting.participants.map((p) => (
-            <div
+            <motion.div
               key={p.id}
+              variants={staggerItemVariants}
               className="flex items-center justify-between p-1 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
             >
               <div className="flex items-center gap-2.5">
@@ -178,9 +182,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               ) : (
                 <span className="w-2 h-2 rounded-full bg-amber-400/80" title="در انتظار امضا" />
               )}
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </div>
 
       {/* 2. Middle Card: Meeting Status Stepper */}
@@ -190,7 +194,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </h4>
 
         {/* Timeline dots line */}
-        <div className="relative flex items-center justify-between pt-2 pb-1 px-1">
+        <motion.div className="relative flex items-center justify-between pt-2 pb-1 px-1" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {/* Background horizontal line */}
           <div className="absolute top-[15px] left-3 right-3 h-[2px] bg-slate-200 dark:bg-slate-700 -z-0" />
 
@@ -207,8 +211,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             const isCurrent = step.stepIndex === currentStepIndex;
 
             return (
-              <button
+              <motion.button
                 key={step.id}
+                variants={staggerItemVariants}
                 onClick={() => onStatusChange?.(step.id)}
                 className="relative z-10 flex flex-col items-center cursor-pointer group focus:outline-none"
               >
@@ -221,18 +226,19 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                       : 'bg-slate-300 dark:bg-slate-600'
                   }`}
                 />
-              </button>
+              </motion.button>
             );
           })}
-        </div>
+        </motion.div>
 
         {/* Labels below */}
-        <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
+        <motion.div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {statusSteps.map((step) => {
             const isCurrent = step.stepIndex === currentStepIndex;
             return (
-              <span
+              <motion.span
                 key={step.id}
+                variants={staggerItemVariants}
                 className={`transition-colors text-center ${
                   isCurrent
                     ? 'font-bold text-indigo-600 dark:text-indigo-400'
@@ -240,10 +246,10 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                 }`}
               >
                 {step.label}
-              </span>
+              </motion.span>
             );
           })}
-        </div>
+        </motion.div>
 
         {meeting.status === 'IN_REVIEW' && onOpenReviewModal && (
           <button
@@ -269,10 +275,11 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </div>
 
         {/* Comments list */}
-        <div className="flex flex-col gap-3 max-h-48 overflow-y-auto pr-0.5">
+        <motion.div className="flex flex-col gap-3 max-h-48 overflow-y-auto pr-0.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {meeting.comments.map((comment) => (
-            <div
+            <motion.div
               key={comment.id}
+              variants={staggerItemVariants}
               className="flex items-start gap-2.5 text-xs p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800"
             >
               <img
@@ -294,9 +301,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                   {comment.text}
                 </p>
               </div>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
 
         {/* Add comment input */}
         <form onSubmit={handleSendComment} className="relative mt-1">
