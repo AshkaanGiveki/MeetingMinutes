@@ -69,6 +69,7 @@ export interface Meeting {
   signatureCount: number;
   totalSignaturesRequired: number;
   signatures?: SignatureRecord[];
+  templateId?: string;
 }
 
 export interface SignatureRecord {
@@ -89,6 +90,7 @@ export interface Template {
   description: string;
   category: string;
   agendaDefaults: string[];
+  pdfStyle?: 'classic' | 'modern' | 'minimal';
 }
 
 export type OrganizationRole =

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import fs from 'fs/promises';
 import { logger } from './logger';
 
 export interface TelegramUserData {
@@ -103,6 +104,21 @@ export class TelegramService {
       if (!data.ok) logger.error('Telegram rejected notification message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
     } catch (err) { logger.error('Failed to dispatch telegram notification', { metadata: { error: String(err) } }); return false; }
+  }
+
+  async sendDocument(chatId: string | number, filePath: string, caption: string): Promise<boolean> {
+    if (!this.botToken) { logger.info(`[MOCK TELEGRAM DOCUMENT] To: ${chatId} | ${caption}`); return true; }
+    try {
+      const bytes = await fs.readFile(filePath);
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      form.append('caption', caption);
+      form.append('document', new Blob([bytes], { type: 'application/pdf' }), 'صورت-جلسه.pdf');
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendDocument`, { method: 'POST', body: form });
+      const data = await response.json() as { ok?: boolean; description?: string };
+      if (!data.ok) logger.error('Telegram rejected PDF document.', { metadata: { status: response.status, description: data.description } });
+      return !!data.ok;
+    } catch (err) { logger.error('Failed to dispatch PDF to Telegram', { metadata: { error: String(err) } }); return false; }
   }
 }
 

@@ -440,6 +440,36 @@ export default function App() {
     window.print();
   };
 
+  const handleDownloadPdf = async () => {
+    if (!activeMeeting) return;
+    try {
+      const response = await fetch(`/api/meetings/${activeMeeting.id}/pdf`);
+      if (!response.ok) throw new Error('دانلود PDF انجام نشد.');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url; anchor.download = `${activeMeeting.id}.pdf`; anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'دانلود PDF انجام نشد.');
+      setTimeout(() => setOperationError(''), 3500);
+    }
+  };
+
+  const handleSendPdfToTelegram = async () => {
+    if (!activeMeeting) return;
+    try {
+      const response = await fetch('/api/telegram/send-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: activeMeeting.id }) });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || data.message || 'ارسال PDF به تلگرام انجام نشد.');
+      setOperationError('فایل PDF با موفقیت در تلگرام ارسال شد.');
+      setTimeout(() => setOperationError(''), 3500);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'ارسال PDF به تلگرام انجام نشد.');
+      setTimeout(() => setOperationError(''), 3500);
+    }
+  };
+
   // Create new meeting
   const handleCreateNewMeeting = async (newMeeting: Meeting) => {
     let persistedMeeting = newMeeting;
@@ -465,6 +495,7 @@ export default function App() {
             dueDate: item.dueDate || '',
             completed: Boolean(item.completed),
           })),
+          templateId: newMeeting.templateId,
         }),
       });
       const data = await response.json();
@@ -503,6 +534,7 @@ export default function App() {
     const newMeeting: Meeting = {
       id: `meet_${Date.now()}`,
       title: template.title,
+      templateId: template.id,
       persianDate: '۱۵ مهر ۱۴۰۴',
       timeRange: '۱۰:۰۰ - ۱۱:۳۰',
       location: 'اتاق جلسات اصلی',
@@ -752,6 +784,8 @@ export default function App() {
                 onTriggerAI={handleTriggerAI}
                 isAiLoading={isAiLoading}
                 onPrintPdf={handlePrintPdf}
+                onDownloadPdf={handleDownloadPdf}
+                onSendTelegram={handleSendPdfToTelegram}
               />
 
               {/* Floating Digital Signature Card on Right of Canvas */}

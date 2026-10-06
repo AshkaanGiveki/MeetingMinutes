@@ -4,6 +4,8 @@ import { telegramService } from './services/telegram.service';
 import { logger } from './services/logger';
 import { meetingRepository } from './repositories/meeting.repository';
 import { generateMeetingPdf } from './services/document.service';
+import { templateRepository } from './repositories/template.repository';
+import { Meeting } from '../types';
 
 export function initializeWorker() {
   logger.info('Initializing MetaMeet asynchronous background worker...');
@@ -33,7 +35,9 @@ export function initializeWorker() {
     logger.info(`Worker generating high-fidelity PDF artifact for meeting ${job.payload.meetingId}`);
     const meeting = await meetingRepository.getById(job.payload.meetingId);
     if (!meeting) throw new Error(`Meeting ${job.payload.meetingId} not found for PDF generation.`);
-    await generateMeetingPdf(meeting);
+    const organizationId = (meeting as Meeting & { organizationId?: string }).organizationId;
+    const templates = await templateRepository.getAll(organizationId);
+    await generateMeetingPdf(meeting, templates.find((template) => template.id === meeting.templateId));
   });
 
   // 4. Audit record consumer

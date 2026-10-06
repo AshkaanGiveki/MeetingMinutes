@@ -48,6 +48,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
     const newMeeting: Meeting = {
       id: `meet_${Date.now()}`,
       title: title.trim(),
+      templateId: chosenTemplate?.id,
       persianDate: persianDate.trim(),
       timeRange: timeRange.trim(),
       location: location.trim(),

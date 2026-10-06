@@ -20,7 +20,7 @@ import { smsService } from './src/server/services/sms.service';
 import { notificationService } from './src/server/services/notification.service';
 import type { Meeting } from './src/types';
 import { initializeWorker } from './src/server/worker';
-import { documentExists, getMeetingPdfPath } from './src/server/services/document.service';
+import { documentExists, getMeetingPdfPath, generateMeetingPdf } from './src/server/services/document.service';
 import { templateRepository } from './src/server/repositories/template.repository';
 import { organizationService } from './src/server/services/organization.service';
 import { canTransitionMeeting, hasPermission, OrganizationRole, Permission, RolePermissionsMap } from './src/server/policies/rbac';
@@ -899,11 +899,10 @@ app.get('/api/meetings/:id', async (req, res) => {
 app.get('/api/meetings/:id/pdf', requireMeetingPermission('meeting.read'), async (req, res) => {
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
-  if (meeting.status !== 'SEALED' && meeting.status !== 'ARCHIVED') {
-    return res.status(400).json({ error: 'Only sealed or archived meetings can be downloaded.' });
-  }
   if (!(await documentExists(meeting.id))) {
-    return res.status(404).json({ error: 'PDF artifact is not ready yet.' });
+    const organizationId = (meeting as Meeting & { organizationId?: string }).organizationId;
+    const templates = await templateRepository.getAll(organizationId);
+    await generateMeetingPdf(meeting, templates.find((template) => template.id === meeting.templateId));
   }
   return res.download(getMeetingPdfPath(meeting.id), `${meeting.id}.pdf`);
 });
@@ -1000,6 +999,7 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
     persianDate: data.persianDate,
     timeRange: data.timeRange,
     location: data.location,
+    templateId: data.templateId,
     status: 'DRAFT' as const,
     statusLabel: 'پیش‌نویس',
     organizer: {
@@ -1265,12 +1265,21 @@ app.post('/api/meetings/:id/review', requireMeetingPermission('meeting.review'),
 // Template Endpoints
 // -------------------------------------------------------------
 app.get('/api/templates', async (req, res) => {
-  const templates = await templateRepository.getAll((req as RequestWithAuth).auth!.organizationId);
+  const organizationId = (req as RequestWithAuth).auth!.organizationId;
+  let templates = await templateRepository.getAll(organizationId);
+  if (!templates.length) {
+    const defaults = [
+      { id: `tpl_classic_${organizationId}`, title: 'قالب رسمی کلاسیک', category: 'اداری', description: 'سربرگ رسمی با بخش‌های کامل و رنگ سازمانی.', pdfStyle: 'classic' as const, agendaDefaults: ['بررسی دستور جلسه', 'تصمیمات و مصوبات', 'اقدامات و مسئولیت‌ها'] },
+      { id: `tpl_modern_${organizationId}`, title: 'قالب مدرن سازمانی', category: 'مدیریتی', description: 'طراحی مدرن با تاکید بر تصمیم‌ها و پیگیری اقدامات.', pdfStyle: 'modern' as const, agendaDefaults: ['گزارش پیشرفت', 'تصمیم‌های کلیدی', 'برنامه اقدام'] },
+      { id: `tpl_minimal_${organizationId}`, title: 'قالب مینیمال', category: 'عمومی', description: 'ساده، خوانا و مناسب چاپ سیاه‌وسفید.', pdfStyle: 'minimal' as const, agendaDefaults: ['موضوعات جلسه', 'جمع‌بندی و مصوبات'] },
+    ];
+    templates = await Promise.all(defaults.map((template) => templateRepository.create({ ...template, organizationId } as any)));
+  }
   return res.json({ success: true, templates });
 });
 
 app.post('/api/templates', requirePermission('template.create'), async (req, res) => {
-  const { title, category, description, agendaDefaults } = req.body;
+  const { title, category, description, agendaDefaults, pdfStyle } = req.body;
   if (!title) {
     return res.status(400).json({ error: 'عنوان قالب الزامی است.' });
   }
@@ -1282,6 +1291,7 @@ app.post('/api/templates', requirePermission('template.create'), async (req, res
     category: category || 'عمومی',
     description: description || 'قالب سفارشی سازمان',
     agendaDefaults: agendaDefaults || ['بررسی دستور جلسه', 'تصویب تصمیمات و اقدامات'],
+    pdfStyle: pdfStyle === 'modern' || pdfStyle === 'minimal' ? pdfStyle : 'classic',
   };
 
   const created = await templateRepository.create(newTemplate);
@@ -1666,6 +1676,19 @@ app.post('/api/telegram/send-pm', async (req, res) => {
   const success = await telegramService.sendSignRequestPM(chatId, meeting.id, meeting.title, meeting.organizer.name, actionToken);
 
   return res.json({ success, message: 'پیام تایید و امضای مستقیم تلگرام ارسال گردید.' });
+});
+
+app.post('/api/telegram/send-pdf', async (req, res) => {
+  const { meetingId } = req.body;
+  const auth = (req as RequestWithAuth).auth!;
+  const user = await authService.findById(auth.userId, auth.organizationId);
+  if (!user?.telegramChatId) return res.status(400).json({ error: 'ابتدا حساب تلگرام خود را متصل کنید.' });
+  const meeting = await meetingRepository.getById(String(meetingId));
+  if (!meeting || !(await canAccessMeeting(req, meeting.id, 'meeting.read'))) return res.status(404).json({ error: 'صورت‌جلسه یافت نشد.' });
+  const templates = await templateRepository.getAll((meeting as Meeting & { organizationId?: string }).organizationId);
+  const filePath = await generateMeetingPdf(meeting, templates.find((template) => template.id === meeting.templateId));
+  const success = await telegramService.sendDocument(user.telegramChatId, filePath, `صورت‌جلسه: ${meeting.title}`);
+  return res.json({ success, message: success ? 'فایل PDF در تلگرام ارسال شد.' : 'ارسال فایل PDF انجام نشد.' });
 });
 
 app.post('/api/telegram/link-token', async (req, res) => {
