@@ -81,7 +81,7 @@ export class TelegramService {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM PM] To: ${chatId} | Meeting: ${meetingTitle} | PDF attached: ${Boolean(pdfPath)} | Persian action buttons prepared`); return true; }
     try {
       if (pdfPath) return this.sendDocument(chatId, pdfPath, text.replace(/<[^>]+>/g, ''), replyMarkup);
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }) });
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }), signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
       if (!data.ok) logger.error('Telegram rejected sign-request message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
@@ -100,7 +100,7 @@ export class TelegramService {
   async sendNotification(chatId: string | number, message: string): Promise<boolean> {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM] message to ${chatId}: ${message}`); return true; }
     try {
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }) });
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }), signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
       if (!data.ok) logger.error('Telegram rejected notification message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
@@ -116,7 +116,7 @@ export class TelegramService {
       form.append('caption', caption);
       if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
       form.append('document', new Blob([bytes], { type: 'application/pdf' }), 'صورت-جلسه.pdf');
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendDocument`, { method: 'POST', body: form });
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendDocument`, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string };
       if (!data.ok) logger.error('Telegram rejected PDF document.', { metadata: { status: response.status, description: data.description } });
       return !!data.ok;

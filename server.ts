@@ -1195,12 +1195,12 @@ app.post('/api/meetings/:id/review', requireMeetingPermission('meeting.review'),
       statusLabel: 'آماده امضا',
     });
 
-    await notifyPendingSignersOnTelegram(
+    void notifyPendingSignersOnTelegram(
       meeting,
       (meeting as Meeting & { signatures?: Array<{ signerId: string }> }).signatures || [],
       (req as RequestWithAuth).auth!.organizationId,
       reviewerName,
-    );
+    ).catch((error) => logger.warn('Telegram review notification failed after review completion.', { metadata: { error: String(error), meetingId } }));
 
     await meetingRepository.addAudit({
       id: `aud_${Date.now()}`,
