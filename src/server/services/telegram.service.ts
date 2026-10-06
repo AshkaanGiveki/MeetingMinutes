@@ -80,7 +80,8 @@ export class TelegramService {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM PM] To: ${chatId} | Meeting: ${meetingTitle} | Persian action buttons prepared`); return true; }
     try {
       const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }) });
-      const data = await response.json() as { ok?: boolean };
+      const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
+      if (!data.ok) logger.error('Telegram rejected sign-request message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
     } catch (err) { logger.error('Failed to dispatch Telegram PM sign request:', { metadata: { error: String(err) } }); return false; }
   }
@@ -98,7 +99,8 @@ export class TelegramService {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM] message to ${chatId}: ${message}`); return true; }
     try {
       const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }) });
-      const data = await response.json() as { ok?: boolean };
+      const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
+      if (!data.ok) logger.error('Telegram rejected notification message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
     } catch (err) { logger.error('Failed to dispatch telegram notification', { metadata: { error: String(err) } }); return false; }
   }
