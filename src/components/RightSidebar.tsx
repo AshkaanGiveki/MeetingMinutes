@@ -45,27 +45,40 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onLogout,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isContentVisible, setIsContentVisible] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearHoverTimers = () => {
     if (expandTimerRef.current) clearTimeout(expandTimerRef.current);
     if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     expandTimerRef.current = null;
     collapseTimerRef.current = null;
+    closeTimerRef.current = null;
   };
 
   const handleSidebarEnter = () => {
     if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
-    if (isCollapsed) expandTimerRef.current = setTimeout(() => setIsCollapsed(false), 200);
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    if (isCollapsed) {
+      expandTimerRef.current = setTimeout(() => {
+        setIsCollapsed(false);
+        setIsContentVisible(true);
+      }, 200);
+    } else {
+      setIsContentVisible(true);
+    }
   };
 
   const handleSidebarLeave = () => {
     if (expandTimerRef.current) clearTimeout(expandTimerRef.current);
     collapseTimerRef.current = setTimeout(() => {
-      setIsCollapsed(true);
+      setIsContentVisible(false);
       setIsProfileMenuOpen(false);
+      closeTimerRef.current = setTimeout(() => setIsCollapsed(true), 180);
     }, 200);
   };
 
@@ -143,7 +156,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <Icon className="h-[17px] w-[17px] stroke-[1.8]" />
         </motion.span>
         <AnimatePresence initial={false}>
-          {!isCollapsed && (
+          {isContentVisible && (
             <motion.div initial={{ opacity: 0, x: 10, width: 0 }} animate={{ opacity: 1, x: 0, width: 'auto' }} exit={{ opacity: 0, x: 10, width: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="relative z-10 flex flex-1 items-center justify-between overflow-hidden whitespace-nowrap">
               <span>{item.label}</span>
               {item.badge !== undefined && item.badge > 0 && <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${item.badgeColor}`}>{item.badge}</span>}
@@ -184,7 +197,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               <Layers className="h-5 w-5" />
             </div>
 
-            {!isCollapsed && (
+            {isContentVisible && (
               <div className="flex flex-col text-right">
                 <div className="flex items-center gap-1.5">
                   <span className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
@@ -201,20 +214,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             )}
           </div>
 
-          <AnimatePresence initial={false}>
-            {!isCollapsed && (
-              <motion.span initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} transition={{ duration: 0.18 }} className="text-[10px] font-medium text-slate-400">
-                برای باز شدن، نشانگر را روی منو نگه دارید
-              </motion.span>
-            )}
-          </AnimatePresence>
         </div>
 
         {/* Main Navigation List */}
         <motion.nav className="flex flex-col gap-1 pt-1" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.055 } } }}>
-          {!isCollapsed && <div className="px-3 pb-1 text-[10px] font-bold text-slate-400">عملیات روزانه</div>}
           {visibleNavItems.slice(0, 2).map(renderNavItem)}
-          {!isCollapsed && <div className="px-3 pb-1 pt-4 text-[10px] font-bold text-slate-400">مدیریت سامانه</div>}
           {visibleNavItems.slice(2).map(renderNavItem)}
         </motion.nav>
       </div>
@@ -224,10 +228,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         {currentUser ? (
           <div
             className={`relative rounded-xl border border-slate-200/70 bg-slate-50/80 p-2.5 dark:border-slate-800 dark:bg-slate-800/50 flex items-center gap-3 ${
-              isCollapsed ? 'justify-center' : 'justify-between'
+              isContentVisible ? 'justify-between' : 'justify-center'
             }`}
           >
-            {isProfileMenuOpen && !isCollapsed && (
+            {isProfileMenuOpen && isContentVisible && (
               <div role="menu" aria-label="منوی حساب کاربری" className="absolute bottom-[calc(100%+0.75rem)] right-0 left-0 z-50 overflow-hidden rounded-2xl border border-slate-200/90 bg-white text-right shadow-2xl shadow-slate-300/30 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40" dir="rtl">
                 <div className="p-1.5">
                   <button role="menuitem" onClick={() => { setIsProfileMenuOpen(false); onOpenAuth?.(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
@@ -287,7 +291,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 <span className="absolute -bottom-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
               </div>
 
-              {!isCollapsed && (
+              {isContentVisible && (
                 <div className="flex flex-col text-right truncate">
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
                     {currentUser.name}
@@ -301,9 +305,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               )}
             </div>
 
-            {!isCollapsed && <ChevronUp className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isProfileMenuOpen ? 'rotate-180' : ''}`} />}
+            {isContentVisible && <ChevronUp className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isProfileMenuOpen ? 'rotate-180' : ''}`} />}
 
-            {!isCollapsed && onLogout && (
+            {isContentVisible && onLogout && (
               <button
                 onClick={onLogout}
                 className="p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer shrink-0"
@@ -319,7 +323,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             className="hidden"
           >
             <LogIn className="w-4 h-4" />
-            {!isCollapsed && <span>ورود / ثبت‌نام</span>}
+            {isContentVisible && <span>ورود / ثبت‌نام</span>}
           </button>
         )}
       </div>
