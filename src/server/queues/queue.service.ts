@@ -5,6 +5,7 @@ import { getDb } from '../db/mongodb';
 export type QueueName =
   | 'metameet.email.send'
   | 'metameet.telegram.send'
+  | 'metameet.telegram.sign_request'
   | 'metameet.pdf.generate'
   | 'metameet.audit.record'
   | 'metameet.ai.process';
@@ -12,6 +13,7 @@ export type QueueName =
 export const QUEUE_NAMES: QueueName[] = [
   'metameet.email.send',
   'metameet.telegram.send',
+  'metameet.telegram.sign_request',
   'metameet.pdf.generate',
   'metameet.audit.record',
   'metameet.ai.process',

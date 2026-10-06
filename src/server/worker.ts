@@ -54,5 +54,33 @@ export function initializeWorker() {
     logger.info(`Worker accepted AI processing job ${job.id} for action ${job.payload.action || 'default'}`);
   });
 
+  queueManager.registerHandler<{
+    chatId: string;
+    meetingId: string;
+    meetingTitle: string;
+    organizerName: string;
+    actionToken: string;
+    pdfPath?: string;
+  }>('metameet.telegram.sign_request', async (job) => {
+    logger.info(`Worker sending Telegram sign-request for meeting ${job.payload.meetingId}`);
+    const meeting = await meetingRepository.getById(job.payload.meetingId);
+    if (!meeting) throw new Error(`Meeting ${job.payload.meetingId} not found for Telegram delivery.`);
+    const printTemplates = [
+      { id: 'print_classic', pdfStyle: 'classic' as const },
+      { id: 'print_modern', pdfStyle: 'modern' as const },
+      { id: 'print_minimal', pdfStyle: 'minimal' as const },
+    ];
+    const pdfPath = await generateMeetingPdf(meeting, printTemplates.find((template) => template.id === (meeting.printTemplateId || meeting.templateId)));
+    const sent = await telegramService.sendSignRequestPM(
+      job.payload.chatId,
+      job.payload.meetingId,
+      job.payload.meetingTitle,
+      job.payload.organizerName,
+      job.payload.actionToken,
+      pdfPath,
+    );
+    if (!sent) throw new Error('Telegram sign-request delivery failed.');
+  });
+
   logger.info('Worker initialized and listening on all queues.');
 }

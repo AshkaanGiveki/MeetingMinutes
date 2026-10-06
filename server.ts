@@ -1195,12 +1195,12 @@ app.post('/api/meetings/:id/review', requireMeetingPermission('meeting.review'),
       statusLabel: 'آماده امضا',
     });
 
-    void notifyPendingSignersOnTelegram(
+    await notifyPendingSignersOnTelegram(
       meeting,
       (meeting as Meeting & { signatures?: Array<{ signerId: string }> }).signatures || [],
       (req as RequestWithAuth).auth!.organizationId,
       reviewerName,
-    ).catch((error) => logger.warn('Telegram review notification failed after review completion.', { metadata: { error: String(error), meetingId } }));
+    );
 
     await meetingRepository.addAudit({
       id: `aud_${Date.now()}`,
@@ -1549,13 +1549,6 @@ async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Arra
     .filter((participant): participant is typeof meeting.organizer => Boolean(participant?.id))
     .filter((participant, index, all) => all.findIndex((item) => item.id === participant.id) === index)
     .filter((participant) => !signedIds.has(participant.id));
-  const printTemplate = [
-    { id: 'print_classic', pdfStyle: 'classic' as const },
-    { id: 'print_modern', pdfStyle: 'modern' as const },
-    { id: 'print_minimal', pdfStyle: 'minimal' as const },
-  ].find((template) => template.id === (meeting.printTemplateId || meeting.templateId));
-  const pdfPath = await generateMeetingPdf(meeting, printTemplate);
-
   await Promise.allSettled(candidates.map(async (participant) => {
     const user = await authService.findById(participant.id, organizationId);
     if (!user?.telegramChatId) return;
@@ -1566,14 +1559,13 @@ async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Arra
       organizationId,
       chatId: String(user.telegramChatId),
     }), 48 * 60 * 60);
-    await telegramService.sendSignRequestPM(
-      user.telegramChatId,
-      meeting.id,
-      meeting.title,
-      actorName || meeting.organizer.name,
+    await queueManager.enqueue('metameet.telegram.sign_request', {
+      chatId: String(user.telegramChatId),
+      meetingId: meeting.id,
+      meetingTitle: meeting.title,
+      organizerName: actorName || meeting.organizer.name,
       actionToken,
-      pdfPath,
-    );
+    });
   }));
 }
 
