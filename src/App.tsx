@@ -437,7 +437,21 @@ export default function App() {
 
   // Print PDF
   const handlePrintPdf = () => {
-    window.print();
+    if (!activeMeeting) {
+      window.print();
+      return;
+    }
+    void fetch(`/api/meetings/${activeMeeting.id}/pdf`)
+      .then((response) => response.ok ? response.blob() : Promise.reject(new Error('پیش‌نمایش PDF آماده نشد.')))
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      })
+      .catch((error) => {
+        setOperationError(error instanceof Error ? error.message : 'پیش‌نمایش PDF آماده نشد.');
+        setTimeout(() => setOperationError(''), 3500);
+      });
   };
 
   const handleDownloadPdf = async () => {
@@ -495,7 +509,7 @@ export default function App() {
             dueDate: item.dueDate || '',
             completed: Boolean(item.completed),
           })),
-          templateId: newMeeting.templateId,
+          contentTemplateId: newMeeting.contentTemplateId,
         }),
       });
       const data = await response.json();
@@ -534,7 +548,7 @@ export default function App() {
     const newMeeting: Meeting = {
       id: `meet_${Date.now()}`,
       title: template.title,
-      templateId: template.id,
+      contentTemplateId: template.id,
       persianDate: '۱۵ مهر ۱۴۰۴',
       timeRange: '۱۰:۰۰ - ۱۱:۳۰',
       location: 'اتاق جلسات اصلی',

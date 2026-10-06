@@ -4,7 +4,6 @@ import { telegramService } from './services/telegram.service';
 import { logger } from './services/logger';
 import { meetingRepository } from './repositories/meeting.repository';
 import { generateMeetingPdf } from './services/document.service';
-import { templateRepository } from './repositories/template.repository';
 import { Meeting } from '../types';
 
 export function initializeWorker() {
@@ -35,9 +34,12 @@ export function initializeWorker() {
     logger.info(`Worker generating high-fidelity PDF artifact for meeting ${job.payload.meetingId}`);
     const meeting = await meetingRepository.getById(job.payload.meetingId);
     if (!meeting) throw new Error(`Meeting ${job.payload.meetingId} not found for PDF generation.`);
-    const organizationId = (meeting as Meeting & { organizationId?: string }).organizationId;
-    const templates = await templateRepository.getAll(organizationId);
-    await generateMeetingPdf(meeting, templates.find((template) => template.id === meeting.templateId));
+    const printTemplates = [
+      { id: 'print_classic', pdfStyle: 'classic' as const },
+      { id: 'print_modern', pdfStyle: 'modern' as const },
+      { id: 'print_minimal', pdfStyle: 'minimal' as const },
+    ];
+    await generateMeetingPdf(meeting, printTemplates.find((template) => template.id === (meeting.printTemplateId || meeting.templateId)));
   });
 
   // 4. Audit record consumer

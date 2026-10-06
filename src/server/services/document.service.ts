@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { createWriteStream } from 'fs';
 import path from 'path';
 import PDFDocument from 'pdfkit';
-import { Meeting, Template } from '../../types';
+import { Meeting, PrintTemplate } from '../../types';
 
 const documentDirectory = path.resolve(process.env.DOCUMENT_STORAGE_PATH || './storage/documents');
 const bundledPersianFont = path.resolve(process.cwd(), 'src/assets/fonts/IRANSansXFaNum-Regular.woff2');
@@ -17,7 +17,7 @@ function section(document: PDFKit.PDFDocument, title: string, color: string) {
   document.moveDown(0.2).fillColor('#1f2937');
 }
 
-export async function generateMeetingPdf(meeting: Meeting, template?: Template): Promise<string> {
+export async function generateMeetingPdf(meeting: Meeting, template?: Pick<PrintTemplate, 'pdfStyle'>): Promise<string> {
   await fs.mkdir(documentDirectory, { recursive: true });
   const filePath = path.join(documentDirectory, `${meeting.id}.pdf`);
   const style = template?.pdfStyle || 'classic';

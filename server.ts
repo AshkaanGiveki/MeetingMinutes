@@ -901,8 +901,12 @@ app.get('/api/meetings/:id/pdf', requireMeetingPermission('meeting.read'), async
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
   if (!(await documentExists(meeting.id))) {
     const organizationId = (meeting as Meeting & { organizationId?: string }).organizationId;
-    const templates = await templateRepository.getAll(organizationId);
-    await generateMeetingPdf(meeting, templates.find((template) => template.id === meeting.templateId));
+    const printTemplate = [
+      { id: 'print_classic', pdfStyle: 'classic' as const },
+      { id: 'print_modern', pdfStyle: 'modern' as const },
+      { id: 'print_minimal', pdfStyle: 'minimal' as const },
+    ].find((template) => template.id === (meeting.printTemplateId || meeting.templateId));
+    await generateMeetingPdf(meeting, printTemplate);
   }
   return res.download(getMeetingPdfPath(meeting.id), `${meeting.id}.pdf`);
 });
@@ -1000,6 +1004,8 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
     timeRange: data.timeRange,
     location: data.location,
     templateId: data.templateId,
+    contentTemplateId: data.contentTemplateId || data.templateId,
+    printTemplateId: data.printTemplateId,
     status: 'DRAFT' as const,
     statusLabel: 'پیش‌نویس',
     organizer: {
@@ -1133,6 +1139,10 @@ app.put('/api/meetings/:id', requireMeetingPermission('meeting.edit'), async (re
     return res.status(400).json({ error: 'Invalid meeting version.' });
   }
   const { version: _version, ...updates } = req.body || {};
+  if (typeof updates.templateId === 'string' && updates.templateId.startsWith('print_')) {
+    updates.printTemplateId = updates.templateId;
+    delete updates.templateId;
+  }
   if (Array.isArray(updates.participants)) {
     const ids = updates.participants.map((participant: { id?: string }) => participant?.id).filter(Boolean);
     if (new Set(ids).size !== ids.length) return res.status(400).json({ error: 'Duplicate participants are not allowed.' });
@@ -1276,6 +1286,14 @@ app.get('/api/templates', async (req, res) => {
     templates = await Promise.all(defaults.map((template) => templateRepository.create({ ...template, organizationId } as any)));
   }
   return res.json({ success: true, templates });
+});
+
+app.get('/api/print-templates', async (_req, res) => {
+  return res.json({ success: true, templates: [
+    { id: 'print_classic', title: 'چاپ رسمی کلاسیک', category: 'رسمی', description: 'سربرگ رسمی، بخش‌بندی واضح و مناسب بایگانی.', pdfStyle: 'classic' },
+    { id: 'print_modern', title: 'چاپ مدرن سازمانی', category: 'مدرن', description: 'رنگ سازمانی و تاکید بصری بر تصمیم‌ها و اقدامات.', pdfStyle: 'modern' },
+    { id: 'print_minimal', title: 'چاپ مینیمال', category: 'مینیمال', description: 'خوانا، کم‌رنگ و مناسب چاپ سیاه‌وسفید.', pdfStyle: 'minimal' },
+  ] });
 });
 
 app.post('/api/templates', requirePermission('template.create'), async (req, res) => {
@@ -1531,6 +1549,12 @@ async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Arra
     .filter((participant): participant is typeof meeting.organizer => Boolean(participant?.id))
     .filter((participant, index, all) => all.findIndex((item) => item.id === participant.id) === index)
     .filter((participant) => !signedIds.has(participant.id));
+  const printTemplate = [
+    { id: 'print_classic', pdfStyle: 'classic' as const },
+    { id: 'print_modern', pdfStyle: 'modern' as const },
+    { id: 'print_minimal', pdfStyle: 'minimal' as const },
+  ].find((template) => template.id === (meeting.printTemplateId || meeting.templateId));
+  const pdfPath = await generateMeetingPdf(meeting, printTemplate);
 
   await Promise.allSettled(candidates.map(async (participant) => {
     const user = await authService.findById(participant.id, organizationId);
@@ -1548,6 +1572,7 @@ async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Arra
       meeting.title,
       actorName || meeting.organizer.name,
       actionToken,
+      pdfPath,
     );
   }));
 }
@@ -1673,7 +1698,13 @@ app.post('/api/telegram/send-pm', async (req, res) => {
   if (!isSigner) return res.status(403).json({ error: 'شما امضاکننده این صورت‌جلسه نیستید.' });
   const actionToken = crypto.randomBytes(18).toString('base64url');
   await redisService.set(`telegram-sign:${actionToken}`, JSON.stringify({ meetingId: meeting.id, userId: auth.userId, organizationId: auth.organizationId, chatId: String(chatId) }), 48 * 60 * 60);
-  const success = await telegramService.sendSignRequestPM(chatId, meeting.id, meeting.title, meeting.organizer.name, actionToken);
+  const printTemplate = [
+    { id: 'print_classic', pdfStyle: 'classic' as const },
+    { id: 'print_modern', pdfStyle: 'modern' as const },
+    { id: 'print_minimal', pdfStyle: 'minimal' as const },
+  ].find((template) => template.id === (meeting.printTemplateId || meeting.templateId));
+  const pdfPath = await generateMeetingPdf(meeting, printTemplate);
+  const success = await telegramService.sendSignRequestPM(chatId, meeting.id, meeting.title, meeting.organizer.name, actionToken, pdfPath);
 
   return res.json({ success, message: 'پیام تایید و امضای مستقیم تلگرام ارسال گردید.' });
 });
@@ -1685,8 +1716,12 @@ app.post('/api/telegram/send-pdf', async (req, res) => {
   if (!user?.telegramChatId) return res.status(400).json({ error: 'ابتدا حساب تلگرام خود را متصل کنید.' });
   const meeting = await meetingRepository.getById(String(meetingId));
   if (!meeting || !(await canAccessMeeting(req, meeting.id, 'meeting.read'))) return res.status(404).json({ error: 'صورت‌جلسه یافت نشد.' });
-  const templates = await templateRepository.getAll((meeting as Meeting & { organizationId?: string }).organizationId);
-  const filePath = await generateMeetingPdf(meeting, templates.find((template) => template.id === meeting.templateId));
+  const printTemplate = [
+    { id: 'print_classic', pdfStyle: 'classic' as const },
+    { id: 'print_modern', pdfStyle: 'modern' as const },
+    { id: 'print_minimal', pdfStyle: 'minimal' as const },
+  ].find((template) => template.id === (meeting.printTemplateId || meeting.templateId));
+  const filePath = await generateMeetingPdf(meeting, printTemplate);
   const success = await telegramService.sendDocument(user.telegramChatId, filePath, `صورت‌جلسه: ${meeting.title}`);
   return res.json({ success, message: success ? 'فایل PDF در تلگرام ارسال شد.' : 'ارسال فایل PDF انجام نشد.' });
 });

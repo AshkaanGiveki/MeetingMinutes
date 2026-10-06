@@ -69,7 +69,10 @@ export interface Meeting {
   signatureCount: number;
   totalSignaturesRequired: number;
   signatures?: SignatureRecord[];
+  /** Legacy content-template field retained for older records. */
   templateId?: string;
+  contentTemplateId?: string;
+  printTemplateId?: string;
 }
 
 export interface SignatureRecord {
@@ -84,14 +87,23 @@ export interface SignatureRecord {
   documentHash: string;
 }
 
-export interface Template {
+export interface MinuteContentTemplate {
   id: string;
   title: string;
   description: string;
   category: string;
   agendaDefaults: string[];
-  pdfStyle?: 'classic' | 'modern' | 'minimal';
 }
+
+export interface PrintTemplate {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  pdfStyle: 'classic' | 'modern' | 'minimal';
+}
+
+export type Template = MinuteContentTemplate;
 
 export type OrganizationRole =
   | 'Owner'

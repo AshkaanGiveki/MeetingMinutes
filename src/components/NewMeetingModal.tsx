@@ -48,7 +48,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
     const newMeeting: Meeting = {
       id: `meet_${Date.now()}`,
       title: title.trim(),
-      templateId: chosenTemplate?.id,
+      contentTemplateId: chosenTemplate?.id,
       persianDate: persianDate.trim(),
       timeRange: timeRange.trim(),
       location: location.trim(),
@@ -158,8 +158,9 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
 
           <div className="flex flex-col gap-1">
             <label className="font-semibold text-slate-700 dark:text-slate-300">
-              قالب پیش‌فرض (اختیاری):
+              قالب محتوایی (اختیاری):
             </label>
+            <p className="text-[10px] leading-5 text-slate-400">قالب محتوایی: متن‌های اولیه و بندهای دستور جلسه را برای شروع سریع وارد می‌کند؛ ظاهر PDF بعداً جداگانه انتخاب می‌شود.</p>
             <CustomSelect
               value={selectedTemplateId}
               disabled={isTemplatesLoading}

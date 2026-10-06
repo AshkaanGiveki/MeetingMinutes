@@ -70,7 +70,7 @@ export class TelegramService {
     }
   }
 
-  async sendSignRequestPM(chatId: string | number, meetingId: string, meetingTitle: string, organizerName: string, actionToken: string): Promise<boolean> {
+  async sendSignRequestPM(chatId: string | number, meetingId: string, meetingTitle: string, organizerName: string, actionToken: string, pdfPath?: string): Promise<boolean> {
     const text = `📋 <b>درخواست امضای صورت‌جلسه</b>\n\nجلسه: <b>${meetingTitle}</b>\nبرگزارکننده: ${organizerName}\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:`;
     const appUrl = process.env.APP_URL || 'https://metameet.ir';
     const viewUrl = `${appUrl.replace(/\/$/, '')}/meeting/${encodeURIComponent(meetingId)}`;
@@ -78,8 +78,9 @@ export class TelegramService {
       { text: '✅ قبول و امضا', callback_data: `mm:accept:${actionToken}` },
       { text: '❌ رد درخواست', callback_data: `mm:reject:${actionToken}` },
     ], [{ text: 'مشاهده در وب‌سایت', url: viewUrl }]] };
-    if (!this.botToken) { logger.info(`[MOCK TELEGRAM PM] To: ${chatId} | Meeting: ${meetingTitle} | Persian action buttons prepared`); return true; }
+    if (!this.botToken) { logger.info(`[MOCK TELEGRAM PM] To: ${chatId} | Meeting: ${meetingTitle} | PDF attached: ${Boolean(pdfPath)} | Persian action buttons prepared`); return true; }
     try {
+      if (pdfPath) return this.sendDocument(chatId, pdfPath, text.replace(/<[^>]+>/g, ''), replyMarkup);
       const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }) });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
       if (!data.ok) logger.error('Telegram rejected sign-request message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
@@ -106,13 +107,14 @@ export class TelegramService {
     } catch (err) { logger.error('Failed to dispatch telegram notification', { metadata: { error: String(err) } }); return false; }
   }
 
-  async sendDocument(chatId: string | number, filePath: string, caption: string): Promise<boolean> {
+  async sendDocument(chatId: string | number, filePath: string, caption: string, replyMarkup?: unknown): Promise<boolean> {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM DOCUMENT] To: ${chatId} | ${caption}`); return true; }
     try {
       const bytes = await fs.readFile(filePath);
       const form = new FormData();
       form.append('chat_id', String(chatId));
       form.append('caption', caption);
+      if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
       form.append('document', new Blob([bytes], { type: 'application/pdf' }), 'صورت-جلسه.pdf');
       const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendDocument`, { method: 'POST', body: form });
       const data = await response.json() as { ok?: boolean; description?: string };

@@ -125,10 +125,10 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900 dark:text-white">
-              قالب‌های آماده صورت‌جلسه
+              قالب‌های محتوایی صورت‌جلسه
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              از قالب‌های استاندارد استفاده کنید یا الگوی اختصاصی سازمان خود را بسازید
+              این قالب‌ها متن اولیه، دستور جلسه و ساختار محتوایی را آماده می‌کنند؛ قالب چاپ PDF جداگانه داخل هر صورت‌جلسه انتخاب می‌شود.
             </p>
           </div>
         </div>

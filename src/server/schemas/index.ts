@@ -64,6 +64,8 @@ export const CreateMeetingSchema = z.object({
   location: z.string().min(2),
   description: z.string().optional(),
   templateId: z.string().optional(),
+  contentTemplateId: z.string().optional(),
+  printTemplateId: z.string().optional(),
   participantIds: z.array(z.string()).optional(),
   agenda: z.array(AgendaItemSchema).optional(),
   decisions: z.array(DecisionItemSchema).optional(),

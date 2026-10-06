@@ -38,7 +38,7 @@ import {
   X
 } from 'lucide-react';
 import { CustomSelect } from './CustomSelect';
-import { Meeting, AgendaItem, DecisionItem, ActionItem, Participant } from '../types';
+import { Meeting, AgendaItem, DecisionItem, ActionItem, Participant, PrintTemplate } from '../types';
 import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
@@ -74,10 +74,10 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   const [history, setHistory] = useState<string[]>([meeting.discussion]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
-  const [pdfTemplates, setPdfTemplates] = useState<Array<{ id: string; title: string; pdfStyle?: string }>>([]);
+  const [pdfTemplates, setPdfTemplates] = useState<PrintTemplate[]>([]);
 
   useEffect(() => {
-    fetch('/api/templates').then((response) => response.ok ? response.json() : null).then((data) => setPdfTemplates(data?.templates || [])).catch(() => undefined);
+    fetch('/api/print-templates').then((response) => response.ok ? response.json() : null).then((data) => setPdfTemplates(data?.templates || [])).catch(() => undefined);
   }, []);
 
   // Meeting ID tracker to avoid clobbering keystrokes during active typing
@@ -542,11 +542,12 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             </button>
             <button onClick={onDownloadPdf} className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800" title="دانلود PDF"><Download className="w-4 h-4" /></button>
             <button onClick={onSendTelegram} className="p-2 rounded-xl text-slate-500 hover:text-sky-600 hover:bg-slate-100 dark:hover:bg-slate-800" title="ارسال PDF در تلگرام"><Send className="w-4 h-4" /></button>
-            <select value={meeting.templateId || ''} onChange={(event) => onUpdateMeeting({ templateId: event.target.value || undefined })} className="max-w-36 rounded-xl border border-slate-200 bg-white px-2 py-2 text-[10px] text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" title="قالب PDF">
-              <option value="">قالب پیش‌فرض</option>
+            <select value={meeting.printTemplateId || (meeting.templateId?.startsWith('print_') ? meeting.templateId : 'print_classic')} onChange={(event) => onUpdateMeeting({ printTemplateId: event.target.value || undefined })} className="max-w-40 rounded-xl border border-slate-200 bg-white px-2 py-2 text-[10px] text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" title="قالب چاپ PDF">
+              <option value="print_classic">چاپ رسمی: کلاسیک</option>
               {pdfTemplates.map((template) => <option key={template.id} value={template.id}>{template.title}</option>)}
             </select>
 
+            <span className="hidden xl:inline text-[10px] text-slate-400">قالب چاپ فقط ظاهر PDF را تغییر می‌دهد؛ برای دیدن نتیجه روی چاپ یا دانلود بزنید.</span>
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/60 text-xs font-semibold">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
               <span>{meeting.statusLabel}</span>
