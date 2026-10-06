@@ -473,7 +473,7 @@ export default function App() {
   const handleSendPdfToTelegram = async () => {
     if (!activeMeeting) return;
     try {
-      const response = await fetch('/api/telegram/send-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: activeMeeting.id }) });
+      const response = await fetch('/api/telegram/send-pm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: activeMeeting.id }) });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || data.message || 'ارسال PDF به تلگرام انجام نشد.');
       setOperationError('فایل PDF با موفقیت در تلگرام ارسال شد.');

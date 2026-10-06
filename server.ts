@@ -1559,13 +1559,36 @@ async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Arra
       organizationId,
       chatId: String(user.telegramChatId),
     }), 48 * 60 * 60);
-    await queueManager.enqueue('metameet.telegram.sign_request', {
+    const delivery = {
       chatId: String(user.telegramChatId),
       meetingId: meeting.id,
       meetingTitle: meeting.title,
       organizerName: actorName || meeting.organizer.name,
       actionToken,
-    });
+    };
+    if (queueManager.getDiagnostics().externalBroker) {
+      await queueManager.enqueue('metameet.telegram.sign_request', delivery);
+      logger.info('Queued Telegram sign-request through QStash.', { metadata: { meetingId: meeting.id, participantId: participant.id } });
+      return;
+    }
+
+    // Local/dev fallback: Vercel cannot finish an in-memory job after the request ends.
+    const printTemplate = [
+      { id: 'print_classic', pdfStyle: 'classic' as const },
+      { id: 'print_modern', pdfStyle: 'modern' as const },
+      { id: 'print_minimal', pdfStyle: 'minimal' as const },
+    ].find((template) => template.id === (meeting.printTemplateId || meeting.templateId));
+    const pdfPath = await generateMeetingPdf(meeting, printTemplate);
+    const sent = await telegramService.sendSignRequestPM(
+      delivery.chatId,
+      delivery.meetingId,
+      delivery.meetingTitle,
+      delivery.organizerName,
+      delivery.actionToken,
+      pdfPath,
+    );
+    if (!sent) throw new Error(`Direct Telegram sign-request delivery failed for ${participant.id}.`);
+    logger.info('Sent Telegram sign-request directly.', { metadata: { meetingId: meeting.id, participantId: participant.id } });
   }));
 }
 
