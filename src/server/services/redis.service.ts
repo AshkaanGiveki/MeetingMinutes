@@ -38,8 +38,12 @@ export class UpstashRedisStore implements CacheStore {
   }
 
   async get(key: string): Promise<string | null> {
-    const res = await this.client.get<string>(key);
-    return res ? String(res) : null;
+    // Upstash Redis automatically deserializes JSON-looking values. Keep the
+    // service contract stable for callers that store JSON strings and parse
+    // them themselves.
+    const res = await this.client.get<unknown>(key);
+    if (res === null || res === undefined) return null;
+    return typeof res === 'string' ? res : JSON.stringify(res);
   }
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
