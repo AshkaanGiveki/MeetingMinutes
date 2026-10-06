@@ -1590,9 +1590,15 @@ app.post('/api/telegram/webhook', async (req, res) => {
   const update = req.body;
   const messageText = update?.message?.text;
   const chatId = update?.message?.chat?.id;
+  if (typeof messageText === 'string' && typeof chatId === 'number' && (messageText === '/start' || messageText === '/help')) {
+    await telegramService.sendNotification(chatId, 'Telegram is connected and receiving MetaMeet messages. Create a new link from MetaMeet Settings to link this account.');
+  }
   if (typeof messageText === 'string' && typeof chatId === 'number' && (messageText.startsWith('/link ') || messageText.startsWith('/start link_'))) {
     const token = messageText.startsWith('/link ') ? messageText.slice(6).trim() : messageText.slice('/start link_'.length).trim();
     const linkRecord = await redisService.get(`telegram-link:${token}`);
+    if (!linkRecord) {
+      await telegramService.sendNotification(chatId, 'This link was not found or has expired. Create a new Telegram link in MetaMeet and try again.');
+    }
     if (linkRecord) {
       let parsed: { userId: string; organizationId: string } | null = null;
       try {
