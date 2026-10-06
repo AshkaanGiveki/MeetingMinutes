@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   FolderArchive,
   Layers,
@@ -7,8 +7,6 @@ import {
   Settings,
   LogOut,
   LogIn,
-  ChevronLeft,
-  ChevronRight,
   Calendar,
   Shield
   ,Building2
@@ -46,8 +44,32 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onOpenAuth,
   onLogout,
 }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearHoverTimers = () => {
+    if (expandTimerRef.current) clearTimeout(expandTimerRef.current);
+    if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+    expandTimerRef.current = null;
+    collapseTimerRef.current = null;
+  };
+
+  const handleSidebarEnter = () => {
+    if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+    if (isCollapsed) expandTimerRef.current = setTimeout(() => setIsCollapsed(false), 200);
+  };
+
+  const handleSidebarLeave = () => {
+    if (expandTimerRef.current) clearTimeout(expandTimerRef.current);
+    collapseTimerRef.current = setTimeout(() => {
+      setIsCollapsed(true);
+      setIsProfileMenuOpen(false);
+    }, 200);
+  };
+
+  useEffect(() => clearHoverTimers, []);
 
   const navItems = [
     {
@@ -120,20 +142,31 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         >
           <Icon className="h-[17px] w-[17px] stroke-[1.8]" />
         </motion.span>
-        {!isCollapsed && (
-          <div className="relative z-10 flex flex-1 items-center justify-between">
-            <span>{item.label}</span>
-            {item.badge !== undefined && item.badge > 0 && <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${item.badgeColor}`}>{item.badge}</span>}
-          </div>
-        )}
+        <AnimatePresence initial={false}>
+          {!isCollapsed && (
+            <motion.div initial={{ opacity: 0, x: 10, width: 0 }} animate={{ opacity: 1, x: 0, width: 'auto' }} exit={{ opacity: 0, x: 10, width: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="relative z-10 flex flex-1 items-center justify-between overflow-hidden whitespace-nowrap">
+              <span>{item.label}</span>
+              {item.badge !== undefined && item.badge > 0 && <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${item.badgeColor}`}>{item.badge}</span>}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.button>
     );
   };
 
   return (
-    <aside
-      className={`h-[calc(100vh-1.5rem)] sticky top-3 flex flex-col justify-between rounded-[22px] border z-30 transition-all duration-300 select-none ${
-        isCollapsed ? 'w-20' : 'w-72'
+    <motion.aside
+      onMouseEnter={handleSidebarEnter}
+      onMouseLeave={handleSidebarLeave}
+      onFocus={handleSidebarEnter}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) handleSidebarLeave();
+      }}
+      initial={false}
+      animate={{ width: isCollapsed ? 80 : 288 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 32, mass: 0.7 }}
+      className={`h-[calc(100vh-1.5rem)] sticky top-3 flex flex-col justify-between rounded-[22px] border z-30 select-none overflow-visible ${
+        isCollapsed ? 'shadow-lg' : 'shadow-2xl'
       } ${
         isDark
           ? 'bg-[#0b0f1f]/95 border-slate-800/80 text-slate-300 shadow-2xl shadow-black/40'
@@ -168,18 +201,13 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             )}
           </div>
 
-          {/* Collapse / Expand Toggle */}
-          <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
-            title={isCollapsed ? 'باز کردن منو' : 'جمع کردن منو'}
-          >
-            {isCollapsed ? (
-              <ChevronLeft className="w-4 h-4" />
-            ) : (
-              <ChevronRight className="w-4 h-4" />
+          <AnimatePresence initial={false}>
+            {!isCollapsed && (
+              <motion.span initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} transition={{ duration: 0.18 }} className="text-[10px] font-medium text-slate-400">
+                برای باز شدن، نشانگر را روی منو نگه دارید
+              </motion.span>
             )}
-          </button>
+          </AnimatePresence>
         </div>
 
         {/* Main Navigation List */}
@@ -295,6 +323,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           </button>
         )}
       </div>
-    </aside>
+    </motion.aside>
   );
 };
