@@ -4,7 +4,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.ts": {
-      "includeFiles": ["src/assets/fonts/*.woff2"]
+      "includeFiles": "src/assets/fonts/*.woff2"
     }
   },
   "rewrites": [
