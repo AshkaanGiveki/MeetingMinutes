@@ -22,6 +22,7 @@ import { RoughNotesModal } from './components/RoughNotesModal';
 import { AuthModal } from './components/AuthModal';
 import { AuthView } from './components/AuthView';
 import { NotificationPanel } from './components/NotificationPanel';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { OrganizationsView } from './components/OrganizationsView';
 import { GuestSigningView } from './components/GuestSigningView';
 import { AppBootSkeleton, MeetingCardsSkeleton } from './components/LoadingState';
@@ -656,7 +657,7 @@ export default function App() {
         In standard Persian RTL (<html dir="rtl">), the first flex child is docked at the visual RIGHT edge.
         This provides a full-height, modern enterprise navigation sidebar directly on the right!
       */}
-      <div className="no-print shrink-0">
+      <div className="no-print hidden shrink-0 lg:block">
         <RightSidebar
           currentTab={currentTab}
           onTabChange={(tab) => {
@@ -690,7 +691,7 @@ export default function App() {
         </div>
 
         {/* Content View Router */}
-        <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-4 pb-28 sm:px-6 lg:pb-6">
           {currentTab === 'archive' ? (
             <ArchiveView
               meetings={meetings}
@@ -813,6 +814,11 @@ export default function App() {
           )}
         </div>
       </div>
+
+      <MobileBottomNav
+        currentTab={currentTab}
+        onTabChange={(tab) => setCurrentTab(tab as typeof currentTab)}
+      />
 
       {/* Modals & Dialogs */}
       <SignatureModal
