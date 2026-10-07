@@ -735,6 +735,14 @@ app.put('/api/profile', async (req, res) => {
   return updated ? res.json({ success: true, name: req.body.name.trim() }) : res.status(400).json({ error: 'Profile name is invalid.' });
 });
 
+app.put('/api/profile/avatar', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const avatar = typeof req.body?.avatar === 'string' && req.body.avatar ? req.body.avatar : undefined;
+  if (avatar && (!avatar.startsWith('data:image/') || avatar.length > 3_500_000)) return res.status(400).json({ error: 'Avatar image is invalid or too large.' });
+  const saved = await authService.updateAvatar(auth.userId, avatar);
+  return saved ? res.json({ success: true, avatar: avatar || null }) : res.status(400).json({ error: 'Avatar could not be updated.' });
+});
+
 app.put('/api/profile/signature', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
   const signatureData = typeof req.body?.signatureData === 'string' ? req.body.signatureData : '';
@@ -1042,8 +1050,8 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
     userId: auth.userId,
     organizationId: auth.organizationId,
     type: 'meeting',
-    title: 'Meeting created',
-    message: `Meeting "${created.title}" was created as a draft.`,
+    title: 'جلسه جدید ایجاد شد',
+    message: `جلسه «${created.title}» به‌صورت پیش‌نویس ایجاد شد.`,
     meetingId: created.id,
   });
     return res.json({ success: true, meeting: created });

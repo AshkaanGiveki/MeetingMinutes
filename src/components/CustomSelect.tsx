@@ -73,11 +73,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
             {options.map((option) => {
               const isSelected = option.value === value;
               return (
-                <button
+                <motion.button
                   type="button"
                   role="option"
                   aria-selected={isSelected}
                   key={option.value}
+                  layout
                   onClick={() => {
                     onChange(option.value);
                     setIsOpen(false);
@@ -86,7 +87,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                 >
                   <span className="min-w-0 flex-1">{option.label}</span>
                   {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-indigo-600 dark:text-indigo-300" />}
-                </button>
+                </motion.button>
               );
             })}
           </motion.div>

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key, X, Trash2 } from 'lucide-react';
 import { Participant } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
-import { LoadingState } from './LoadingState';
+import { TableRowsSkeleton } from './LoadingState';
+import { UserAvatar } from './UserAvatar';
 import { CustomSelect } from './CustomSelect';
 
 export const ContactsView: React.FC = () => {
@@ -57,7 +58,6 @@ export const ContactsView: React.FC = () => {
       name: newName.trim(),
       email: newEmail.trim(),
       role: newRole,
-      avatar: `https://images.unsplash.com/photo-${1534528741775 + members.length * 100}?w=100&auto=format&fit=crop&q=80`,
       hasSigned: false,
     };
 
@@ -112,6 +112,7 @@ export const ContactsView: React.FC = () => {
             <motion.span
               key={p.code}
               variants={staggerItemVariants}
+              layout
               className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center gap-1.5"
             >
               <CheckCircle2 className="w-3 h-3 text-emerald-500" />
@@ -136,29 +137,26 @@ export const ContactsView: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {isLoading ? (
-                <tr><td colSpan={5} className="p-4"><LoadingState compact label="در حال بارگذاری اعضا…" /></td></tr>
+                <TableRowsSkeleton columns={5} />
               ) : members.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-4">
                     <EmptyState compact icon={Users} title="عضوی پیدا نشد" description="هنوز عضوی به این سازمان اضافه نشده است." action={<button onClick={() => setIsInviteModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">دعوت عضو جدید</button>} />
                   </td>
                 </tr>
-              ) : members.map((m, index) => (
+              ) : <AnimatePresence initial={false} mode="popLayout">{members.map((m, index) => (
                 <motion.tr
                   key={m.id}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: index * 0.055, ease: 'easeOut' }}
+                  exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
+                  layout
                   className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
                 >
                   <td className="py-3.5 px-4 font-semibold text-slate-800 dark:text-slate-100">
                     <div className="flex items-center gap-2.5">
-                      <img
-                        src={m.avatar || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80'}
-                        alt={m.name}
-                        referrerPolicy="no-referrer"
-                        className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700"
-                      />
+                      <UserAvatar name={m.name} avatar={m.avatar} className="h-8 w-8 text-[10px] ring-1 ring-slate-200 dark:ring-slate-700" imageClassName="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" />
                       <span>{m.name}</span>
                     </div>
                   </td>
@@ -186,7 +184,7 @@ export const ContactsView: React.FC = () => {
                     </button>
                   </td>
                 </motion.tr>
-              ))}
+              ))}</AnimatePresence>}
             </tbody>
           </table>
         </div>

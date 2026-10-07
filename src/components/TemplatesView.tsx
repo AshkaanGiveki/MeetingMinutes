@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   FileText,
   Plus,
@@ -14,7 +14,7 @@ import {
 import { Template } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
-import { LoadingState } from './LoadingState';
+import { TemplateCardsSkeleton } from './LoadingState';
 import { CustomSelect } from './CustomSelect';
 
 const templateGridVariants = {
@@ -144,7 +144,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
 
       {/* Grid of Templates */}
       {isLoading ? (
-        <LoadingState label="در حال بارگذاری قالب‌ها…" />
+        <TemplateCardsSkeleton />
       ) : templates.length === 0 ? (
         <EmptyState
           icon={Layers}
@@ -154,16 +154,17 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
         />
       ) : (
       <motion.div
-        key={templates.map((template) => template.id).join('|') || 'empty'}
         className="grid grid-cols-1 md:grid-cols-2 gap-4"
         initial="hidden"
         animate="show"
         variants={templateGridVariants}
       >
+        <AnimatePresence initial={false} mode="popLayout">
         {templates.map((tpl) => (
           <motion.div
             key={tpl.id}
             variants={templateCardVariants}
+            exit={{ opacity: 0, scale: 0.96, y: 10, transition: { duration: 0.2 } }}
             layout
             className="p-5 rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm flex flex-col justify-between gap-4 group hover:border-indigo-200 dark:hover:border-indigo-800/60 transition-all hover:shadow-md"
           >
@@ -202,7 +203,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
               <div className="text-[11px] text-slate-400 font-medium">بندهای پیش‌فرض:</div>
               <motion.ul className="flex flex-col gap-1 text-[11px] text-slate-600 dark:text-slate-400" initial="hidden" animate="show" variants={staggerContainerVariants}>
                 {tpl.agendaDefaults.slice(0, 3).map((item, idx) => (
-                  <motion.li key={idx} variants={staggerItemVariants} className="flex items-center gap-1.5">
+                  <motion.li key={idx} layout variants={staggerItemVariants} className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                     <span className="truncate">{item}</span>
                   </motion.li>
@@ -224,6 +225,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
             </div>
           </motion.div>
         ))}
+        </AnimatePresence>
       </motion.div>
       )}
 

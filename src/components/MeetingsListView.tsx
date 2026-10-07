@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Plus, Search, Calendar, Clock, MapPin, Users, ArrowLeft, Filter, FileText, ClipboardList } from 'lucide-react';
 import { Meeting } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
-import { LoadingState } from './LoadingState';
+import { MeetingCardsSkeleton } from './LoadingState';
+import { UserAvatar } from './UserAvatar';
 
 interface MeetingsListViewProps {
   meetings: Meeting[];
@@ -113,7 +114,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
 
       {/* Grid of Meeting Cards */}
       {isLoading ? (
-        <LoadingState label="در حال بارگذاری صورت‌جلسه‌ها…" />
+        <MeetingCardsSkeleton />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={ClipboardList}
@@ -123,6 +124,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
         />
       ) : (
       <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
+        <AnimatePresence initial={false} mode="popLayout">
         {filtered.map((meeting) => {
           const isSealed = meeting.status === 'SEALED' || meeting.status === 'ARCHIVED';
           return (
@@ -130,6 +132,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
               key={meeting.id}
               onClick={() => onSelectMeeting(meeting)}
               variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: { duration: 0.34, ease: 'easeOut' } } }}
+              exit={{ opacity: 0, scale: 0.96, y: 8, transition: { duration: 0.2 } }}
               layout
               className="p-5 rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-800 transition-all cursor-pointer flex flex-col justify-between gap-4 group"
             >
@@ -169,14 +172,11 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
                 <motion.div className="flex items-center -space-x-2 space-x-reverse" initial="hidden" animate="show" variants={staggerContainerVariants}>
                   {meeting.participants.filter(Boolean).slice(0, 3).map((p, index) => (
-                    <motion.img
+                    <motion.span
                       key={p.id || `participant-${index}`}
                       variants={staggerItemVariants}
-                      src={p.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
-                      alt={p.name || 'شرکت‌کننده'}
-                      referrerPolicy="no-referrer"
-                      className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-slate-900"
-                    />
+                      layout
+                    ><UserAvatar name={p.name} avatar={p.avatar} className="h-7 w-7 text-[9px] ring-2 ring-white dark:ring-slate-900" imageClassName="h-7 w-7 rounded-full object-cover ring-2 ring-white dark:ring-slate-900" /></motion.span>
                   ))}
                   <span className="text-[11px] text-slate-400 mr-3">
                     {meeting.signatureCount} از {meeting.totalSignaturesRequired} امضا
@@ -191,6 +191,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
             </motion.div>
           );
         })}
+        </AnimatePresence>
       </motion.div>
       )}
     </div>

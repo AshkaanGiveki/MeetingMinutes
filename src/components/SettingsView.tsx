@@ -8,10 +8,34 @@ import {
   Save,
   PenTool,
   CheckCircle2
-  ,RotateCcw
+  ,RotateCcw, Camera, Trash2
 } from 'lucide-react';
+import { UserAvatar } from './UserAvatar';
 
-export const SettingsView: React.FC = () => {
+interface SettingsViewProps {
+  onAvatarChanged?: (avatar?: string) => void;
+}
+
+interface SettingsToggleProps {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}
+
+const SettingsToggle: React.FC<SettingsToggleProps> = ({ checked, label, onChange }) => (
+  <label className="settings-toggle" aria-label={label}>
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+    <span className="settings-toggle-track" aria-hidden="true">
+      <span className="settings-toggle-thumb" />
+    </span>
+  </label>
+);
+
+export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged }) => {
   const [name, setName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [role, setRole] = useState('Participant');
@@ -27,6 +51,9 @@ export const SettingsView: React.FC = () => {
   const [telegramUsername, setTelegramUsername] = useState('');
   const [telegramPairingUrl, setTelegramPairingUrl] = useState('');
   const [isPairingTelegram, setIsPairingTelegram] = useState(false);
+  const [avatar, setAvatar] = useState<string | undefined>();
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -36,6 +63,7 @@ export const SettingsView: React.FC = () => {
         setPhoneNumber(data.user.phoneNumber || '');
         setRole(data.user.role || '');
         setSignatureData(data.user.signatureData || '');
+        setAvatar(data.user.avatar || undefined);
       }
     }).catch(() => undefined);
     fetch('/api/settings')
@@ -48,6 +76,42 @@ export const SettingsView: React.FC = () => {
       })
       .catch(() => setSaveError('تنظیمات از سرور دریافت نشد.'));
   }, []);
+
+  const saveAvatar = async (nextAvatar?: string) => {
+    setIsSavingAvatar(true);
+    setSaveError('');
+    try {
+      const response = await fetch('/api/profile/avatar', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar: nextAvatar || null }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Avatar could not be updated.');
+      const savedAvatar = data.avatar || undefined;
+      setAvatar(savedAvatar);
+      onAvatarChanged?.(savedAvatar);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Avatar could not be updated.');
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  };
+
+  const handleAvatarFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return setSaveError('Please choose an image file.');
+    if (file.size > 2_500_000) return setSaveError('Avatar images must be smaller than 2.5 MB.');
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') void saveAvatar(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     fetch('/api/telegram/status')
@@ -213,6 +277,21 @@ export const SettingsView: React.FC = () => {
             <span>مشخصات فردی و سازمانی</span>
           </div>
 
+          <div className="flex flex-col gap-4 rounded-2xl border border-indigo-100 bg-gradient-to-l from-indigo-50/80 via-white to-violet-50/50 p-4 dark:border-indigo-900/60 dark:from-indigo-950/40 dark:via-slate-900 dark:to-violet-950/20 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <UserAvatar name={name || 'کاربر'} avatar={avatar} className="h-16 w-16 text-lg ring-4 ring-white shadow-lg dark:ring-slate-800" imageClassName="h-16 w-16 rounded-full object-cover ring-4 ring-white shadow-lg dark:ring-slate-800" />
+              <div>
+                <p className="text-sm font-bold text-slate-900 dark:text-white">تصویر پروفایل</p>
+                <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">برای شناسایی سریع‌تر در جلسات و سازمان، تصویر خود را اضافه کنید.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFile} />
+              <button type="button" disabled={isSavingAvatar} onClick={() => avatarInputRef.current?.click()} className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-semibold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700 disabled:opacity-50"><Camera className="h-3.5 w-3.5" />{isSavingAvatar ? 'در حال ذخیره…' : avatar ? 'تغییر تصویر' : 'افزودن تصویر'}</button>
+              {avatar && <button type="button" disabled={isSavingAvatar} onClick={() => void saveAvatar()} className="flex items-center gap-1.5 rounded-xl border border-rose-200 px-3 py-2 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-50 dark:border-rose-900/70 dark:text-rose-300 dark:hover:bg-rose-950/30"><Trash2 className="h-3.5 w-3.5" />حذف</button>}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
             <div className="flex flex-col gap-1.5">
               <label className="font-semibold text-slate-700 dark:text-slate-300">
@@ -331,29 +410,27 @@ export const SettingsView: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-3">
-            <label className="flex items-center justify-between cursor-pointer">
+            <div className="flex items-center justify-between gap-5">
               <span className="text-slate-700 dark:text-slate-300 font-medium">
                 ارسال ایمیل اطلاع‌رسانی هنگام ثبت امضا و مهر و موم سند
               </span>
-              <input
-                type="checkbox"
+              <SettingsToggle
                 checked={emailNotification}
-                onChange={(e) => setEmailNotification(e.target.checked)}
-                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                label="Ø§Ø±Ø³Ø§Ù„ Ø§ÛŒÙ…ÛŒÙ„ Ø§Ø·Ù„Ø§Ø¹â€ŒØ±Ø³Ø§Ù†ÛŒ"
+                onChange={setEmailNotification}
               />
-            </label>
+            </div>
 
-            <label className="flex items-center justify-between cursor-pointer">
+            <div className="flex items-center justify-between gap-5">
               <span className="text-slate-700 dark:text-slate-300 font-medium">
                 مهر و موم خودکار سند بلافاصله پس از تکمیل تمام امضاها
               </span>
-              <input
-                type="checkbox"
+              <SettingsToggle
                 checked={autoSeal}
-                onChange={(e) => setAutoSeal(e.target.checked)}
-                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                label="Ù…Ù‡Ø± Ùˆ Ù…ÙˆÙ… Ø®ÙˆØ¯Ú©Ø§Ø± Ø³Ù†Ø¯"
+                onChange={setAutoSeal}
               />
-            </label>
+            </div>
           </div>
         </div>
 

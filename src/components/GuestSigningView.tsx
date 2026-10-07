@@ -3,6 +3,7 @@ import { CheckCircle2, FileSignature, Loader2, ShieldCheck } from 'lucide-react'
 import { Meeting } from '../types';
 import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
+import { GuestSigningSkeleton } from './LoadingState';
 
 interface GuestSigningViewProps {
   meetingId: string;
@@ -53,7 +54,7 @@ export const GuestSigningView: React.FC<GuestSigningViewProps> = ({ meetingId, t
     }
   };
 
-  if (loading) return <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-500" dir="rtl"><Loader2 className="ml-2 h-5 w-5 animate-spin" />در حال بارگذاری سند...</div>;
+  if (loading) return <GuestSigningSkeleton />;
   if (!meeting) return <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6 text-center text-rose-700" dir="rtl">{error || 'جلسه در دسترس نیست.'}</div>;
 
   return (

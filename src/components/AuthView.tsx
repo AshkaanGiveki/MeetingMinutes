@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 
 interface AuthViewProps {
-  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string }) => void;
+  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => void;
   onBackToApp: () => void;
 }
 
@@ -92,6 +92,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setTimeout(() => {
           onLoginSuccess({
             name: data.user.name,
+            avatar: data.user.avatar,
             phoneNumber: data.user.phoneNumber,
             email: data.user.email,
             role: data.user.role as OrganizationRole,
@@ -142,6 +143,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setTimeout(() => {
           onLoginSuccess({
             name: data.user.name,
+            avatar: data.user.avatar,
             phoneNumber: data.user.phoneNumber,
             email: data.user.email,
             role: data.user.role as OrganizationRole,

@@ -10,6 +10,7 @@ export interface AuthSession {
   phoneNumber: string;
   email: string;
   name: string;
+  avatar?: string;
   role: string;
   organizationId: string;
   organizationName?: string;
@@ -26,6 +27,7 @@ export interface AuthUser {
   email: string;
   passwordHash: string;
   name: string;
+  avatar?: string;
   telegramChatId?: string;
   telegramUsername?: string;
   preferences?: Record<string, unknown>;
@@ -72,6 +74,7 @@ export class AuthService {
       phoneNumber: user.phoneNumber,
       email: user.email,
       name: user.name,
+      avatar: user.avatar,
       role: context.membership.role,
       organizationId: context.organization.id,
       organizationName: context.organization.name,
@@ -147,6 +150,7 @@ export class AuthService {
       phoneNumber: user.phoneNumber,
       email: user.email,
       name: user.name,
+      avatar: user.avatar,
       role: context.membership.role,
       organizationId: context.organization.id,
       organizationName: context.organization.name,
@@ -217,6 +221,18 @@ export class AuthService {
     const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}), updatedAt: new Date().toISOString() } });
     if (!result.matchedCount) return false;
     await db.collection('sessions').updateMany({ userId }, { $set: { name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}) } });
+    return true;
+  }
+
+  async updateAvatar(userId: string, avatar?: string): Promise<boolean> {
+    if (avatar && (!avatar.startsWith('data:image/') || avatar.length > 3_500_000)) return false;
+    const db = this.requireDb();
+    const result = await db.collection<AuthUser>('users').updateOne(
+      { id: userId },
+      avatar ? { $set: { avatar, updatedAt: new Date().toISOString() } } : { $unset: { avatar: '' }, $set: { updatedAt: new Date().toISOString() } },
+    );
+    if (!result.matchedCount) return false;
+    await db.collection('sessions').updateMany({ userId }, avatar ? { $set: { avatar } } : { $unset: { avatar: '' } });
     return true;
   }
 

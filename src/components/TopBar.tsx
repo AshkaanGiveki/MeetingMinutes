@@ -1,8 +1,16 @@
 import React, { useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
-import { Search, Bell, Moon, Sun, Sparkles } from 'lucide-react';
+import { Calendar, ChevronLeft, FileText, FolderArchive, Home, Layers, Search, Settings, Sparkles, Users, Building2 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import moonIcon from '../assets/icons/moon.png';
+import notificationIcon from '../assets/icons/notification.png';
+import sunIcon from '../assets/icons/sun.png';
 
 interface TopBarProps {
+  currentTab: string;
+  onTabChange: (tab: string) => void;
+  meetingDetail?: { id: string; title?: string };
+  onOpenMeeting?: (meetingId: string) => void;
   isDark: boolean;
   onToggleTheme: () => void;
   onOpenSearch: () => void;
@@ -12,6 +20,10 @@ interface TopBarProps {
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
+  currentTab,
+  onTabChange,
+  meetingDetail,
+  onOpenMeeting,
   isDark,
   onToggleTheme,
   onOpenSearch,
@@ -19,6 +31,18 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenNotifications,
   onOpenRoughNotes,
 }) => {
+  const breadcrumbItems = [
+    { id: 'meetings', label: 'جلسات جاری', icon: Calendar },
+    { id: 'archive', label: 'آرشیو اسناد پلمپ', icon: FolderArchive },
+    { id: 'templates', label: 'قالب‌های صورت‌جلسه', icon: Layers },
+    { id: 'contacts', label: 'اعضا و امضاکنندگان', icon: Users },
+    { id: 'settings', label: 'تنظیمات و امنیت', icon: Settings },
+    { id: 'organizations', label: 'سازمان‌های من', icon: Building2 },
+  ];
+  const currentBreadcrumb = breadcrumbItems.find((item) => item.id === currentTab) || breadcrumbItems[0];
+  const CurrentBreadcrumbIcon = currentBreadcrumb.icon;
+  const isMeetingDetail = Boolean(meetingDetail);
+  const detailLabel = meetingDetail?.title?.trim() || meetingDetail?.id || 'صورت‌جلسه';
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -36,13 +60,15 @@ export const TopBar: React.FC<TopBarProps> = ({
     <div className="flex h-full items-center justify-between gap-4">
       <div className="flex items-center gap-2 pl-2" dir="ltr">
       {onOpenRoughNotes && (
-        <button onClick={onOpenRoughNotes} className="hidden sm:flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2 text-[10px] font-semibold text-slate-500 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-400 dark:hover:border-emerald-900 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" />
-          <span>امروز · همکاری سازمانی فعال</span>
+        <button onClick={onOpenRoughNotes} className="ai-notes-button group hidden items-center gap-2 rounded-xl px-3 py-2 text-[10px] font-bold shadow-sm sm:flex" title="تبدیل یادداشت‌های خام به صورت‌جلسه با هوش مصنوعی">
+          <span className="ai-notes-icon flex h-5 w-5 items-center justify-center transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110">
+            <Sparkles className="h-3.5 w-3.5" />
+          </span>
+          <span>دستیار هوشمند صورت‌جلسه</span>
         </button>
       )}
-      <button onClick={onOpenNotifications} className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-800 dark:hover:bg-indigo-950/50" title="اعلان‌ها" aria-label="اعلان‌ها">
-        <Bell className="w-5 h-5" />
+      <button onClick={onOpenNotifications} className="notification-button relative flex h-9 w-9 items-center justify-center p-1" title="اعلان‌ها" aria-label="اعلان‌ها">
+        <img src={notificationIcon} alt="" className="notification-icon" />
         {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-slate-900">{unreadCount}</span>}
       </button>
       <ThemeToggleButton isDark={isDark} onToggleTheme={onToggleTheme} />
@@ -54,14 +80,32 @@ export const TopBar: React.FC<TopBarProps> = ({
         <kbd className="hidden sm:inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-slate-600">⌘ K</kbd>
       </button>
     </div>
-    <div className="flex items-center gap-3 text-right" dir="rtl">
-      <div className="flex flex-col items-end leading-tight">
-        <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">فضای کاری متامیت</span>
-        <span className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-white">مدیریت جلسات و اسناد</span>
-      </div>
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 shadow-sm dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">
-        <Sparkles className="h-4 w-4" />
-      </div>
+    <div className="flex min-w-0 items-center gap-2 text-right" dir="rtl">
+      <Home className="h-4 w-4 shrink-0 text-indigo-500 dark:text-indigo-300" />
+      <button type="button" onClick={() => onTabChange('meetings')} className="text-[11px] font-bold text-slate-400 transition-colors hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-300">فضای کاری</button>
+      <ChevronLeft className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-600" />
+      {isMeetingDetail && (
+        <>
+          <button type="button" onClick={() => onTabChange('meetings')} className="truncate text-[11px] font-bold text-slate-400 transition-colors hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-300">جلسات جاری</button>
+          <ChevronLeft className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-600" />
+        </>
+      )}
+      <AnimatePresence initial={false} mode="wait">
+        <motion.button
+          type="button"
+          onClick={() => isMeetingDetail ? onOpenMeeting?.(meetingDetail!.id) : onTabChange(currentBreadcrumb.id)}
+          aria-current="page"
+          key={isMeetingDetail ? `meeting-${meetingDetail!.id}` : currentBreadcrumb.id}
+          initial={{ opacity: 0, x: 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -10 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          className="flex min-w-0 items-center gap-1.5 text-right transition-colors hover:text-indigo-600 dark:hover:text-indigo-300"
+        >
+          {isMeetingDetail ? <FileText className="h-4 w-4 shrink-0 text-indigo-500 dark:text-indigo-300" /> : <CurrentBreadcrumbIcon className="h-4 w-4 shrink-0 text-indigo-500 dark:text-indigo-300" />}
+          <span className="truncate text-xs font-extrabold tracking-tight text-slate-900 dark:text-white">{isMeetingDetail ? detailLabel : currentBreadcrumb.label}</span>
+        </motion.button>
+      </AnimatePresence>
     </div>
     </div>
   </header>
@@ -74,7 +118,7 @@ interface ThemeToggleButtonProps {
 }
 
 const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({ isDark, onToggleTheme }) => {
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const buttonRef = useRef<HTMLLabelElement>(null);
   const transitionActiveRef = useRef(false);
 
   const handleClick = () => {
@@ -126,14 +170,31 @@ const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({ isDark, onToggleT
   };
 
   return (
-    <button
+    <label
       ref={buttonRef}
-      onClick={handleClick}
-      className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+      className="theme-switch-button"
+      htmlFor="theme-switch"
       title={isDark ? 'حالت روشن' : 'حالت تیره'}
       aria-label={isDark ? 'حالت روشن' : 'حالت تیره'}
     >
-      {isDark ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
-    </button>
+      <span className="switch-outer">
+        <input id="theme-switch" type="checkbox" checked={isDark} onChange={handleClick} aria-label={isDark ? 'حالت روشن' : 'حالت تیره'} />
+        <span className="switch-button-track" aria-hidden="true">
+          <span className="button-toggle" />
+          <AnimatePresence initial={false} mode="wait">
+            <motion.img
+              key={isDark ? 'moon' : 'sun'}
+              src={isDark ? moonIcon : sunIcon}
+              alt=""
+              className={`button-indicator ${isDark ? 'button-indicator-left' : 'button-indicator-right'}`}
+              initial={{ opacity: 0, scale: 0.5, x: isDark ? -10 : 10, y: '-50%', rotate: isDark ? -55 : 55 }}
+              animate={{ opacity: 1, scale: 1, x: 0, y: '-50%', rotate: 0 }}
+              exit={{ opacity: 0, scale: 0.5, x: isDark ? 10 : -10, y: '-50%', rotate: isDark ? 55 : -55 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            />
+          </AnimatePresence>
+        </span>
+      </span>
+    </label>
   );
 };

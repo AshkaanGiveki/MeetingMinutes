@@ -40,6 +40,7 @@ import {
 import { CustomSelect } from './CustomSelect';
 import { Meeting, AgendaItem, DecisionItem, ActionItem, Participant, PrintTemplate } from '../types';
 import { motion } from 'motion/react';
+import { UserAvatar } from './UserAvatar';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
 
@@ -670,6 +671,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               <motion.div
                 key={item.id}
                 variants={staggerItemVariants}
+                layout
+                exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
                 className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/80 hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors group text-xs text-slate-700 dark:text-slate-300"
               >
                 {editingAgendaId === item.id ? (
@@ -1065,6 +1068,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               <motion.div
                 key={dec.id}
                 variants={staggerItemVariants}
+                layout
+                exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
                 className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 group transition-all"
               >
                 {editingDecisionId === dec.id ? (
@@ -1224,6 +1229,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                   <motion.tr
                     key={act.id}
                     variants={staggerItemVariants}
+                    layout
+                    exit={{ opacity: 0, transition: { duration: 0.2 } }}
                     className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${
                       act.completed ? 'opacity-60 bg-slate-50/30 dark:bg-slate-900/30' : ''
                     }`}
@@ -1243,14 +1250,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                     </td>
                     <td className="py-2.5 px-4">
                       <div className="flex items-center gap-2">
-                        <img
-                          src={
-                            act.assignee?.avatar ||
-                            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'
-                          }
-                          alt={act.assignee?.name || 'بدون مسئول'}
-                          className="w-5 h-5 rounded-full object-cover"
-                        />
+                        <UserAvatar name={act.assignee?.name || 'بدون مسئول'} avatar={act.assignee?.avatar} className="h-5 w-5 text-[8px]" imageClassName="h-5 w-5 rounded-full object-cover" />
                         <span className="text-slate-600 dark:text-slate-300">{act.assignee?.name || 'بدون مسئول'}</span>
                       </div>
                     </td>

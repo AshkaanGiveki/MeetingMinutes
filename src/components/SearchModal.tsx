@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Search, X, Calendar, FileText, CheckCircle, User, ArrowLeft } from 'lucide-react';
 import { Meeting } from '../types';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
-import { LoadingState } from './LoadingState';
+import { Skeleton } from './LoadingState';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -82,16 +82,19 @@ export const SearchModal: React.FC<SearchModalProps> = ({
         {/* Results List */}
         <motion.div className="max-h-96 overflow-y-auto p-3 flex flex-col gap-1.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {isLoading ? (
-            <LoadingState compact label="در حال جست‌وجوی صورت‌جلسه‌ها…" />
+            <div className="space-y-2" aria-label="Loading search results">{Array.from({ length: 4 }, (_, index) => <div key={index} className="flex items-center gap-3 rounded-2xl p-3"><Skeleton className="h-9 w-9 shrink-0 rounded-xl" /><div className="min-w-0 flex-1 space-y-2"><Skeleton className="h-3 w-2/3" /><Skeleton className="h-3 w-1/3" /></div><Skeleton className="h-4 w-4" /></div>)}</div>
           ) : filteredMeetings.length === 0 ? (
             <div className="py-12 text-center text-slate-400 text-xs">
               موردی مطابق با جستجوی شما یافت نشد.
             </div>
           ) : (
-            filteredMeetings.map((meeting) => (
+            <AnimatePresence initial={false} mode="popLayout">
+            {filteredMeetings.map((meeting) => (
               <motion.button
                 key={meeting.id}
                 variants={staggerItemVariants}
+                layout
+                exit={{ opacity: 0, x: 18, transition: { duration: 0.18 } }}
                 onClick={() => {
                   onSelectMeeting(meeting);
                   onClose();
@@ -121,7 +124,8 @@ export const SearchModal: React.FC<SearchModalProps> = ({
 
                 <ArrowLeft className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors" />
               </motion.button>
-            ))
+            ))}
+            </AnimatePresence>
           )}
         </motion.div>
 

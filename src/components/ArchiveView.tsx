@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Archive,
   Search,
@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Meeting, AuditRecord } from '../types';
 import { EmptyState } from './EmptyState';
-import { LoadingState } from './LoadingState';
+import { TableRowsSkeleton } from './LoadingState';
 
 interface ArchiveViewProps {
   meetings: Meeting[];
@@ -97,19 +97,21 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {isLoading ? (
-                <tr><td colSpan={6} className="p-4"><LoadingState compact label="در حال بارگذاری آرشیو…" /></td></tr>
+                <TableRowsSkeleton columns={6} />
               ) : sealedMeetings.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-4">
                     <EmptyState icon={Archive} title={searchTerm ? 'سندی با این جست‌وجو پیدا نشد' : 'آرشیو هنوز خالی است'} description={searchTerm ? 'عنوان دیگری را جست‌وجو کنید.' : 'صورت‌جلسه‌های مهر و موم‌شده پس از تکمیل امضاها اینجا نمایش داده می‌شوند.'} compact />
                   </td>
                 </tr>
-              ) : sealedMeetings.map((m, index) => (
+              ) : <AnimatePresence initial={false} mode="popLayout">{sealedMeetings.map((m, index) => (
                 <motion.tr
                   key={m.id}
                   initial={{ opacity: 0, x: index % 2 === 0 ? 10 : -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.3, delay: index * 0.055, ease: 'easeOut' }}
+                  layout
+                  exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
                   className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
                 >
                   <td className="py-3.5 px-4 font-semibold text-slate-800 dark:text-slate-100">
@@ -160,7 +162,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                     </div>
                   </td>
                 </motion.tr>
-              ))}
+              ))}</AnimatePresence>}
             </tbody>
           </table>
         </div>

@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { PenTool, CheckCircle2, ShieldCheck, Lock } from 'lucide-react';
 import { Meeting } from '../types';
+import { UserAvatar } from './UserAvatar';
 
 interface SignatureCardProps {
   meeting: Meeting;
@@ -109,15 +110,10 @@ export const SignatureCard: React.FC<SignatureCardProps> = ({
           </span>
           <motion.div className="flex items-center -space-x-2 space-x-reverse" initial="hidden" animate="show" variants={staggerContainerVariants}>
             {meeting.participants.filter(Boolean).slice(0, 3).map((p, index) => (
-              <motion.img
+              <motion.span
                 key={p.id || `participant-${index}`}
                 variants={staggerItemVariants}
-                src={p.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
-                alt={p.name || 'شرکت‌کننده'}
-                referrerPolicy="no-referrer"
-                className="w-6 h-6 rounded-full object-cover ring-2 ring-white dark:ring-slate-900 shadow-2xs"
-                title={`${p.name} (${p.statusText || 'امضا کرده'})`}
-              />
+              ><UserAvatar name={p.name} avatar={p.avatar} className="h-6 w-6 text-[8px] ring-2 ring-white shadow-2xs dark:ring-slate-900" imageClassName="h-6 w-6 rounded-full object-cover ring-2 ring-white shadow-2xs dark:ring-slate-900" /></motion.span>
             ))}
           </motion.div>
         </div>

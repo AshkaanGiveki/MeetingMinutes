@@ -24,7 +24,7 @@ import { AuthView } from './components/AuthView';
 import { NotificationPanel } from './components/NotificationPanel';
 import { OrganizationsView } from './components/OrganizationsView';
 import { GuestSigningView } from './components/GuestSigningView';
-import { LoadingState } from './components/LoadingState';
+import { AppBootSkeleton, MeetingCardsSkeleton } from './components/LoadingState';
 
 export default function App() {
   const location = useLocation();
@@ -127,13 +127,6 @@ export default function App() {
     }
   };
 
-  const loadOrganizations = async () => {
-    const response = await fetchWithTimeout('/api/organizations');
-    if (!response.ok) throw new Error('Unable to load organizations');
-    const data = await response.json();
-    return data.organizations || [];
-  };
-
   const loadMeetings = async () => {
     setIsMeetingsLoading(true);
     try {
@@ -193,6 +186,7 @@ export default function App() {
           ...prev,
           userId: data.user.userId || prev.userId,
           name: data.user.name,
+          avatar: data.user.avatar || prev.avatar,
           phoneNumber: data.user.phoneNumber || prev.phoneNumber,
           email: data.user.email,
           role: (data.user.role as OrganizationRole) || prev.role,
@@ -205,7 +199,7 @@ export default function App() {
         setIsAuthenticated(true);
         navigate('/meetings');
         setIsBootstrapping(false);
-        const results = await Promise.allSettled([loadMeetings(), loadOrganizations()]);
+        const results = await Promise.allSettled([loadMeetings()]);
         if (!cancelled && results.some((result) => result.status === 'rejected')) {
           setOperationError('بخشی از اطلاعات بارگذاری نشد. برای تلاش دوباره صفحه را تازه‌سازی کنید.');
           setTimeout(() => setOperationError(''), 5000);
@@ -576,19 +570,20 @@ export default function App() {
     handleCreateNewMeeting(newMeeting);
   };
 
-  const handleLoginSuccess = (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string }) => {
+  const handleLoginSuccess = (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => {
     const updated = {
       ...activeUser,
       name: user.name,
       phoneNumber: user.phoneNumber || activeUser.phoneNumber,
       email: user.email || '',
+      avatar: user.avatar || activeUser.avatar,
       role: user.role,
       organizationId: user.organizationId || activeUser.organizationId,
     };
     setActiveUser(updated);
     setIsAuthenticated(true);
     navigate('/meetings');
-    void Promise.allSettled([loadMeetings(), loadOrganizations()]);
+    void Promise.allSettled([loadMeetings()]);
     try {
       localStorage.setItem('metameet_user', JSON.stringify(updated));
     } catch {}
@@ -603,7 +598,6 @@ export default function App() {
       phoneNumber: '',
       email: '',
       role: 'Viewer' as OrganizationRole,
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80',
     };
     setActiveUser(guestUser);
     setIsAuthenticated(false);
@@ -627,11 +621,7 @@ export default function App() {
 
   if (guestLink?.meetingId && guestLink.token) return <GuestSigningView meetingId={guestLink.meetingId} token={guestLink.token} />;
   if (isBootstrapping) {
-    return (
-      <div className={`min-h-screen flex items-center justify-center ${isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'}`}>
-        <div className="rounded-2xl bg-white/80 dark:bg-slate-900/80 px-6 py-4 text-sm shadow-sm">در حال بارگذاری سامانه...</div>
-      </div>
-    );
+    return <AppBootSkeleton />;
   }
   if (!isAuthenticated && currentTab === 'auth') {
     return (
@@ -648,7 +638,7 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen flex gap-3 p-3 text-slate-800 transition-colors duration-300 font-sans ${
+      className={`h-screen flex gap-3 overflow-hidden p-3 text-slate-800 transition-colors duration-300 font-sans ${
         isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'
       }`}
     >
@@ -683,10 +673,14 @@ export default function App() {
       </div>
 
       {/* Main Workspace Frame to the left */}
-      <div className="flex-1 min-w-0 min-h-0 z-10 overflow-visible">
+      <div className="z-10 flex h-[calc(100vh-1.5rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top Header */}
-        <div className="no-print">
+        <div className="no-print shrink-0">
           <TopBar
+            currentTab={currentTab}
+            onTabChange={(tab) => setCurrentTab(tab as typeof currentTab)}
+            meetingDetail={meetingDetailId ? { id: meetingDetailId, title: activeMeeting?.title } : undefined}
+            onOpenMeeting={(meetingId) => navigate(`/meetings/${meetingId}`)}
             isDark={isDark}
             onToggleTheme={() => setIsDark(!isDark)}
             onOpenSearch={() => setIsSearchModalOpen(true)}
@@ -696,7 +690,7 @@ export default function App() {
         </div>
 
         {/* Content View Router */}
-        <div className="flex-1 px-6 pb-6 overflow-y-auto">
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-6 pb-6">
           {currentTab === 'archive' ? (
             <ArchiveView
               meetings={meetings}
@@ -728,7 +722,11 @@ export default function App() {
               }}
             />
           ) : currentTab === 'settings' ? (
-            <SettingsView />
+            <SettingsView onAvatarChanged={(avatar) => setActiveUser((previous) => {
+              const updated = { ...previous, avatar };
+              try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
+              return updated;
+            })} />
           ) : currentTab === 'auth' ? (
             <AuthView
               onLoginSuccess={(u) => {
@@ -738,7 +736,7 @@ export default function App() {
               onBackToApp={() => setCurrentTab('meetings')}
             />
           ) : isMeetingsLoading ? (
-            <LoadingState label="در حال بارگذاری صورت‌جلسه‌ها…" />
+            <MeetingCardsSkeleton />
           ) : meetings.length === 0 ? (
             <div className="min-h-[60vh] flex items-center justify-center text-center">
               <div className="max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-8 shadow-sm">
