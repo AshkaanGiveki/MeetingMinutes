@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import { Plus, Search, Calendar, Clock, MapPin, Users, ArrowLeft, Filter, FileText, ClipboardList } from 'lucide-react';
 import { Meeting } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
@@ -56,48 +56,62 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-2 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
         {/* Filter Segmented Controls */}
+        <LayoutGroup id="meeting-filters">
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs">
-          <button
+          <motion.button
             onClick={() => setFilter('ALL')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+            className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'ALL'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
+            whileTap={{ scale: 0.96 }}
           >
-            همه جلسات
-          </button>
-          <button
+            {filter === 'ALL' && <motion.span layoutId="meeting-filter-active-background" className="pointer-events-none absolute inset-0 rounded-lg bg-white shadow-xs dark:bg-slate-700" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
+            {filter === 'ALL' && <motion.span layoutId="meeting-filter-active-border" className="pointer-events-none absolute inset-0 rounded-lg border border-indigo-200/80 dark:border-indigo-800/80" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
+            <span className="relative z-10">همه جلسات</span>
+          </motion.button>
+          <motion.button
             onClick={() => setFilter('IN_REVIEW')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+            className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'IN_REVIEW'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
+            whileTap={{ scale: 0.96 }}
           >
-            در حال بررسی
-          </button>
-          <button
+            {filter === 'IN_REVIEW' && <motion.span layoutId="meeting-filter-active-background" className="pointer-events-none absolute inset-0 rounded-lg bg-white shadow-xs dark:bg-slate-700" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
+            {filter === 'IN_REVIEW' && <motion.span layoutId="meeting-filter-active-border" className="pointer-events-none absolute inset-0 rounded-lg border border-indigo-200/80 dark:border-indigo-800/80" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
+            <span className="relative z-10">در حال بررسی</span>
+          </motion.button>
+          <motion.button
             onClick={() => setFilter('SEALED')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+            className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'SEALED'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
+            whileTap={{ scale: 0.96 }}
           >
-            مهر و موم شده
-          </button>
-          <button
+            {filter === 'SEALED' && <motion.span layoutId="meeting-filter-active-background" className="pointer-events-none absolute inset-0 rounded-lg bg-white shadow-xs dark:bg-slate-700" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
+            {filter === 'SEALED' && <motion.span layoutId="meeting-filter-active-border" className="pointer-events-none absolute inset-0 rounded-lg border border-indigo-200/80 dark:border-indigo-800/80" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
+            <span className="relative z-10">مهر و موم شده</span>
+          </motion.button>
+          <motion.button
             onClick={() => setFilter('ARCHIVED')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+            className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'ARCHIVED'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
+            whileTap={{ scale: 0.96 }}
           >
-            بایگانی شده
-          </button>
+            {filter === 'ARCHIVED' && <motion.span layoutId="meeting-filter-active-background" className="pointer-events-none absolute inset-0 rounded-lg bg-white shadow-xs dark:bg-slate-700" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
+            {filter === 'ARCHIVED' && <motion.span layoutId="meeting-filter-active-border" className="pointer-events-none absolute inset-0 rounded-lg border border-indigo-200/80 dark:border-indigo-800/80" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
+            <span className="relative z-10">بایگانی شده</span>
+          </motion.button>
         </div>
+        </LayoutGroup>
 
         {/* Search */}
         <div className="relative w-full sm:w-64">
@@ -123,15 +137,18 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
           action={!search ? <button onClick={onOpenNewMeetingModal} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/20">ایجاد جلسه جدید</button> : undefined}
         />
       ) : (
-      <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
-        <AnimatePresence initial={false} mode="popLayout">
-        {filtered.map((meeting) => {
+      <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.15 } } }}>
+        <AnimatePresence mode="popLayout">
+        {filtered.map((meeting, index) => {
           const isSealed = meeting.status === 'SEALED' || meeting.status === 'ARCHIVED';
           return (
             <motion.div
               key={meeting.id}
               onClick={() => onSelectMeeting(meeting)}
-              variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: { duration: 0.34, ease: 'easeOut' } } }}
+              initial="hidden"
+              animate="show"
+              variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0 } }}
+              transition={{ duration: 0.34, delay: index * 0.1, ease: 'easeOut' }}
               exit={{ opacity: 0, scale: 0.96, y: 8, transition: { duration: 0.2 } }}
               layout
               className="p-5 rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-800 transition-all cursor-pointer flex flex-col justify-between gap-4 group"

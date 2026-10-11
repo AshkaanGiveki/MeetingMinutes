@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'motion/react';
 import { Meeting, CommentItem, Participant, Template, OrganizationRole } from './types';
 import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
@@ -19,20 +20,29 @@ import { SettingsView } from './components/SettingsView';
 import { NewMeetingModal } from './components/NewMeetingModal';
 import { ReviewModal } from './components/ReviewModal';
 import { RoughNotesModal } from './components/RoughNotesModal';
+import { MeetingWorkspace, getMeetingWorkspaceStage } from './components/MeetingWorkspace';
 import { AuthModal } from './components/AuthModal';
 import { AuthView } from './components/AuthView';
 import { NotificationPanel } from './components/NotificationPanel';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OrganizationsView } from './components/OrganizationsView';
 import { GuestSigningView } from './components/GuestSigningView';
-import { AppBootSkeleton, MeetingCardsSkeleton } from './components/LoadingState';
+import { InvitationView } from './components/InvitationView';
+import { OrganizationOnboarding } from './components/OrganizationOnboarding';
+import { MeetingCardsSkeleton, MeetingWorkspaceSkeleton } from './components/LoadingState';
+import { useSnackbar } from './components/Snackbar';
+import { SigningRejectionModal } from './components/SigningRejectionModal';
+import { SigningRejectionDecisionModal } from './components/SigningRejectionDecisionModal';
 
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { showSnackbar } = useSnackbar();
   const guestLink = location.pathname.startsWith('/meeting/')
     ? { meetingId: location.pathname.split('/')[2] || '', token: new URLSearchParams(location.search).get('token') || '' }
     : null;
+  const invitePathMatch = location.pathname.match(/^\/invite\/([^/]+)$/);
+  const inviteToken = invitePathMatch?.[1] || new URLSearchParams(location.search).get('invite') || undefined;
   const [isDark, setIsDark] = useState(() => {
     try {
       return localStorage.getItem('metameet_theme') === 'dark';
@@ -40,10 +50,12 @@ export default function App() {
       return false;
     }
   });
-  type AppTab = 'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'auth';
+  type AppTab = 'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'auth' | 'invitation';
   const meetingDetailMatch = location.pathname.match(/^\/meetings\/([^/]+)$/);
   const meetingDetailId = meetingDetailMatch?.[1];
-  const currentTab: AppTab = location.pathname.startsWith('/archive')
+  const currentTab: AppTab = location.pathname.startsWith('/invite/')
+    ? 'invitation'
+    : location.pathname.startsWith('/archive')
     ? 'archive'
     : location.pathname.startsWith('/templates')
       ? 'templates'
@@ -83,7 +95,7 @@ export default function App() {
       name: '',
       phoneNumber: '',
       email: '',
-      role: 'Participant' as OrganizationRole,
+    role: 'User' as OrganizationRole,
     };
   });
 
@@ -104,6 +116,8 @@ export default function App() {
 
   // Modals state
   const [isSignModalOpen, setIsSignModalOpen] = useState(false);
+  const [isSigningRejectionModalOpen, setIsSigningRejectionModalOpen] = useState(false);
+  const [isSigningDecisionModalOpen, setIsSigningDecisionModalOpen] = useState(false);
   const [isSealModalOpen, setIsSealModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -115,8 +129,15 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [hasUserSigned, setHasUserSigned] = useState(false);
-  const [operationError, setOperationError] = useState('');
-  const canCreateMeeting = ['Owner', 'Admin', 'Organizer'].includes(activeUser.role);
+  const setOperationError = (message: string) => {
+    if (!message) return;
+    const isSuccess = message.includes('موفقیت') || message.includes('ارسال شد');
+    const isWarning = message.includes('اجازه') || message.includes('بارگذاری نشد');
+    showSnackbar({ type: isSuccess ? 'success' : isWarning ? 'warning' : 'error', message });
+  };
+  const meetingUpdateSequenceRef = useRef(0);
+  const canCreateMeeting = ['Owner', 'Admin', 'User'].includes(activeUser.role);
+  const canEditActiveMeeting = Boolean(activeMeeting && (['Owner', 'Admin'].includes(activeUser.role) || activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && ['Organizer', 'Editor'].includes(participant.role))));
 
   const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000) => {
     const controller = new AbortController();
@@ -131,7 +152,10 @@ export default function App() {
   const loadMeetings = async () => {
     setIsMeetingsLoading(true);
     try {
-      const response = await fetchWithTimeout('/api/meetings');
+      // MongoDB Atlas can take several seconds to wake from an idle connection.
+      // Keep the loading state alive long enough for the authenticated request
+      // to complete instead of replacing a valid organization list with empty data.
+      const response = await fetchWithTimeout('/api/meetings', {}, 30000);
       if (!response.ok) throw new Error('Unable to load meetings');
       const data = await response.json();
       if (data?.meetings) {
@@ -140,6 +164,11 @@ export default function App() {
           setActiveMeeting((current) => data.meetings.find((m: Meeting) => m.id === current?.id) || data.meetings[0]);
         }
       }
+    } catch (error) {
+      showSnackbar({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'بارگذاری صورت‌جلسه‌های سازمان انجام نشد.',
+      });
     } finally {
       setIsMeetingsLoading(false);
     }
@@ -159,6 +188,12 @@ export default function App() {
       signature.signerId === activeUser.userId || signature.signerName === activeUser.name,
     )));
   }, [activeMeeting, activeUser.userId, activeUser.name]);
+
+  useEffect(() => {
+    if (activeMeeting?.signatureRejection?.status === 'pending' && (['Owner', 'Admin'].includes(activeUser.role) || activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && ['Organizer', 'Editor'].includes(participant.role)))) {
+      setIsSigningDecisionModalOpen(true);
+    }
+  }, [activeMeeting?.signatureRejection?.id, activeMeeting?.signatureRejection?.status, activeMeeting?.organizer.id, activeUser.role, activeUser.userId]);
 
   useEffect(() => {
     setViewMode(meetingDetailId ? 'hero' : 'list');
@@ -191,14 +226,16 @@ export default function App() {
           phoneNumber: data.user.phoneNumber || prev.phoneNumber,
           email: data.user.email,
           role: (data.user.role as OrganizationRole) || prev.role,
-          organizationId: data.user.organizationId || prev.organizationId,
+          organizationId: data.user.organizationId || undefined,
           signatureData: data.user.signatureData || prev.signatureData,
         }));
         // Authentication is sufficient to render the shell. Secondary data loads are
         // independent and bounded so one stalled endpoint can never strand the app on
         // the bootstrap screen.
         setIsAuthenticated(true);
-        navigate('/meetings');
+        if ((location.pathname === '/' || location.pathname === '/auth') && data.user.organizationId) {
+          navigate('/meetings', { replace: true });
+        }
         setIsBootstrapping(false);
         const results = await Promise.allSettled([loadMeetings()]);
         if (!cancelled && results.some((result) => result.status === 'rejected')) {
@@ -225,6 +262,7 @@ export default function App() {
   const handleUpdateMeeting = async (updated: Partial<Meeting>) => {
     const previousMeeting = activeMeeting;
     const newMeeting = { ...activeMeeting, ...updated };
+    const updateSequence = ++meetingUpdateSequenceRef.current;
     setActiveMeeting(newMeeting);
     setMeetings((prev) =>
       prev.map((m) => (m.id === newMeeting.id ? newMeeting : m))
@@ -241,7 +279,10 @@ export default function App() {
         }),
       });
       if (!response.ok) throw new Error('تغییرات جلسه ذخیره نشد.');
+      // A slower response from an older edit must never affect newer local state.
+      if (updateSequence !== meetingUpdateSequenceRef.current) return;
     } catch (error) {
+      if (updateSequence !== meetingUpdateSequenceRef.current) return;
       setActiveMeeting(previousMeeting);
       setMeetings((prev) => prev.map((m) => (m.id === previousMeeting.id ? previousMeeting : m)));
       setOperationError(error instanceof Error ? error.message : 'تغییرات جلسه ذخیره نشد.');
@@ -255,6 +296,24 @@ export default function App() {
     setMeetings((prev) => prev.map((meeting) => meeting.id === next.id ? next : meeting));
   };
 
+  const handleMeetingStatusChange = (newStatus: Meeting['status']) => {
+    if (newStatus === 'IN_REVIEW' && !activeMeeting.discussion.trim()) {
+      showSnackbar({ type: 'warning', message: 'برای ارسال جلسه به بازبینی، ابتدا متن جلسه را ثبت کنید.' });
+      return;
+    }
+    void handleUpdateMeeting({
+      status: newStatus,
+      statusLabel:
+        newStatus === 'DRAFT'
+          ? 'پیش‌نویس'
+          : newStatus === 'IN_REVIEW'
+          ? 'در حال بررسی'
+          : newStatus === 'READY_FOR_SIGNATURE'
+          ? 'آماده امضا'
+          : 'مهر و موم شده',
+    });
+  };
+
   // Add comment
   const handleAddComment = (comment: CommentItem) => {
     handleUpdateMeeting({
@@ -264,15 +323,15 @@ export default function App() {
 
   // Add participant
   const handleAddParticipant = (p: Participant) => {
-    if (activeMeeting.participants.some((participant) => participant.email.toLowerCase() === p.email.toLowerCase())) {
+    if (activeMeeting.participants.some((participant) => participant.id === p.id || (p.email && participant.email && participant.email.toLowerCase() === p.email.toLowerCase()))) {
       setOperationError('This participant is already assigned to the meeting.');
       setTimeout(() => setOperationError(''), 3500);
       return;
     }
-    handleUpdateMeeting({
-      participants: [...activeMeeting.participants, p],
-      totalSignaturesRequired: activeMeeting.totalSignaturesRequired + 1,
-    });
+    const participants = [...activeMeeting.participants, p];
+    const updated = { ...activeMeeting, participants, totalSignaturesRequired: participants.filter((participant) => participant.requiresSignature !== false).length + 1 };
+    setActiveMeeting(updated);
+    setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
   };
 
   // Formal Review workflow submission
@@ -321,7 +380,7 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.warn('Review submission error:', err);
+      showSnackbar({ type: 'error', message: err instanceof Error ? err.message : 'Review submission failed.' });
     }
   };
 
@@ -371,6 +430,26 @@ export default function App() {
       setTimeout(() => setOperationError(''), 3500);
     }
 
+  };
+
+  const handleSigningRejection = async (reason: string) => {
+    try {
+      const response = await fetch(`/api/meetings/${activeMeeting.id}/signature-rejection`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'ثبت مخالفت با امضا انجام نشد.');
+      if (data.meeting) applyMeetingLocally(data.meeting);
+      showSnackbar({ type: 'info', message: 'دلیل عدم امضا برای ویرایشگر ارسال شد.' });
+    } catch (error) { showSnackbar({ type: 'error', message: error instanceof Error ? error.message : 'ثبت مخالفت با امضا انجام نشد.' }); }
+  };
+
+  const handleSigningRejectionResponse = async (action: 'accept_change' | 'reject_change', responseNote: string) => {
+    try {
+      const response = await fetch(`/api/meetings/${activeMeeting.id}/signature-rejection/respond`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, response: responseNote }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'پاسخ به درخواست اصلاح انجام نشد.');
+      if (data.meeting) applyMeetingLocally(data.meeting);
+      showSnackbar({ type: 'success', message: action === 'accept_change' ? 'درخواست اصلاح پذیرفته شد و امضاهای قبلی لغو شدند.' : 'درخواست اصلاح رد شد و فرایند امضا ادامه پیدا کرد.' });
+    } catch (error) { showSnackbar({ type: 'error', message: error instanceof Error ? error.message : 'پاسخ به درخواست اصلاح انجام نشد.' }); }
   };
 
   // Confirm Seal with Server Cryptographic Lock
@@ -424,7 +503,7 @@ export default function App() {
         });
       }
     } catch (err) {
-      console.warn('AI API fallback:', err);
+      showSnackbar({ type: 'warning', message: 'پیشنهاد هوش مصنوعی در دسترس نیست. می‌توانید متن را به‌صورت دستی ادامه دهید.' });
     } finally {
       setIsAiLoading(false);
     }
@@ -483,7 +562,7 @@ export default function App() {
   const handleCreateNewMeeting = async (newMeeting: Meeting) => {
     let persistedMeeting = newMeeting;
     try {
-      const response = await fetch('/api/meetings', {
+      const response = await fetchWithTimeout('/api/meetings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -506,7 +585,7 @@ export default function App() {
           })),
           contentTemplateId: newMeeting.contentTemplateId,
         }),
-      });
+      }, 30000);
       const data = await response.json();
       if (!response.ok) {
         const serverError = typeof data?.error === 'string'
@@ -579,7 +658,7 @@ export default function App() {
       email: user.email || '',
       avatar: user.avatar || activeUser.avatar,
       role: user.role,
-      organizationId: user.organizationId || activeUser.organizationId,
+      organizationId: user.organizationId || undefined,
     };
     setActiveUser(updated);
     setIsAuthenticated(true);
@@ -598,7 +677,7 @@ export default function App() {
       name: 'کاربر مهمان',
       phoneNumber: '',
       email: '',
-      role: 'Viewer' as OrganizationRole,
+      role: 'User' as OrganizationRole,
     };
     setActiveUser(guestUser);
     setIsAuthenticated(false);
@@ -615,25 +694,51 @@ export default function App() {
   const activeParticipant: Participant = {
     id: 'current-user',
     name: activeUser.name,
-    role: activeUser.role,
+    role: 'Organizer',
     email: activeUser.email,
     avatar: activeUser.avatar,
   };
 
   if (guestLink?.meetingId && guestLink.token) return <GuestSigningView meetingId={guestLink.meetingId} token={guestLink.token} />;
   if (isBootstrapping) {
-    return <AppBootSkeleton />;
+    // Keep the refresh transition quiet. The full application shell should not
+    // be replaced by a separate skeleton page with its own background.
+    return null;
   }
-  if (!isAuthenticated && currentTab === 'auth') {
+  if (!isAuthenticated && (currentTab === 'auth' || currentTab === 'invitation')) {
     return (
       <main className={`min-h-screen flex items-center justify-center px-4 py-10 ${isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'}`}>
         <AuthView
+          inviteToken={inviteToken}
           onLoginSuccess={(user) => {
             handleLoginSuccess(user);
           }}
           onBackToApp={() => setCurrentTab('meetings')}
-        />
-      </main>
+          />
+        </main>
+      );
+  }
+
+  if (isAuthenticated && currentTab === 'invitation' && inviteToken) {
+    return <InvitationView token={inviteToken} onAccepted={(user) => {
+      if (user?.organizationId) setActiveUser((previous) => ({ ...previous, organizationId: user.organizationId, role: (user.role as OrganizationRole) || previous.role }));
+      void loadMeetings();
+    }} />;
+  }
+
+  if (isAuthenticated && !activeUser.organizationId) {
+    return (
+      <OrganizationOnboarding
+        name={activeUser.name}
+        onOrganizationReady={(user) => {
+          const updated = { ...activeUser, organizationId: user.organizationId, role: (user.role as OrganizationRole) || activeUser.role };
+          setActiveUser(updated);
+          try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
+          setMeetings([]);
+          navigate('/meetings', { replace: true });
+          void loadMeetings();
+        }}
+      />
     );
   }
 
@@ -643,11 +748,6 @@ export default function App() {
         isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'
       }`}
     >
-      {operationError && (
-        <div className="fixed top-4 left-1/2 z-[100] -translate-x-1/2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-lg">
-          {operationError}
-        </div>
-      )}
       {/* Ambient background glows */}
       <div className="fixed top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent rounded-full blur-3xl pointer-events-none -z-0" />
       <div className="fixed bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-sky-500/10 via-indigo-500/5 to-transparent rounded-full blur-3xl pointer-events-none -z-0" />
@@ -692,6 +792,15 @@ export default function App() {
 
         {/* Content View Router */}
         <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-4 pb-28 sm:px-6 lg:pb-6">
+          <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={`${location.pathname}:${currentTab}:${meetingDetailId || ''}`}
+            initial={{ opacity: 0, y: 8, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -6, filter: 'blur(8px)' }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="min-h-full"
+          >
           {currentTab === 'archive' ? (
             <ArchiveView
               meetings={meetings}
@@ -703,14 +812,15 @@ export default function App() {
               onPrintPdf={handlePrintPdf}
             />
           ) : currentTab === 'templates' ? (
-            <TemplatesView onUseTemplate={canCreateMeeting ? handleUseTemplate : () => {
+            <TemplatesView isAuthenticated={isAuthenticated} organizationId={activeUser.organizationId} onUseTemplate={canCreateMeeting ? handleUseTemplate : () => {
               setOperationError('شما در سازمان فعال خود اجازه ایجاد صورت‌جلسه ندارید.');
               setTimeout(() => setOperationError(''), 3500);
             }} />
           ) : currentTab === 'contacts' ? (
-            <ContactsView />
+            <ContactsView isAuthenticated={isAuthenticated} organizationId={activeUser.organizationId} canManageMembers={['Owner', 'Admin'].includes(activeUser.role)} />
           ) : currentTab === 'organizations' ? (
             <OrganizationsView
+              isAuthenticated={isAuthenticated}
               activeOrganizationId={activeUser.organizationId}
               onOrganizationChanged={(user) => {
                 setActiveUser((previous) => {
@@ -730,6 +840,7 @@ export default function App() {
             })} />
           ) : currentTab === 'auth' ? (
             <AuthView
+              inviteToken={inviteToken}
               onLoginSuccess={(u) => {
                 handleLoginSuccess(u);
                 setCurrentTab('meetings');
@@ -737,7 +848,7 @@ export default function App() {
               onBackToApp={() => setCurrentTab('meetings')}
             />
           ) : isMeetingsLoading ? (
-            <MeetingCardsSkeleton />
+            meetingDetailId ? <MeetingWorkspaceSkeleton /> : <MeetingCardsSkeleton />
           ) : meetings.length === 0 ? (
             <div className="min-h-[60vh] flex items-center justify-center text-center">
               <div className="max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-8 shadow-sm">
@@ -764,34 +875,33 @@ export default function App() {
             />
           ) : (
             /* Primary Hero Meeting View */
-            <div className="flex items-start justify-center gap-6 pt-4">
+            <MeetingWorkspace
+              meeting={activeMeeting}
+              stage={getMeetingWorkspaceStage(activeMeeting)}
+              onBack={() => navigate('/meetings')}
+              onOpenReview={() => setIsReviewModalOpen(true)}
+              onOpenSign={() => { if (['READY_FOR_SIGNATURE', 'SIGNING'].includes(activeMeeting.status)) setIsSignModalOpen(true); }}
+              onStatusChange={handleMeetingStatusChange}
+              canReview={['Owner', 'Admin'].includes(activeUser.role) || Boolean(activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && ['Organizer', 'Reviewer'].includes(participant.role)))}
+              canSign={Boolean(activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && ['Organizer', 'Editor', 'Reviewer', 'Signer', 'Participant'].includes(participant.role)))}
+            >
+            <div className="flex flex-col items-stretch justify-center gap-6 pt-4 xl:flex-row xl:items-start">
               {/* Left Panel: Status Stepper, Notes & Comments */}
-              <div className="no-print">
+              <div className="no-print w-full xl:w-72">
                 <LeftSidebar
                   meeting={activeMeeting}
                   onOpenShareModal={() => setIsShareModalOpen(true)}
                   onOpenAddParticipant={() => setIsAddParticipantModalOpen(true)}
                   onAddComment={handleAddComment}
                   onOpenReviewModal={() => setIsReviewModalOpen(true)}
-                  onStatusChange={(newStatus) =>
-                    handleUpdateMeeting({
-                      status: newStatus,
-                      statusLabel:
-                        newStatus === 'DRAFT'
-                          ? 'پیش‌نویس'
-                          : newStatus === 'IN_REVIEW'
-                          ? 'در حال بررسی'
-                          : newStatus === 'READY_FOR_SIGNATURE'
-                          ? 'آماده امضا'
-                          : 'مهر و موم شده',
-                    })
-                  }
+                  onStatusChange={handleMeetingStatusChange}
                 />
               </div>
 
               {/* Central Document Hero Canvas with Real Functional Editor */}
               <MeetingHero
                 meeting={activeMeeting}
+                workspaceStage={getMeetingWorkspaceStage(activeMeeting)}
                 onUpdateMeeting={handleUpdateMeeting}
                 onBackToList={() => navigate('/meetings')}
                 onTriggerAI={handleTriggerAI}
@@ -802,16 +912,20 @@ export default function App() {
               />
 
               {/* Floating Digital Signature Card on Right of Canvas */}
-              <div className="no-print">
+              <div className="no-print w-full xl:w-72">
                 <SignatureCard
                   meeting={activeMeeting}
-                  onOpenSignModal={() => setIsSignModalOpen(true)}
+                  onOpenSignModal={() => { if (['READY_FOR_SIGNATURE', 'SIGNING'].includes(activeMeeting.status)) setIsSignModalOpen(true); }}
                   onOpenSealModal={() => setIsSealModalOpen(true)}
                   hasUserSigned={hasUserSigned}
+                  onRejectSigning={() => setIsSigningRejectionModalOpen(true)}
                 />
               </div>
             </div>
+            </MeetingWorkspace>
           )}
+          </motion.div>
+          </AnimatePresence>
         </div>
       </div>
 
@@ -827,6 +941,19 @@ export default function App() {
         meeting={activeMeeting}
         onConfirmSignature={handleConfirmSignature}
         currentUser={activeUser}
+      />
+
+      <SigningRejectionModal
+        isOpen={isSigningRejectionModalOpen}
+        onClose={() => setIsSigningRejectionModalOpen(false)}
+        onSubmit={handleSigningRejection}
+      />
+
+      <SigningRejectionDecisionModal
+        isOpen={isSigningDecisionModalOpen && canEditActiveMeeting}
+        meeting={activeMeeting}
+        onClose={() => setIsSigningDecisionModalOpen(false)}
+        onSubmit={handleSigningRejectionResponse}
       />
 
       <SealingModal
@@ -861,6 +988,7 @@ export default function App() {
       <AddParticipantModal
         isOpen={isAddParticipantModalOpen}
         onClose={() => setIsAddParticipantModalOpen(false)}
+        meetingId={activeMeeting?.id || ''}
         onAddParticipant={handleAddParticipant}
         existingParticipants={activeMeeting?.participants || []}
       />

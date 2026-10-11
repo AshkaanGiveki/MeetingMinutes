@@ -69,7 +69,7 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
           aiData?.discussion ||
           'جلسه با حضور اعضا رسمیت یافت و موضوعات کلیدی بررسی و تصمیم‌گیری شد.',
         aiSuggestion: {
-          summary: 'این صورت‌جلسه بر پایه تحلیل هوشمند یادداشت‌های اولیه تنظیم شده است.',
+          summary: '',
           applied: true,
         },
         decisions: (aiData?.keyDecisions || ['تصویب برنامه اجرایی']).map((text: string, idx: number) => ({
@@ -88,7 +88,7 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         })),
         comments: [],
         signatureCount: 0,
-        totalSignaturesRequired: 3,
+        totalSignaturesRequired: organizer ? 1 : 0,
       };
 
       onMeetingCreated(newMeeting);

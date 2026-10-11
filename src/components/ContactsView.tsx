@@ -7,8 +7,15 @@ import { EmptyState } from './EmptyState';
 import { TableRowsSkeleton } from './LoadingState';
 import { UserAvatar } from './UserAvatar';
 import { CustomSelect } from './CustomSelect';
+import { formatIranianPhoneInput } from '../utils/phone';
 
-export const ContactsView: React.FC = () => {
+interface ContactsViewProps {
+  isAuthenticated?: boolean;
+  organizationId?: string;
+  canManageMembers?: boolean;
+}
+
+export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = true, organizationId, canManageMembers = false }) => {
   const [members, setMembers] = useState<Participant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -16,14 +23,24 @@ export const ContactsView: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
-  const [newRole, setNewRole] = useState('مدیر فنی');
+  const [newRole, setNewRole] = useState('User');
 
   useEffect(() => {
-    fetch('/api/members')
+    if (!isAuthenticated) return;
+    setIsLoading(true);
+    setLoadError('');
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 30000);
+    fetch('/api/members', { signal: controller.signal })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('اعضای سازمان قابل دریافت نیستند.')))
       .then((data) => { setMembers((data.members || []).map((member: Participant) => ({ ...member, hasSigned: false }))); setIsLoading(false); })
-      .catch((error) => setLoadError(error instanceof Error ? error.message : 'اعضای سازمان قابل دریافت نیستند.'));
-  }, []);
+      .catch((error) => setLoadError(error instanceof DOMException && error.name === 'AbortError' ? 'دریافت اعضای سازمان بیش از حد طول کشید. لطفاً دوباره تلاش کنید.' : error instanceof Error ? error.message : 'اعضای سازمان قابل دریافت نیستند.'))
+      .finally(() => window.clearTimeout(timeout));
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [isAuthenticated, organizationId]);
 
   useEffect(() => {
     if (loadError) setIsLoading(false);
@@ -43,7 +60,7 @@ export const ContactsView: React.FC = () => {
     void fetch('/api/members/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: newEmail.trim(), phoneNumber: newPhone.trim(), name: newName.trim(), role: 'Participant' }),
+      body: JSON.stringify({ email: newEmail.trim(), phoneNumber: newPhone.trim(), name: newName.trim(), role: 'User' }),
     }).then(async (response) => {
       if (!response.ok) throw new Error((await response.json()).error || 'دعوت عضو انجام نشد.');
       setNewName('');
@@ -90,13 +107,13 @@ export const ContactsView: React.FC = () => {
           </div>
         </div>
 
-        <button
+        {canManageMembers && <button
           onClick={() => setIsInviteModalOpen(true)}
           className="py-2.5 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 flex items-center gap-2 cursor-pointer transition-all active:scale-98"
         >
           <Plus className="w-4 h-4" />
           <span>دعوت عضو جدید</span>
-        </button>
+        </button>}
       </div>
 
       {loadError && <div className="rounded-xl bg-rose-50 px-4 py-3 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{loadError}</div>}
@@ -141,7 +158,7 @@ export const ContactsView: React.FC = () => {
               ) : members.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-4">
-                    <EmptyState compact icon={Users} title="عضوی پیدا نشد" description="هنوز عضوی به این سازمان اضافه نشده است." action={<button onClick={() => setIsInviteModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">دعوت عضو جدید</button>} />
+                    <EmptyState compact icon={Users} title="عضوی پیدا نشد" description="هنوز عضوی به این سازمان اضافه نشده است." action={canManageMembers ? <button onClick={() => setIsInviteModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">دعوت عضو جدید</button> : undefined} />
                   </td>
                 </tr>
               ) : <AnimatePresence initial={false} mode="popLayout">{members.map((m, index) => (
@@ -149,7 +166,7 @@ export const ContactsView: React.FC = () => {
                   key={m.id}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: index * 0.055, ease: 'easeOut' }}
+                  transition={{ duration: 0.3, delay: index * 0.1, ease: 'easeOut' }}
                   exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
                   layout
                   className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
@@ -175,13 +192,13 @@ export const ContactsView: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-3.5 px-4 text-center">
-                    <button
+                    {canManageMembers && <button
                       onClick={() => handleRemoveMember(m.id)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
                       title="حذف عضو"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    </button>}
                   </td>
                 </motion.tr>
               ))}</AnimatePresence>}
@@ -229,8 +246,8 @@ export const ContactsView: React.FC = () => {
                   type="tel"
                   required={false}
                   value={newPhone}
-                  onChange={(e) => setNewPhone(e.target.value)}
-                  placeholder="+989121234567"
+                  onChange={(e) => setNewPhone(formatIranianPhoneInput(e.target.value))}
+                  placeholder="09121234567"
                   className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none"
                 />
                 <input

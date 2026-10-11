@@ -197,11 +197,10 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             const isCurrent = step.stepIndex === currentStepIndex;
 
             return (
-              <motion.button
+              <motion.div
                 key={step.id}
                 variants={staggerItemVariants}
-                onClick={() => onStatusChange?.(step.id)}
-                className="relative z-10 flex flex-col items-center cursor-pointer group focus:outline-none"
+                className="relative z-10 flex flex-col items-center"
               >
                 <div
                   className={`w-3.5 h-3.5 rounded-full transition-all duration-300 flex items-center justify-center ${
@@ -212,7 +211,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                       : 'bg-slate-300 dark:bg-slate-600'
                   }`}
                 />
-              </motion.button>
+              </motion.div>
             );
           })}
         </motion.div>

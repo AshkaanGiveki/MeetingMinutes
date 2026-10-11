@@ -15,6 +15,14 @@ export class MeetingRepository {
     return docs.map(({ _id, ...rest }) => rest as unknown as Meeting);
   }
 
+  async getAllForOrganization(organizationId: string): Promise<Meeting[]> {
+    const docs = await requireDb().collection('meetings')
+      .find({ organizationId })
+      .sort({ updatedAt: -1 })
+      .toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as Meeting);
+  }
+
   async getById(id: string): Promise<Meeting | null> {
     const doc = await requireDb().collection('meetings').findOne({ id });
     if (!doc) return null;

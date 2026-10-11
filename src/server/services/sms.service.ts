@@ -1,15 +1,10 @@
 import { logger } from './logger';
+import { normalizeIranianPhoneNumber } from '../utils/phone';
 
 export interface SmsResult {
   success: boolean;
   providerMessageId?: string;
   error?: string;
-}
-
-function normalizePhone(phone: string): string {
-  const compact = phone.trim().replace(/[\s()-]/g, '');
-  if (compact.startsWith('00')) return `+${compact.slice(2)}`;
-  return compact;
 }
 
 export class SmsService {
@@ -42,7 +37,7 @@ export class SmsService {
   }
 
   async sendMessage(phone: string, message: string): Promise<SmsResult> {
-    const normalized = normalizePhone(phone);
+    const normalized = normalizeIranianPhoneNumber(phone);
     const provider = process.env.SMS_PROVIDER;
     if (provider === 'sms.ir' || provider === 'smsir' || process.env.SMS_API_KEY) return this.sendSmsIr(normalized, message);
     if (process.env.NODE_ENV === 'production') return { success: false, error: 'No production SMS provider is configured.' };
@@ -51,7 +46,7 @@ export class SmsService {
   }
 
   async sendOtp(phone: string, code: string): Promise<SmsResult> {
-    const normalized = normalizePhone(phone);
+    const normalized = normalizeIranianPhoneNumber(phone);
     const provider = process.env.SMS_PROVIDER;
     if (provider === 'sms.ir' || provider === 'smsir' || process.env.SMS_API_KEY) {
       return this.sendSmsIr(normalized, `کد تأیید متامیت: ${code}`);

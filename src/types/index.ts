@@ -15,6 +15,8 @@ export interface Participant {
   email: string;
   hasSigned?: boolean;
   statusText?: string;
+  requiresSignature?: boolean;
+  membershipStatus?: 'active' | 'invited' | 'pending';
 }
 
 export interface AgendaItem {
@@ -69,6 +71,15 @@ export interface Meeting {
   signatureCount: number;
   totalSignaturesRequired: number;
   signatures?: SignatureRecord[];
+  signatureRejection?: {
+    id: string;
+    signerId: string;
+    signerName: string;
+    reason: string;
+    createdAt: string;
+    status: 'pending' | 'accepted' | 'rejected';
+    editorResponse?: string;
+  };
   /** Legacy content-template field retained for older records. */
   templateId?: string;
   contentTemplateId?: string;
@@ -108,9 +119,13 @@ export type Template = MinuteContentTemplate;
 export type OrganizationRole =
   | 'Owner'
   | 'Admin'
+  | 'User';
+
+export type MeetingRole =
   | 'Organizer'
   | 'Editor'
   | 'Reviewer'
+  | 'Signer'
   | 'Participant'
   | 'Viewer';
 

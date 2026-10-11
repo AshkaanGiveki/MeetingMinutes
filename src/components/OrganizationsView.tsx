@@ -4,6 +4,8 @@ import { ArrowLeft, Building2, Check, Plus, RefreshCw, ShieldCheck, Users, X } f
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
 import { OrganizationCardsSkeleton } from './LoadingState';
+import { useSnackbar } from './Snackbar';
+import { formatIranianPhoneInput } from '../utils/phone';
 
 interface OrganizationContext {
   organization: { id: string; name: string; visibility: string };
@@ -22,6 +24,7 @@ interface Invitation {
 }
 
 interface OrganizationsViewProps {
+  isAuthenticated?: boolean;
   activeOrganizationId?: string;
   onOrganizationChanged: (user: { organizationId: string; organizationName?: string; role?: string; permissions?: string[] }) => void;
 }
@@ -79,19 +82,22 @@ const CreateOrganizationModal: React.FC<CreateOrganizationModalProps> = ({ open,
   </AnimatePresence>
 );
 
-export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ activeOrganizationId, onOrganizationChanged }) => {
+export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenticated = true, activeOrganizationId, onOrganizationChanged }) => {
+  const { showSnackbar } = useSnackbar();
   const [organizations, setOrganizations] = useState<OrganizationContext[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [name, setName] = useState('');
-  const [inviteTarget, setInviteTarget] = useState('');
-  const [inviteRole, setInviteRole] = useState('Participant');
-  const [feedback, setFeedback] = useState('');
+  const [inviteTarget, setInviteTargetState] = useState('');
+  const setInviteTarget = (value: string) => setInviteTargetState(value.includes('@') ? value : formatIranianPhoneInput(value));
+  const [inviteRole, setInviteRole] = useState('User');
   const [isBusy, setIsBusy] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const load = async () => {
     setIsLoading(true);
+    setLoadError('');
     try {
       const organizationRequest = fetch('/api/organizations');
       const invitationRequest = fetch('/api/organizations/invitations');
@@ -103,12 +109,17 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ activeOrga
       const invitationResponse = await invitationRequest;
       const invitationData = await invitationResponse.json();
       if (invitationResponse.ok) setInvitations(invitationData.invitations || []);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'بارگذاری سازمان‌ها انجام نشد.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void load();
+  }, [isAuthenticated, activeOrganizationId]);
 
   const createOrganization = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -117,11 +128,11 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ activeOrga
     const response = await fetch('/api/organizations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     const data = await response.json();
     setIsBusy(false);
-    if (!response.ok) return setFeedback(data.error || 'ایجاد سازمان انجام نشد.');
+    if (!response.ok) return showSnackbar({ type: 'error', message: data.error || 'ایجاد سازمان انجام نشد.' });
     onOrganizationChanged(data.user);
     setName('');
     setIsCreateModalOpen(false);
-    setFeedback('سازمان ایجاد شد.');
+    showSnackbar({ type: 'success', message: 'سازمان ایجاد شد.', position: 'bottom-center' });
     await load();
   };
 
@@ -130,9 +141,9 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ activeOrga
     const response = await fetch(`/api/organizations/${organizationId}/switch`, { method: 'POST' });
     const data = await response.json();
     setIsBusy(false);
-    if (!response.ok) return setFeedback(data.error || 'تغییر سازمان انجام نشد.');
+    if (!response.ok) return showSnackbar({ type: 'error', message: data.error || 'تغییر سازمان انجام نشد.' });
     onOrganizationChanged(data.user);
-    setFeedback('سازمان فعال تغییر کرد.');
+    showSnackbar({ type: 'success', message: 'سازمان فعال تغییر کرد.', position: 'bottom-center' });
   };
 
   const invite = async (event: React.FormEvent, organizationId: string) => {
@@ -140,7 +151,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ activeOrga
     const isEmail = inviteTarget.includes('@');
     const response = await fetch(`/api/organizations/${organizationId}/invitations`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [isEmail ? 'email' : 'phoneNumber']: inviteTarget, role: inviteRole }) });
     const data = await response.json();
-    setFeedback(response.ok ? 'دعوت‌نامه ایجاد شد.' : data.error || 'ارسال دعوت‌نامه انجام نشد.');
+    showSnackbar({ type: response.ok ? 'success' : 'error', message: response.ok ? 'دعوت‌نامه ایجاد شد.' : data.error || 'ارسال دعوت‌نامه انجام نشد.' });
     if (response.ok) setInviteTarget('');
   };
 
@@ -148,7 +159,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ activeOrga
     const response = await fetch(`/api/organizations/invitations/${token}/${action}`, { method: 'POST' });
     const data = await response.json();
     if (response.ok && action === 'accept') onOrganizationChanged(data.user);
-    setFeedback(response.ok ? (action === 'accept' ? 'عضویت در سازمان پذیرفته شد.' : 'دعوت‌نامه رد شد.') : data.error || 'عملیات انجام نشد.');
+    showSnackbar({ type: response.ok ? 'success' : 'error', message: response.ok ? (action === 'accept' ? 'عضویت در سازمان پذیرفته شد.' : 'دعوت‌نامه رد شد.') : data.error || 'عملیات انجام نشد.' });
     await load();
   };
 
@@ -175,18 +186,17 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ activeOrga
           <span className="org-refresh-label">تازه‌سازی</span>
         </motion.button>
       </div>
-      {feedback && <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">{feedback}</div>}
       <div className="flex justify-end">
         <button type="button" onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700"><Plus className="h-4 w-4" />ایجاد سازمان</button>
       </div>
+      {loadError && <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300"><span>{loadError}</span><button type="button" onClick={() => void load()} className="font-bold underline">تلاش دوباره</button></div>}
       {isLoading && <OrganizationCardsSkeleton />}
-      {!isLoading && <motion.div className="flex flex-col gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
-        {organizations.length === 0 ? <EmptyState compact icon={Building2} title="هنوز سازمانی پیدا نشد" description="برای شروع، سازمان اول خود را ایجاد کنید." /> : <AnimatePresence initial={false} mode="popLayout">{organizations.map((item) => {
+      {!isLoading && <motion.div className="flex flex-col gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.15 } } }}>
+        {organizations.length === 0 ? <EmptyState compact icon={Building2} title="هنوز سازمانی پیدا نشد" description="برای شروع، سازمان اول خود را ایجاد کنید." /> : <AnimatePresence mode="popLayout">{organizations.map((item, index) => {
           const isActive = item.organization.id === activeOrganizationId;
           const canManageMembers = item.membership.permissions.includes('members.manage');
-          return <motion.div key={item.organization.id} variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.32, ease: 'easeOut' } } }} exit={{ opacity: 0, scale: 0.97, y: 10, transition: { duration: 0.2 } }} layout className="org-card group relative">
-            <div className={`org-card-surface relative overflow-hidden rounded-[1.75rem] border transition-all duration-300 ${isActive ? 'org-card-active border-indigo-200/90 bg-gradient-to-l from-indigo-50/80 via-white to-violet-50/60 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-100/70 dark:border-indigo-800/80 dark:from-indigo-950/50 dark:via-slate-900 dark:to-violet-950/30 dark:shadow-indigo-950/30 dark:ring-indigo-900/50' : 'border-slate-200 bg-white shadow-sm hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-800'}`}>
-              {isActive && <div className="absolute inset-y-0 right-0 w-1 bg-gradient-to-b from-indigo-500 via-violet-500 to-fuchsia-400" aria-hidden="true" />}
+          return <motion.div key={item.organization.id} initial="hidden" animate="show" variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }} transition={{ duration: 0.32, delay: index * 0.1, ease: 'easeOut' }} exit={{ opacity: 0, scale: 0.97, y: 10, transition: { duration: 0.2 } }} layout className={`org-card group relative ${isActive ? 'org-card-selected' : ''}`}>
+            <div className={`org-card-surface relative overflow-hidden rounded-[1.75rem] border transition-all duration-300 ${isActive ? 'org-card-active border-slate-200 bg-white shadow-sm ring-1 ring-indigo-100/70 dark:border-slate-800 dark:bg-slate-900 dark:shadow-sm dark:ring-indigo-900/50' : 'border-slate-200 bg-white shadow-sm hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-xl hover:shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-800'}`}>
               <div className="org-card-content flex flex-col gap-5 p-4 pr-14 sm:p-5 sm:pr-16 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-6 lg:p-6 lg:pr-20">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-lg font-bold tracking-tight text-slate-900 dark:text-white">{item.organization.name}</h2>{isActive ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />فعال فعلی</span> : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">سازمان</span>}</div>

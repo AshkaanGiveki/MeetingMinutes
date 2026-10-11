@@ -30,16 +30,10 @@ export const OrganizationPermissions = [
 ] as const;
 export type OrganizationPermission = typeof OrganizationPermissions[number];
 
-export type OrganizationRole =
-  | 'Owner'
-  | 'Admin'
-  | 'Organizer'
-  | 'Editor'
-  | 'Reviewer'
-  | 'Participant'
-  | 'Viewer';
+export type OrganizationRole = 'Owner' | 'Admin' | 'User';
+export type MeetingRole = 'Organizer' | 'Editor' | 'Reviewer' | 'Signer' | 'Participant' | 'Viewer';
 
-export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
+export const RolePermissionsMap: Record<OrganizationRole | MeetingRole, Permission[]> = {
   Owner: [
     'meeting.view_all',
     'meeting.create',
@@ -86,8 +80,13 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
     'audit.read',
     'settings.manage',
   ],
-  Organizer: [
+  User: [
     'meeting.create',
+    'meeting.read',
+    'comment.create',
+    'signature.sign',
+  ],
+  Organizer: [
     'meeting.read',
     'meeting.edit',
     'meeting.finalize',
@@ -98,9 +97,6 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
     'comment.resolve',
     'signature.request',
     'signature.sign',
-    'template.create',
-    'template.edit',
-    'audit.read',
   ],
   Editor: [
     'meeting.read',
@@ -116,6 +112,11 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
     'comment.resolve',
     'signature.sign',
   ],
+  Signer: [
+    'meeting.read',
+    'comment.create',
+    'signature.sign',
+  ],
   Participant: [
     'meeting.read',
     'comment.create',
@@ -127,7 +128,7 @@ export const RolePermissionsMap: Record<OrganizationRole, Permission[]> = {
 };
 
 export function hasPermission(
-  role: OrganizationRole,
+  role: OrganizationRole | MeetingRole,
   permission: Permission,
   customOverrides?: Permission[]
 ): boolean {
@@ -145,7 +146,7 @@ export function hasPermissionSet(permissions: readonly string[] | undefined, per
 export function canTransitionMeeting(
   currentStatus: string,
   targetStatus: string,
-  role: OrganizationRole
+  role: OrganizationRole | MeetingRole
 ): { allowed: boolean; reason?: string } {
   // Sealed or Archived documents are immutable
   if (currentStatus === 'SEALED' || currentStatus === 'ARCHIVED') {

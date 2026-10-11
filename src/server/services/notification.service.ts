@@ -9,6 +9,7 @@ export interface NotificationRecord {
   title: string;
   message: string;
   meetingId?: string;
+  actionPath?: string;
   readAt?: string;
   createdAt: string;
 }

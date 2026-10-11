@@ -3,7 +3,9 @@ import bcrypt from 'bcryptjs';
 import { logger } from './logger';
 import { getDb } from '../db/mongodb';
 import { organizationService } from './organization.service';
-import { Permission } from '../policies/rbac';
+import { Permission, RolePermissionsMap } from '../policies/rbac';
+import { normalizeOrganizationRole } from './organization.service';
+import { normalizeIranianPhoneNumber } from '../utils/phone';
 
 export interface AuthSession {
   userId: string;
@@ -34,12 +36,7 @@ export interface AuthUser {
   signatureData?: string;
 }
 
-export function normalizePhoneNumber(phone: string): string {
-  const compact = phone.trim().replace(/[\s()-]/g, '');
-  const normalized = compact.startsWith('00') ? `+${compact.slice(2)}` : compact;
-  if (!/^\+?[1-9]\d{7,14}$/.test(normalized)) throw new Error('A valid international phone number is required.');
-  return normalized;
-}
+export const normalizePhoneNumber = normalizeIranianPhoneNumber;
 
 export class AuthService {
   private requireDb() {
@@ -64,10 +61,6 @@ export class AuthService {
     }
 
     const context = await organizationService.getContext(user.id);
-    if (!context) {
-      logger.warn(`Login rejected because user has no active organization membership: ${user.email}`);
-      return null;
-    }
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const session: AuthSession = {
       userId: user.id,
@@ -75,10 +68,10 @@ export class AuthService {
       email: user.email,
       name: user.name,
       avatar: user.avatar,
-      role: context.membership.role,
-      organizationId: context.organization.id,
-      organizationName: context.organization.name,
-      permissions: context.membership.permissions,
+      role: context?.membership.role || 'User',
+      organizationId: context?.organization.id || '',
+      organizationName: context?.organization.name,
+      permissions: context?.membership.permissions || [],
       signatureData: user.signatureData,
       telegramChatId: user.telegramChatId,
       telegramUsername: user.telegramUsername,
@@ -103,8 +96,6 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(passwordPlain, 10);
     const newUser: AuthUser = { id: userId, phoneNumber: normalizedPhone, email: normalizedEmail, passwordHash, name };
     await db.collection<AuthUser>('users').insertOne(newUser);
-    await organizationService.create(userId, `${name.trim()} - سازمان جدید`);
-
     logger.info(`New user registered: ${email}`);
     return this.login(normalizedPhone, passwordPlain);
   }
@@ -137,7 +128,8 @@ export class AuthService {
     }
 
     const { token: _token, _id: _id, ...authSession } = session as AuthSession & { token: string; _id?: unknown };
-    return authSession;
+    const normalizedRole = normalizeOrganizationRole(authSession.role);
+    return { ...authSession, role: normalizedRole, permissions: RolePermissionsMap[normalizedRole] };
   }
 
   async switchOrganization(sessionToken: string, userId: string, organizationId: string): Promise<AuthSession | null> {

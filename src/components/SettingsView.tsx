@@ -11,6 +11,8 @@ import {
   ,RotateCcw, Camera, Trash2
 } from 'lucide-react';
 import { UserAvatar } from './UserAvatar';
+import { useSnackbar } from './Snackbar';
+import { formatIranianPhoneInput } from '../utils/phone';
 
 interface SettingsViewProps {
   onAvatarChanged?: (avatar?: string) => void;
@@ -36,6 +38,7 @@ const SettingsToggle: React.FC<SettingsToggleProps> = ({ checked, label, onChang
 );
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged }) => {
+  const { showSnackbar } = useSnackbar();
   const [name, setName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [role, setRole] = useState('Participant');
@@ -55,6 +58,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged }) =
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (saveError) showSnackbar({ type: 'error', message: saveError });
+  }, [saveError, showSnackbar]);
+
+  useEffect(() => {
+    if (savedSuccess) showSnackbar({ type: 'success', message: 'تغییرات با موفقیت ذخیره شد.' });
+  }, [savedSuccess, showSnackbar]);
 
   useEffect(() => {
     fetch('/api/auth/me').then((response) => response.ok ? response.json() : null).then((data) => {
@@ -310,7 +321,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged }) =
               <input
                 type="tel"
                 value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
+                onChange={(e) => setPhoneNumber(formatIranianPhoneInput(e.target.value))}
                 required
                 className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
               />

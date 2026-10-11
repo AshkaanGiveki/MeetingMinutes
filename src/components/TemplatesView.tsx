@@ -21,8 +21,7 @@ const templateGridVariants = {
   hidden: {},
   show: {
     transition: {
-      delayChildren: 0.08,
-      staggerChildren: 0.1,
+      staggerChildren: 0.15,
     },
   },
 };
@@ -38,10 +37,12 @@ const templateCardVariants = {
 };
 
 interface TemplatesViewProps {
+  isAuthenticated?: boolean;
+  organizationId?: string;
   onUseTemplate: (template: Template) => void;
 }
 
-export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) => {
+export const TemplatesView: React.FC<TemplatesViewProps> = ({ isAuthenticated = true, organizationId, onUseTemplate }) => {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -52,12 +53,17 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
 
   // Load from API if available
   useEffect(() => {
+    if (!isAuthenticated) return;
+    setIsLoading(true);
     fetch('/api/templates')
-      .then((res) => res.json())
-      .then((data) => setTemplates(data?.templates || []))
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'بارگذاری قالب‌ها انجام نشد.');
+        setTemplates(data?.templates || []);
+      })
       .catch(() => setTemplates([]))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [isAuthenticated, organizationId]);
 
   const handleCreateTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,11 +165,13 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ onUseTemplate }) =
         animate="show"
         variants={templateGridVariants}
       >
-        <AnimatePresence initial={false} mode="popLayout">
-        {templates.map((tpl) => (
+        <AnimatePresence mode="popLayout">
+        {templates.map((tpl, index) => (
           <motion.div
             key={tpl.id}
-            variants={templateCardVariants}
+            initial="hidden"
+            animate="show"
+            variants={{ hidden: templateCardVariants.hidden, show: { ...templateCardVariants.show, transition: { ...templateCardVariants.show.transition, delay: index * 0.1 } } }}
             exit={{ opacity: 0, scale: 0.96, y: 10, transition: { duration: 0.2 } }}
             layout
             className="p-5 rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm flex flex-col justify-between gap-4 group hover:border-indigo-200 dark:hover:border-indigo-800/60 transition-all hover:shadow-md"

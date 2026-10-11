@@ -1,5 +1,6 @@
 import { MongoClient, Db, MongoClientOptions } from 'mongodb';
 import { logger } from '../services/logger';
+import { normalizeIranianPhoneNumber } from '../utils/phone';
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
@@ -54,7 +55,7 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
     isConnected = true;
     logger.info('Successfully connected to MongoDB database (metameet).');
 
-    // Create indexes asynchronously
+    await normalizeIranianPhoneData(db);
     setupIndexes(db).catch((err) => {
       logger.warn('Index verification note:', { metadata: { error: String(err) } });
     });
@@ -78,6 +79,28 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
     isConnected = false;
     return { client: null, db: null };
   }
+}
+
+async function normalizeIranianPhoneData(database: Db) {
+  const collections = ['users', 'organization_invitations', 'sessions'];
+  let updated = 0;
+  for (const collectionName of collections) {
+    const collection = database.collection<{ _id?: unknown; phoneNumber?: unknown }>(collectionName);
+    const records = await collection.find({ phoneNumber: { $type: 'string' } }, { projection: { _id: 1, phoneNumber: 1 } }).toArray();
+    for (const record of records) {
+      if (typeof record.phoneNumber !== 'string') continue;
+      try {
+        const normalized = normalizeIranianPhoneNumber(record.phoneNumber);
+        if (normalized !== record.phoneNumber) {
+          await collection.updateOne({ _id: record._id }, { $set: { phoneNumber: normalized } });
+          updated += 1;
+        }
+      } catch {
+        logger.warn(`Skipped invalid phone number during ${collectionName} normalization.`);
+      }
+    }
+  }
+  if (updated > 0) logger.info(`Normalized ${updated} Iranian phone number record(s) to 09xxxxxxxxx.`);
 }
 
 async function setupIndexes(database: Db) {

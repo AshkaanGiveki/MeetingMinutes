@@ -62,22 +62,17 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
             order: idx + 1,
             text,
           }))
-        : [
-            { id: 'ag_1', order: 1, text: 'بررسی دستور جلسه' },
-            { id: 'ag_2', order: 2, text: 'تصمیم‌گیری و تعیین مسئولیت‌ها' },
-          ],
-      discussion: chosenTemplate
-        ? `این جلسه بر اساس قالب «${chosenTemplate.title}» ایجاد شده است.`
-        : 'جلسه با حضور اعضا رسمیت یافت و موضوعات مطروحه مورد بحث قرار گرفت.',
+        : [],
+      discussion: '',
       aiSuggestion: {
-        summary: 'پیشنهاد اولیه هوش مصنوعی پس از ورود متن صورت‌جلسه تولید خواهد شد.',
+        summary: '',
         applied: false,
       },
       decisions: [],
       actionItems: [],
       comments: [],
       signatureCount: 0,
-      totalSignaturesRequired: 3,
+      totalSignaturesRequired: 1,
     };
 
     onCreateMeeting(newMeeting);

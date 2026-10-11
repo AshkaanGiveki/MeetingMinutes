@@ -10,6 +10,7 @@ interface SignatureCardProps {
   onOpenSignModal: () => void;
   onOpenSealModal: () => void;
   hasUserSigned: boolean;
+  onRejectSigning: () => void;
 }
 
 export const SignatureCard: React.FC<SignatureCardProps> = ({
@@ -17,8 +18,10 @@ export const SignatureCard: React.FC<SignatureCardProps> = ({
   onOpenSignModal,
   onOpenSealModal,
   hasUserSigned,
+  onRejectSigning,
 }) => {
   const isSealed = meeting.status === 'SEALED' || meeting.status === 'ARCHIVED';
+  const isSigningStage = meeting.status === 'READY_FOR_SIGNATURE' || meeting.status === 'SIGNING';
   const allSigned = meeting.signatureCount >= meeting.totalSignaturesRequired;
 
   return (
@@ -93,7 +96,8 @@ export const SignatureCard: React.FC<SignatureCardProps> = ({
               </button>
             )}
           </div>
-        ) : (
+        ) : isSigningStage ? (
+          <div className="w-full">
           <button
             onClick={onOpenSignModal}
             className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-purple-500 via-indigo-600 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white font-medium text-xs shadow-md shadow-indigo-500/25 flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-all duration-200"
@@ -101,6 +105,15 @@ export const SignatureCard: React.FC<SignatureCardProps> = ({
             <PenTool className="w-4 h-4" />
             <span>امضا کردن</span>
           </button>
+          <button type="button" onClick={onRejectSigning} className="mt-2 w-full rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+            عدم موافقت با امضا
+          </button>
+          </div>
+        ) : (
+          <div className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+            <Lock className="h-4 w-4" />
+            <span>امضا هنوز در دسترس نیست</span>
+          </div>
         )}
 
         {/* Footer: Signer Progress */}

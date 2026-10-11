@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { OrganizationRole } from '../types';
 import { CustomSelect } from './CustomSelect';
 import {
@@ -8,7 +8,6 @@ import {
   User,
   KeyRound,
   CheckCircle2,
-  AlertCircle,
   Eye,
   EyeOff,
   FileText,
@@ -18,16 +17,21 @@ import {
   Check,
   X
 } from 'lucide-react';
+import { useSnackbar } from './Snackbar';
+import { formatIranianPhoneInput } from '../utils/phone';
 
 interface AuthViewProps {
+  inviteToken?: string;
   onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => void;
   onBackToApp: () => void;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
+  inviteToken,
   onLoginSuccess,
   onBackToApp,
 }) => {
+  const { showSnackbar } = useSnackbar();
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
 
   // Login form state
@@ -40,7 +44,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
-  const [signupRole, setSignupRole] = useState<OrganizationRole>('Organizer');
+  const [signupRole, setSignupRole] = useState<OrganizationRole>('User');
 
   // Password Recovery state
   const [recoveryStep, setRecoveryStep] = useState<1 | 2>(1);
@@ -52,6 +56,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
   // Status feedback
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (feedback) showSnackbar({ type: feedback.type, message: feedback.text, position: 'bottom-center' });
+  }, [feedback, showSnackbar]);
 
   // Password complexity analysis helper
   const checkPasswordRequirements = (pwd: string) => {
@@ -83,7 +91,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneNumber: loginEmail, password: loginPassword }),
+        body: JSON.stringify({ phoneNumber: loginEmail, password: loginPassword, ...(inviteToken ? { inviteToken } : {}) }),
       });
       const data = await res.json();
 
@@ -134,6 +142,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           name: signupName.trim(),
           phoneNumber: signupEmail.trim(),
           password: signupPassword,
+          ...(inviteToken ? { inviteToken } : {}),
         }),
       });
       const data = await res.json();
@@ -311,24 +320,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
           </button>
         </div>
 
-        {/* Feedback message banner */}
-        {feedback && (
-          <div
-            className={`p-3.5 rounded-2xl text-xs flex items-center gap-2.5 ${
-              feedback.type === 'success'
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-            }`}
-          >
-            {feedback.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-            ) : (
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-            )}
-            <span>{feedback.text}</span>
-          </div>
-        )}
-
         {/* 1. LOGIN FORM */}
         {mode === 'login' && (
           <form onSubmit={handleLogin} className="flex flex-col gap-4 text-xs">
@@ -341,8 +332,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   type="tel"
                   required
                   value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="+989121234567"
+                  onChange={(e) => setLoginEmail(formatIranianPhoneInput(e.target.value))}
+                  placeholder="09121234567"
                   className="w-full p-3 pr-10 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-sans"
                 />
                 <Phone className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
@@ -422,8 +413,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   type="tel"
                   required
                   value={signupEmail}
-                  onChange={(e) => setSignupEmail(e.target.value)}
-                  placeholder="+989121234567"
+                  onChange={(e) => setSignupEmail(formatIranianPhoneInput(e.target.value))}
+                  placeholder="09121234567"
                   className="w-full p-2.5 pr-9 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-sans"
                 />
                 <Phone className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
@@ -513,10 +504,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 onChange={(next) => setSignupRole(next as OrganizationRole)}
                 className="w-full"
                 options={[
-                  { value: 'Organizer', label: 'تنظیم‌کننده جلسه (Organizer)' },
-                  { value: 'Reviewer', label: 'بازبین رسمی (Reviewer)' },
-                  { value: 'Participant', label: 'شرکت‌کننده عادی (Participant)' },
-                  { value: 'Viewer', label: 'مشاهده‌گر اسناد (Viewer)' },
+                  { value: 'User', label: 'کاربر سازمان (User)' },
+                  { value: 'Admin', label: 'مدیر سازمان (Admin)' },
                 ]}
               />
             </div>
@@ -550,8 +539,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       type="tel"
                       required
                       value={recoveryEmail}
-                      onChange={(e) => setRecoveryEmail(e.target.value)}
-                      placeholder="+989121234567"
+                      onChange={(e) => setRecoveryEmail(formatIranianPhoneInput(e.target.value))}
+                      placeholder="09121234567"
                       className="w-full p-3 pr-10 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none font-sans"
                     />
                     <Phone className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />

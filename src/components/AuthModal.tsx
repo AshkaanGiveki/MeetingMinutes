@@ -21,6 +21,7 @@ import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { OrganizationRole } from '../types';
 import { CustomSelect } from './CustomSelect';
+import { formatIranianPhoneInput } from '../utils/phone';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -55,7 +56,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
-  const [signupRole, setSignupRole] = useState<OrganizationRole>('Participant');
+  const [signupRole, setSignupRole] = useState<OrganizationRole>('User');
 
   // Forgot password state
   const [forgotStep, setForgotStep] = useState<1 | 2>(1);
@@ -96,24 +97,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       desc: 'دسترسی کامل به تعریف جلسه، تایید نهایی، مهر و موم و مدیریت کل سازمان',
     },
     {
-      role: 'Organizer',
-      title: 'تنظیم‌کننده جلسه (Organizer)',
-      desc: 'نگارش دستور جلسه، مدیریت شرکت‌کنندگان و ارسال جهت بررسی',
+      role: 'Admin',
+      title: 'مدیر سازمان (Admin)',
+      desc: 'مدیریت اعضا، تنظیمات و عملیات سازمان',
     },
     {
-      role: 'Reviewer',
-      title: 'بازبین رسمی (Reviewer)',
-      desc: 'بررسی مصوبات، ثبت درخواست اصلاحات و تأیید نهایی جهت ورود به امضا',
-    },
-    {
-      role: 'Participant',
-      title: 'شرکت‌کننده عادی (Participant)',
-      desc: 'امضای رسمی دیجیتال و درج نظر و یادداشت روی جلسه',
-    },
-    {
-      role: 'Viewer',
-      title: 'مشاهده‌گر (Viewer)',
-      desc: 'فقط مشاهده محتوای جلسه بدون امکان ویرایش یا امضا',
+      role: 'User',
+      title: 'کاربر سازمان (User)',
+      desc: 'انجام مسئولیت‌های مختلف در جلسات بر اساس انتساب هر جلسه',
     },
   ];
 
@@ -392,8 +383,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   type="tel"
                   required
                   value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="+989121234567"
+                  onChange={(e) => setLoginEmail(formatIranianPhoneInput(e.target.value))}
+                  placeholder="09121234567"
                   className="w-full p-2.5 pr-8 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:border-indigo-400"
                 />
                 <Phone className="w-4 h-4 text-slate-400 absolute right-2.5 top-3" />
@@ -475,8 +466,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="tel"
                 required
                 value={signupEmail}
-                onChange={(e) => setSignupEmail(e.target.value)}
-                placeholder="+989121234567"
+                onChange={(e) => setSignupEmail(formatIranianPhoneInput(e.target.value))}
+                placeholder="09121234567"
                 className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:border-indigo-400"
               />
             </div>
@@ -536,10 +527,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={signupRole}
                 onChange={(next) => setSignupRole(next as OrganizationRole)}
                 options={[
-                  { value: 'Organizer', label: 'تنظیم‌کننده جلسه (Organizer)' },
-                  { value: 'Reviewer', label: 'بازبین رسمی (Reviewer)' },
-                  { value: 'Participant', label: 'شرکت‌کننده عادی (Participant)' },
-                  { value: 'Viewer', label: 'مشاهده‌گر (Viewer)' },
+                  { value: 'Owner', label: 'مالک سازمان (Owner)' },
+                  { value: 'Admin', label: 'مدیر سازمان (Admin)' },
+                  { value: 'User', label: 'کاربر سازمان (User)' },
                 ]}
               />
             </div>
@@ -576,8 +566,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="tel"
                   required
                   value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
-                  placeholder="+989121234567"
+                  onChange={(e) => setForgotEmail(formatIranianPhoneInput(e.target.value))}
+                  placeholder="09121234567"
                   className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none"
                 />
                 <button

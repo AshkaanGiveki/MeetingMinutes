@@ -32,6 +32,7 @@ import {
   Upload,
   ChevronUp,
   ChevronDown,
+  MoreHorizontal,
   Quote,
   Code,
   Eraser,
@@ -39,13 +40,15 @@ import {
 } from 'lucide-react';
 import { CustomSelect } from './CustomSelect';
 import { Meeting, AgendaItem, DecisionItem, ActionItem, Participant, PrintTemplate } from '../types';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { UserAvatar } from './UserAvatar';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
+import type { MeetingWorkspaceStage } from './MeetingWorkspace';
 
 interface MeetingHeroProps {
   meeting: Meeting;
+  workspaceStage?: MeetingWorkspaceStage;
   onUpdateMeeting: (updated: Partial<Meeting>) => void;
   onBackToList: () => void;
   onTriggerAI: () => void;
@@ -57,6 +60,7 @@ interface MeetingHeroProps {
 
 export const MeetingHero: React.FC<MeetingHeroProps> = ({
   meeting,
+  workspaceStage = 'write',
   onUpdateMeeting,
   onBackToList,
   onTriggerAI,
@@ -76,6 +80,29 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   const [historyIndex, setHistoryIndex] = useState(0);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [pdfTemplates, setPdfTemplates] = useState<PrintTemplate[]>([]);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const isHeaderCompact = false;
+
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsExportMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isExportMenuOpen]);
 
   useEffect(() => {
     fetch('/api/print-templates').then((response) => response.ok ? response.json() : null).then((data) => setPdfTemplates(data?.templates || [])).catch(() => undefined);
@@ -121,6 +148,17 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
       setEditingDecisionId(null);
     }
   }, [meeting.id]);
+
+  useEffect(() => {
+    const sectionId = {
+      prepare: 'meeting-section-agenda',
+      write: 'meeting-section-notes',
+      review: 'meeting-section-review',
+      sign: 'meeting-section-sign',
+    }[workspaceStage];
+    const section = document.getElementById(sectionId);
+    if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [workspaceStage]);
 
   // Debounced autosave that only sends updates outwards without touching local state
   const debouncedSaveDiscussion = useCallback(
@@ -518,10 +556,130 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   };
 
   return (
-    <main className="flex-1 max-w-4xl mx-auto flex flex-col gap-6 pb-12 select-text">
+    <main className="meeting-editor flex-1 max-w-4xl mx-auto flex flex-col gap-6 pb-12 select-text" data-workspace-stage={workspaceStage}>
       {/* Central White / Dark Document Canvas */}
       <div className="relative rounded-3xl bg-white dark:bg-[#0f172a] border border-slate-200/90 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none p-8 flex flex-col gap-6 transition-colors duration-200">
         
+        {/* Redesigned document toolbar */}
+        <div className="no-print relative z-10 flex flex-col gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
+          <AnimatePresence initial={false} mode="wait">
+            {isHeaderCompact && (
+              <motion.div
+                key="compact-meeting-header"
+                initial={{ opacity: 0, y: -14, scale: 0.98, filter: 'blur(6px)' }}
+                animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: -10, scale: 0.98, filter: 'blur(6px)' }}
+                transition={{ type: 'spring', stiffness: 480, damping: 30, mass: 0.62 }}
+                className="flex min-h-11 items-center justify-between gap-3"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <button type="button" onClick={onBackToList} className="group flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white" aria-label="بازگشت به فهرست جلسات">
+                    <ArrowRight className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                  </button>
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-bold text-slate-900 dark:text-white">{meeting.title}</p>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      <span>{meeting.statusLabel}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="relative flex shrink-0 items-center gap-1.5">
+                  <button type="button" onClick={onPrintPdf} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-indigo-600 px-3 text-[11px] font-bold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700" title="پیش‌نمایش PDF">
+                    <Printer className="h-3.5 w-3.5" /><span className="hidden sm:inline">PDF</span>
+                  </button>
+                  <button type="button" onClick={() => setIsExportMenuOpen((current) => !current)} aria-expanded={isExportMenuOpen} className={`flex h-9 w-9 items-center justify-center rounded-xl border transition ${isExportMenuOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-600 dark:border-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800'}`} title="سایر گزینه‌های خروجی">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </button>
+                  <AnimatePresence>
+                    {isExportMenuOpen && (
+                      <motion.div initial={{ opacity: 0, y: -8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }} transition={{ type: 'spring', stiffness: 420, damping: 28 }} role="menu" className="absolute left-0 top-[calc(100%+0.55rem)] z-40 w-52 rounded-2xl border border-slate-200 bg-white p-2 text-right shadow-2xl shadow-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/30">
+                        <button type="button" role="menuitem" onClick={() => { onDownloadPdf(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"><Download className="h-4 w-4 text-indigo-500" />دانلود PDF</button>
+                        <button type="button" role="menuitem" onClick={() => { onSendTelegram(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"><Send className="h-4 w-4 text-sky-500" />ارسال PDF در تلگرام</button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <div className="overflow-visible">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button
+              onClick={onBackToList}
+              className="group inline-flex items-center gap-2 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+            >
+              <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:-translate-x-0.5" />
+              <span>بازگشت به فهرست جلسات</span>
+            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onPrintPdf}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3.5 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700 active:translate-y-0"
+              >
+                <Printer className="h-4 w-4" />
+                <span className="hidden sm:inline">پیش‌نمایش PDF</span>
+                <span className="sm:hidden">PDF</span>
+              </button>
+              <div ref={exportMenuRef} className="relative z-10">
+                <button
+                  type="button"
+                  onClick={() => setIsExportMenuOpen((current) => !current)}
+                  aria-expanded={isExportMenuOpen}
+                  aria-haspopup="menu"
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${isExportMenuOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-600 dark:border-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' : 'border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:bg-slate-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-800 dark:hover:bg-slate-800'}`}
+                  title="سایر گزینه‌های خروجی"
+                >
+                  <MoreHorizontal className="h-5 w-5" />
+                </button>
+                <AnimatePresence initial={false}>
+                {isExportMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10, scale: 0.94, filter: 'blur(4px)' }}
+                    animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, y: -6, scale: 0.97, filter: 'blur(3px)' }}
+                    transition={{ type: 'spring', stiffness: 520, damping: 30, mass: 0.62 }}
+                    role="menu"
+                    className="absolute left-0 top-[calc(100%+0.6rem)] z-40 w-64 origin-top-left rounded-2xl border border-slate-200 bg-white p-2 text-right shadow-[0_20px_45px_-18px_rgba(15,23,42,0.45)] ring-1 ring-slate-900/[0.04] dark:border-slate-700 dark:bg-slate-900 dark:shadow-[0_20px_45px_-18px_rgba(0,0,0,0.7)] dark:ring-white/[0.06]"
+                  >
+                    <button type="button" role="menuitem" onClick={() => { onDownloadPdf(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                      <Download className="h-4 w-4 text-indigo-500" />
+                      <span>دانلود PDF</span>
+                    </button>
+                    <button type="button" role="menuitem" onClick={() => { onSendTelegram(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                      <Send className="h-4 w-4 text-sky-500" />
+                      <span>ارسال PDF در تلگرام</span>
+                    </button>
+                    <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
+                    <label className="flex flex-col gap-2 px-3 py-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                      قالب خروجی PDF
+                      <select value={meeting.printTemplateId || (meeting.templateId?.startsWith('print_') ? meeting.templateId : 'print_classic')} onChange={(event) => onUpdateMeeting({ printTemplateId: event.target.value || undefined })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs font-normal text-slate-700 outline-none transition focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        <option value="print_classic">چاپ رسمی: کلاسیک</option>
+                        {pdfTemplates.map((template) => <option key={template.id} value={template.id}>{template.title}</option>)}
+                      </select>
+                    </label>
+                    <p className="px-3 pb-1 pt-2 text-[10px] leading-5 text-slate-400">قالب فقط ظاهر فایل PDF را تغییر می‌دهد.</p>
+                  </motion.div>
+                )}
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1 text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span>{meeting.statusLabel}</span>
+            </div>
+            <div className="inline-flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-indigo-500" /><span>{meeting.persianDate}</span></div>
+            <div className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-slate-400" /><span className="font-mono">{meeting.timeRange}</span></div>
+            <div className="inline-flex min-w-0 items-center gap-1.5"><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{meeting.location}</span></div>
+          </div>
+          </div>
+        </div>
+
+        <div className="hidden">
         {/* Document Top Bar */}
         <div className="flex items-center justify-between no-print pb-3 border-b border-slate-100 dark:border-slate-800">
           <button
@@ -559,6 +717,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               <span className="font-mono">{meeting.persianDate}</span>
             </div>
           </div>
+        </div>
+
         </div>
 
         {/* Meeting Title Header */}
@@ -600,7 +760,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
           )}
 
           {/* Metadata Row */}
-          <div className="flex items-center gap-6 text-xs text-slate-500 dark:text-slate-400 pt-1">
+          <div className="hidden">
             <div className="flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-slate-400" />
               <span>{meeting.persianDate}</span>
@@ -617,7 +777,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         </div>
 
         {/* Section 1: دستور جلسه (Agenda) with Working Inline Editing & Reordering */}
-        <section className="flex flex-col gap-3">
+        <section id="meeting-section-agenda" className="meeting-section meeting-section-prepare flex flex-col gap-3 scroll-mt-40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
@@ -755,7 +915,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         </section>
 
         {/* Section 2: مشروح مذاکرات (Functional Rich Text Editor) */}
-        <section className="flex flex-col gap-3">
+        <section id="meeting-section-notes" className="meeting-section meeting-section-write flex flex-col gap-3 scroll-mt-40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-purple-50 dark:bg-purple-950/70 text-purple-600 dark:text-purple-400 flex items-center justify-center">
@@ -972,7 +1132,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         </section>
 
         {/* Section 3: پیشنهاد هوش مصنوعی (AI Suggestion Box) */}
-        <section className="relative overflow-hidden rounded-2xl p-4 bg-gradient-to-r from-purple-50/70 via-indigo-50/50 to-pink-50/40 dark:from-purple-950/20 dark:via-indigo-950/30 dark:to-slate-900 border border-purple-100 dark:border-purple-900/50 flex flex-col gap-2.5">
+        <section id="meeting-section-ai" className="meeting-section meeting-section-write relative overflow-hidden rounded-2xl p-4 bg-gradient-to-r from-purple-50/70 via-indigo-50/50 to-pink-50/40 dark:from-purple-950/20 dark:via-indigo-950/30 dark:to-slate-900 border border-purple-100 dark:border-purple-900/50 flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-400">
               <Sparkles className="w-4 h-4 text-indigo-500 animate-pulse" />
@@ -1016,7 +1176,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         </section>
 
         {/* Section 4: تصمیمات و مصوبات (Decisions) */}
-        <section className="flex flex-col gap-3">
+        <section id="meeting-section-review" className="meeting-section meeting-section-review flex flex-col gap-3 scroll-mt-40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
@@ -1141,7 +1301,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         </section>
 
         {/* Section 5: اقدامات و وظایف (Action Items Table) */}
-        <section className="flex flex-col gap-3">
+        <section id="meeting-section-actions" className="meeting-section meeting-section-review flex flex-col gap-3 scroll-mt-40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-sky-50 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400 flex items-center justify-center">
@@ -1274,7 +1434,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         </section>
 
         {/* Section 6: پیوست‌ها (Attachments) */}
-        <section className="flex flex-col gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+        <section id="meeting-section-sign" className="meeting-section meeting-section-sign flex flex-col gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center">
@@ -1302,20 +1462,12 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             </label>
           </div>
 
-          <div className="flex flex-wrap gap-2 text-xs">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
-              <FileText className="w-4 h-4 text-indigo-500" />
-              <span className="font-mono text-[11px]">مستند_فنی_سامانه.pdf</span>
-              <span className="text-[10px] text-slate-400 font-mono">(۲.۴ MB)</span>
-              <button
-                onClick={onPrintPdf}
-                className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
-                title="دانلود پیوست"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
+          <EmptyState
+            compact
+            icon={Paperclip}
+            title="هنوز پیوستی ثبت نشده است"
+            description="فایل‌های پشتیبان جلسه پس از بارگذاری در این بخش نمایش داده می‌شوند."
+          />
         </section>
       </div>
 
