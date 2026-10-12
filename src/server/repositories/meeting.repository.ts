@@ -9,10 +9,21 @@ function requireDb() {
   return db;
 }
 
+function normalizeSignatureRequirement(meeting: Meeting): Meeting {
+  const signerIds = new Set<string>();
+  for (const participant of meeting.participants || []) {
+    if (participant?.id && (participant.roles || [participant.role]).includes('Signer') && participant.requiresSignature !== false) signerIds.add(participant.id);
+  }
+  const totalSignaturesRequired = signerIds.size;
+  return meeting.totalSignaturesRequired === totalSignaturesRequired
+    ? meeting
+    : { ...meeting, totalSignaturesRequired };
+}
+
 export class MeetingRepository {
   async getAll(): Promise<Meeting[]> {
     const docs = await requireDb().collection('meetings').find({}).sort({ updatedAt: -1 }).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as Meeting);
+    return docs.map(({ _id, ...rest }) => normalizeSignatureRequirement(rest as unknown as Meeting));
   }
 
   async getAllForOrganization(organizationId: string): Promise<Meeting[]> {
@@ -20,14 +31,14 @@ export class MeetingRepository {
       .find({ organizationId })
       .sort({ updatedAt: -1 })
       .toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as Meeting);
+    return docs.map(({ _id, ...rest }) => normalizeSignatureRequirement(rest as unknown as Meeting));
   }
 
   async getById(id: string): Promise<Meeting | null> {
     const doc = await requireDb().collection('meetings').findOne({ id });
     if (!doc) return null;
     const { _id, ...rest } = doc;
-    return rest as unknown as Meeting;
+    return normalizeSignatureRequirement(rest as unknown as Meeting);
   }
 
   async create(meeting: Meeting): Promise<Meeting> {
@@ -65,7 +76,7 @@ export class MeetingRepository {
     };
     if (status) filter.status = status;
     const docs = await requireDb().collection('meetings').find(filter).sort({ updatedAt: -1 }).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as Meeting);
+    return docs.map(({ _id, ...rest }) => normalizeSignatureRequirement(rest as unknown as Meeting));
   }
 
   async addAudit(record: AuditRecord): Promise<void> {

@@ -36,6 +36,7 @@ export interface OrganizationInvitation {
   acceptedAt?: string;
   meetingId?: string;
   meetingAssignment?: MeetingRole;
+  meetingRoles?: MeetingRole[];
   meetingRequiresSignature?: boolean;
   organizationName?: string;
 }
@@ -226,25 +227,26 @@ export class OrganizationService {
           id: user.id,
           name: user.name,
           role: invitation.meetingAssignment,
+          roles: invitation.meetingRoles || [invitation.meetingAssignment],
           email: user.email,
           avatar: user.avatar,
           initials: String(user.name || '').slice(0, 2),
           hasSigned: false,
-          requiresSignature: invitation.meetingRequiresSignature !== false,
+          requiresSignature: (invitation.meetingRoles || [invitation.meetingAssignment]).includes('Signer'),
           membershipStatus: 'active',
         };
         const participants = [...(meeting.participants || []).filter((item: any) => item.id !== user.id), participant];
         await db.collection('meetings').updateOne({ id: meeting.id }, {
           $set: {
             participants,
-            totalSignaturesRequired: participants.filter((item: any) => item.requiresSignature !== false).length + 1,
+            totalSignaturesRequired: participants.filter((item: any) => (item.roles || [item.role]).includes('Signer') && item.requiresSignature !== false).length,
             updatedAt: new Date().toISOString(),
           },
           $inc: { version: 1 },
         });
         await db.collection('meeting_members').updateOne(
           { meetingId: meeting.id, userId: user.id },
-          { $set: { organizationId: invitation.organizationId, assignment: invitation.meetingAssignment, permissions: RolePermissionsMap[invitation.meetingAssignment], updatedAt: new Date().toISOString() }, $setOnInsert: { id: `meeting_member_${crypto.randomUUID()}`, meetingId: meeting.id, userId: user.id, assignedBy: invitation.invitedBy, createdAt: new Date().toISOString() } },
+          { $set: { organizationId: invitation.organizationId, assignment: invitation.meetingAssignment, roles: invitation.meetingRoles || [invitation.meetingAssignment], permissions: Array.from(new Set((invitation.meetingRoles || [invitation.meetingAssignment]).flatMap((role) => RolePermissionsMap[role] || []))), updatedAt: new Date().toISOString() }, $setOnInsert: { id: `meeting_member_${crypto.randomUUID()}`, meetingId: meeting.id, userId: user.id, assignedBy: invitation.invitedBy, createdAt: new Date().toISOString() } },
           { upsert: true },
         );
       }

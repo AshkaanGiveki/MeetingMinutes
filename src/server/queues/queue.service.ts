@@ -67,9 +67,18 @@ export class QueueManager {
       idempotencyKey,
     };
 
-    if (this.qstashClient && process.env.APP_URL) {
+    // Local development must not silently publish work to the deployed APP_URL.
+    // Use QStash automatically in production, or opt into it locally with
+    // QSTASH_EXTERNAL_QUEUE=true when testing the public webhook flow.
+    const useExternalBroker = Boolean(
+      this.qstashClient
+      && process.env.APP_URL
+      && (process.env.NODE_ENV === 'production' || process.env.QSTASH_EXTERNAL_QUEUE === 'true'),
+    );
+    const externalBroker = this.qstashClient;
+    if (useExternalBroker && externalBroker) {
       try {
-        await this.qstashClient.publishJSON({
+        await externalBroker.publishJSON({
           url: `${process.env.APP_URL}/api/queues/${queue}`,
           body: job,
         });
@@ -138,12 +147,17 @@ export class QueueManager {
   }
 
   getDiagnostics() {
+    const useExternalBroker = Boolean(
+      this.qstashClient
+      && process.env.APP_URL
+      && (process.env.NODE_ENV === 'production' || process.env.QSTASH_EXTERNAL_QUEUE === 'true'),
+    );
     return {
       configuredQueues: [...QUEUE_NAMES],
       registeredHandlers: [...this.handlers.keys()],
       pendingJobs: this.inMemoryQueue.length,
       deadLetterJobs: this.deadLetterQueue.length,
-      externalBroker: Boolean(this.qstashClient),
+      externalBroker: useExternalBroker,
     };
   }
 

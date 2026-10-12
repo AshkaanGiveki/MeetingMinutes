@@ -7,6 +7,12 @@ export interface SmsResult {
   error?: string;
 }
 
+// Live SMS is deliberately opt-in. This prevents a local process with
+// production-looking environment variables from ever spending money.
+export const isSmsLiveEnabled = () => process.env.NODE_ENV === 'production'
+  && process.env.SMS_LIVE === 'true'
+  && process.env.SMS_DRY_RUN !== 'true';
+
 export class SmsService {
   private async sendSmsIr(phone: string, message: string): Promise<SmsResult> {
     const apiKey = process.env.SMS_API_KEY;
@@ -38,6 +44,12 @@ export class SmsService {
 
   async sendMessage(phone: string, message: string): Promise<SmsResult> {
     const normalized = normalizeIranianPhoneNumber(phone);
+    // Never spend money during local development. Production is the only
+    // environment allowed to reach the SMS provider.
+    if (!isSmsLiveEnabled()) {
+      logger.info(`[DEV SMS DRY RUN] Message for ${normalized}: ${message}`);
+      return { success: true, providerMessageId: `dev_sms_${Date.now()}` };
+    }
     const provider = process.env.SMS_PROVIDER;
     if (provider === 'sms.ir' || provider === 'smsir' || process.env.SMS_API_KEY) return this.sendSmsIr(normalized, message);
     if (process.env.NODE_ENV === 'production') return { success: false, error: 'No production SMS provider is configured.' };
@@ -47,6 +59,12 @@ export class SmsService {
 
   async sendOtp(phone: string, code: string): Promise<SmsResult> {
     const normalized = normalizeIranianPhoneNumber(phone);
+    // OTPs are returned to the local UI by the route in development; this
+    // branch guarantees that no provider request is made first.
+    if (!isSmsLiveEnabled()) {
+      logger.info(`[DEV SMS DRY RUN] OTP for ${normalized}: ${code}`);
+      return { success: true, providerMessageId: `dev_sms_${Date.now()}` };
+    }
     const provider = process.env.SMS_PROVIDER;
     if (provider === 'sms.ir' || provider === 'smsir' || process.env.SMS_API_KEY) {
       return this.sendSmsIr(normalized, `کد تأیید متامیت: ${code}`);

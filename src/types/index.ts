@@ -10,6 +10,10 @@ export interface Participant {
   id: string;
   name: string;
   role: string;
+  /** The person's functional title for this specific meeting, separate from workflow roles. */
+  title?: string;
+  /** Canonical multi-role assignment; role is retained as a legacy primary role. */
+  roles?: MeetingRole[];
   avatar?: string;
   initials?: string;
   email: string;
@@ -70,6 +74,7 @@ export interface Meeting {
   sealedAt?: string;
   signatureCount: number;
   totalSignaturesRequired: number;
+  requiredMeetingRoles?: Array<'Editor' | 'Reviewer' | 'Signer'>;
   signatures?: SignatureRecord[];
   signatureRejection?: {
     id: string;

@@ -71,21 +71,159 @@ export class TelegramService {
   }
 
   async sendSignRequestPM(chatId: string | number, meetingId: string, meetingTitle: string, organizerName: string, actionToken: string, pdfPath?: string): Promise<boolean> {
-    const text = `📋 <b>درخواست امضای صورت‌جلسه</b>\n\nجلسه: <b>${meetingTitle}</b>\nبرگزارکننده: ${organizerName}\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:`;
+    const text = `📋 <b>درخواست امضای صورت‌جلسه</b>\n\nجلسه: <b>${meetingTitle}</b>\nبرگزارکننده: ${organizerName}\n\nنسخه PDF پیوست‌شده، نسخه نهایی قبل از ثبت امضاهاست. با انتخاب «قبول و امضا»، امضای شما مستقیماً ثبت می‌شود و نیازی به ورود رمز یک‌بارمصرف در وب‌سایت نیست.\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:`;
     const appUrl = process.env.APP_URL || 'https://metameet.ir';
-    const viewUrl = `${appUrl.replace(/\/$/, '')}/meeting/${encodeURIComponent(meetingId)}`;
+    const viewUrl = `${appUrl.replace(/\/$/, '')}/meetings/${encodeURIComponent(meetingId)}`;
     const replyMarkup = { inline_keyboard: [[
       { text: '✅ قبول و امضا', callback_data: `mm:accept:${actionToken}` },
       { text: '❌ رد درخواست', callback_data: `mm:reject:${actionToken}` },
     ], [{ text: 'مشاهده در وب‌سایت', url: viewUrl }]] };
-    if (!this.botToken) { logger.info(`[MOCK TELEGRAM PM] To: ${chatId} | Meeting: ${meetingTitle} | PDF attached: ${Boolean(pdfPath)} | Persian action buttons prepared`); return true; }
+    if (!this.botToken) { logger.info(`[MOCK TELEGRAM PM] To: ${chatId} | Meeting: ${meetingTitle} | PDF attached: ${Boolean(pdfPath)} | Rich Persian action buttons prepared`); return true; }
     try {
-      if (pdfPath) return this.sendDocument(chatId, pdfPath, text.replace(/<[^>]+>/g, ''), replyMarkup);
+      if (pdfPath) {
+        const richSent = await this.sendRichSignRequestDocument(chatId, pdfPath, meetingTitle, organizerName, actionToken, viewUrl);
+        if (richSent) return true;
+        logger.warn('Rich Telegram sign-request failed; falling back to a standard document message.');
+        return this.sendDocument(chatId, pdfPath, text.replace(/<[^>]+>/g, ''), replyMarkup);
+      }
       const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }), signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
       if (!data.ok) logger.error('Telegram rejected sign-request message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
     } catch (err) { logger.error('Failed to dispatch Telegram PM sign request:', { metadata: { error: String(err) } }); return false; }
+  }
+
+  private async sendRichSignRequestDocument(chatId: string | number, filePath: string, meetingTitle: string, organizerName: string, actionToken: string, viewUrl: string): Promise<boolean> {
+    try {
+      const bytes = await fs.readFile(filePath);
+      const richMessage = {
+        is_rtl: true,
+        blocks: [
+          { type: 'heading', size: 2, text: '📋 درخواست امضای صورت‌جلسه' },
+          { type: 'paragraph', text: `جلسه: ${meetingTitle}` },
+          { type: 'paragraph', text: `برگزارکننده: ${organizerName}` },
+          { type: 'paragraph', text: 'نسخه PDF پیوست‌شده، نسخه نهایی قبل از ثبت امضاهاست. با انتخاب قبول و امضا، امضای شما مستقیماً ثبت می‌شود و نیازی به ورود رمز یک‌بارمصرف در وب‌سایت نیست.' },
+          { type: 'divider' },
+          {
+            type: 'document',
+            document: { type: 'document', media: 'attach://meeting_pdf' },
+            caption: { text: 'نسخه پیش از امضا · برای بررسی و تصمیم‌گیری شما' },
+          },
+          {
+            type: 'buttons',
+            align: 'center',
+            buttons: [
+              { text: 'قبول و امضا', style: 'success', callback_data: `mm:accept:${actionToken}` },
+              { text: 'رد درخواست', style: 'danger', callback_data: `mm:reject:${actionToken}` },
+              { text: 'مشاهده در وب‌سایت', url: viewUrl },
+            ],
+          },
+          { type: 'footer', text: 'MetaMeet · امضای امن و مستقیم از تلگرام' },
+        ],
+      };
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      form.append('rich_message', JSON.stringify(richMessage));
+      // The InputMediaDocument uses attach://meeting_pdf, so the multipart
+      // field must use the exact same attachment name.
+      form.append('meeting_pdf', new Blob([bytes], { type: 'application/pdf' }), 'meeting-minute.pdf');
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendRichMessage`, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
+      const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
+      if (!data.ok) logger.error('Telegram rejected rich sign-request message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
+      return !!data.ok;
+    } catch (err) {
+      logger.error('Failed to dispatch rich Telegram sign request:', { metadata: { error: String(err) } });
+      return false;
+    }
+  }
+
+  /** Send a private confirmation for a button interaction without cluttering the chat. */
+  async sendEphemeralActionResult(
+    chatId: string | number,
+    receiverUserId: number,
+    callbackQueryId: string,
+    title: string,
+    message: string,
+    tone: 'success' | 'danger' = 'success',
+  ): Promise<boolean> {
+    const richMessage = {
+      is_rtl: true,
+      blocks: [
+        { type: 'heading', size: 3, text: `${tone === 'success' ? '✅' : '❌'} ${title}` },
+        { type: 'paragraph', text: message },
+        { type: 'footer', text: 'MetaMeet · این پیام فقط برای شما نمایش داده می‌شود' },
+      ],
+    };
+    if (!this.botToken) {
+      logger.info(`[MOCK TELEGRAM EPHEMERAL] To: ${chatId} | ${title}: ${message}`);
+      return true;
+    }
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendRichMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          rich_message: richMessage,
+          ephemeral_message_parameters: {
+            receiver_user_id: receiverUserId,
+            callback_query_id: callbackQueryId,
+            replace_callback_query_message: true,
+          },
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
+      if (!data.ok) logger.warn('Telegram rejected ephemeral action confirmation.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
+      return !!data.ok;
+    } catch (err) {
+      logger.warn('Failed to dispatch ephemeral Telegram action confirmation.', { metadata: { error: String(err) } });
+      return false;
+    }
+  }
+
+  /** Replace the actionable sign-request message so its buttons become single-use. */
+  async replaceSignRequestMessage(
+    chatId: string | number,
+    messageId: number,
+    title: string,
+    message: string,
+    tone: 'success' | 'danger' = 'success',
+  ): Promise<boolean> {
+    if (!this.botToken) return true;
+    const richMessage = {
+      is_rtl: true,
+      blocks: [
+        { type: 'heading', size: 3, text: `${tone === 'success' ? '✅' : '❌'} ${title}` },
+        { type: 'paragraph', text: message },
+        { type: 'footer', text: 'MetaMeet · این درخواست دیگر قابل تغییر نیست' },
+      ],
+    };
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/editMessageText`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, message_id: messageId, rich_message: richMessage }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await response.json() as { ok?: boolean; description?: string };
+      if (data.ok) return true;
+
+      // Standard-message fallback: remove its inline keyboard even if the rich
+      // content itself cannot be edited by the current Telegram client.
+      const markupResponse = await fetch(`https://api.telegram.org/bot${this.botToken}/editMessageReplyMarkup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const markupData = await markupResponse.json() as { ok?: boolean; description?: string };
+      if (!markupData.ok) logger.warn('Telegram could not remove completed sign-request buttons.', { metadata: { description: markupData.description || data.description } });
+      return !!markupData.ok;
+    } catch (err) {
+      logger.warn('Failed to replace completed Telegram sign-request message.', { metadata: { error: String(err) } });
+      return false;
+    }
   }
 
   async answerCallbackQuery(callbackQueryId: string, text: string): Promise<boolean> {

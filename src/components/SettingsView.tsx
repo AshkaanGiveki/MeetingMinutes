@@ -16,6 +16,7 @@ import { formatIranianPhoneInput } from '../utils/phone';
 
 interface SettingsViewProps {
   onAvatarChanged?: (avatar?: string) => void;
+  onSignatureChanged?: (signatureData?: string) => void;
 }
 
 interface SettingsToggleProps {
@@ -37,7 +38,7 @@ const SettingsToggle: React.FC<SettingsToggleProps> = ({ checked, label, onChang
   </label>
 );
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onSignatureChanged }) => {
   const { showSnackbar } = useSnackbar();
   const [name, setName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -231,6 +232,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged }) =
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'ذخیره امضا انجام نشد.');
       setSignatureData(nextSignature);
+      onSignatureChanged?.(nextSignature);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
     } catch (error) {

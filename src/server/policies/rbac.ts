@@ -33,6 +33,37 @@ export type OrganizationPermission = typeof OrganizationPermissions[number];
 export type OrganizationRole = 'Owner' | 'Admin' | 'User';
 export type MeetingRole = 'Organizer' | 'Editor' | 'Reviewer' | 'Signer' | 'Participant' | 'Viewer';
 
+export const ASSIGNABLE_MEETING_ROLES = ['Editor', 'Reviewer', 'Signer', 'Viewer'] as const;
+export type AssignableMeetingRole = typeof ASSIGNABLE_MEETING_ROLES[number];
+
+export function getMeetingParticipantRoles(participant: { role?: string; roles?: string[] } | undefined): string[] {
+  if (!participant) return [];
+  return Array.from(new Set([...(participant.roles || []), ...(participant.role ? [participant.role] : [])]));
+}
+
+export function hasMeetingRole(participant: { role?: string; roles?: string[] } | undefined, role: string): boolean {
+  return getMeetingParticipantRoles(participant).includes(role);
+}
+
+export const REQUIRED_MEETING_ROLES = ['Editor', 'Reviewer', 'Signer'] as const;
+export type RequiredMeetingRole = typeof REQUIRED_MEETING_ROLES[number];
+
+const workflowRoleByPermission: Partial<Record<Permission, RequiredMeetingRole | 'Organizer'>> = {
+  'meeting.edit': 'Editor',
+  'meeting.review': 'Reviewer',
+  'signature.sign': 'Signer',
+  'meeting.finalize': 'Organizer',
+  'meeting.archive': 'Organizer',
+};
+
+export function requiredMeetingRoleForPermission(permission: string): RequiredMeetingRole | 'Organizer' | undefined {
+  return workflowRoleByPermission[permission as Permission];
+}
+
+export function getMissingRequiredMeetingRoles(participants: Array<{ role?: string; roles?: string[] }> | undefined): RequiredMeetingRole[] {
+  return REQUIRED_MEETING_ROLES.filter((role) => !(participants || []).some((participant) => hasMeetingRole(participant, role)));
+}
+
 export const RolePermissionsMap: Record<OrganizationRole | MeetingRole, Permission[]> = {
   Owner: [
     'meeting.view_all',

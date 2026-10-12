@@ -1,0 +1,81 @@
+@font-face { font-family: 'IRANSans'; src: url('../assets/fonts/IRANSansXFaNum-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IRANSans'; src: url('../assets/fonts/IRANSansXFaNum-DemiBold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IRANSans'; src: url('../assets/fonts/IRANSansXFaNum-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+
+*, *::before, *::after { box-sizing: border-box; }
+.archived-minute-overlay { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: #e8ebee; color: #202a38; font-family: 'IRANSans', Tahoma, Arial, sans-serif; font-size: 11.5px; line-height: 1.95; direction: rtl; }
+.archived-minute-toolbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px max(20px, calc((100vw - 1180px) / 2)); color: #fff; background: #202a38; font-size: 12px; direction: rtl; }
+.archived-minute-toolbar strong, .archived-minute-toolbar span { display: block; }
+.archived-minute-toolbar span { color: #c5cdd6; font-size: 10px; }
+.archived-minute-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.archived-minute-print-button, .archived-minute-close-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; color: #fff; cursor: pointer; font: inherit; }
+.archived-minute-print-button { padding: 7px 14px; border-radius: 3px; background: #1f4f72; font-size: 11px; }
+.archived-minute-close-button { width: 32px; height: 32px; background: transparent; }
+.archived-minute-document { width: 210mm; margin: 28px auto; }
+.archived-minute-sheet { width: 210mm; min-height: 297mm; margin: 0 auto 18px; padding: 15mm 16mm 16mm; background: #fff; box-shadow: 0 12px 40px rgba(31,42,56,.14); position: relative; }
+.archived-minute-sheet:last-child { display: flex; flex-direction: column; }
+.archived-minute-official-head { display: grid; grid-template-columns: 1fr 1.6fr 1fr; align-items: center; gap: 18px; padding-bottom: 16px; border-bottom: 3px solid #1f4f72; }
+.archived-minute-institution { text-align: right; }
+.archived-minute-institution strong { display: block; font-size: 14px; font-weight: 700; }
+.archived-minute-institution span { color: #687382; font-size: 10px; }
+.archived-minute-title { text-align: center; }
+.archived-minute-title h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+.archived-minute-title p { margin: 3px 0 0; color: #687382; font-size: 10px; }
+.archived-minute-reference { text-align: left; color: #687382; font-size: 10px; line-height: 2.2; direction: rtl; }
+.archived-minute-reference b { color: #202a38; font-weight: 600; }
+.archived-minute-section { margin-top: 23px; break-inside: avoid; }
+.archived-minute-section h2, .archived-minute-signature-register h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 9px; color: #1f4f72; font-size: 13px; font-weight: 700; }
+.archived-minute-section h2::after, .archived-minute-signature-register h2::after { content: ''; height: 1px; flex: 1; background: #cfd5dc; }
+.archived-minute-section h2 span, .archived-minute-signature-register h2 span { color: #687382; font-size: 11px; }
+.archived-minute-facts { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #cfd5dc; }
+.archived-minute-facts > div { min-height: 54px; padding: 8px 11px; border-left: 1px solid #cfd5dc; }
+.archived-minute-facts > div:last-child { border-left: 0; }
+.archived-minute-facts label { display: block; color: #687382; font-size: 9.5px; }
+.archived-minute-facts strong { display: block; margin-top: 3px; font-size: 11px; font-weight: 600; }
+.archived-minute-intro { margin: 0; padding: 11px 13px; border-right: 3px solid #1f4f72; background: #f5f6f7; text-align: justify; }
+.archived-minute-sheet table { width: 100%; border-collapse: collapse; }
+.archived-minute-sheet th, .archived-minute-sheet td { padding: 8px 9px; border: 1px solid #cfd5dc; vertical-align: top; text-align: right; }
+.archived-minute-sheet th { background: #f5f6f7; color: #3d4a59; font-weight: 700; }
+.archived-minute-sheet td { background: #fff; }
+.archived-minute-due-date { width: 25%; white-space: nowrap; }
+.archived-minute-sheet .index { width: 38px; text-align: center; color: #687382; }
+.archived-minute-attendees { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.archived-minute-attendees h3 { margin: 0; padding: 7px 10px; border: 1px solid #cfd5dc; border-bottom: 0; background: #f5f6f7; font-size: 11px; }
+.archived-minute-agenda { margin: 0; padding: 0; list-style: none; counter-reset: agenda; }
+.archived-minute-agenda li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid #e8ebef; counter-increment: agenda; }
+.archived-minute-agenda li::before { content: counter(agenda); color: #1f4f72; font-weight: 700; }
+.archived-minute-proceedings { margin: 0; text-align: justify; }
+.archived-minute-sheet .decision-title { font-weight: 600; }
+.archived-minute-sheet .completed { color: #236b4d; font-weight: 600; }
+.archived-minute-closing { margin-top: 27px; padding-top: 13px; border-top: 1px solid #cfd5dc; break-inside: avoid; }
+.archived-minute-closing p { margin: 0; text-align: justify; }
+.archived-minute-signatures { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 18px; margin-top: 22px; }
+.archived-minute-signatures > div { min-height: 142px; padding: 14px 10px; border: 1px solid #cfd5dc; text-align: center; }
+.archived-minute-signatures strong, .archived-minute-signatures span { display: block; }
+.archived-minute-signatures strong { font-size: 12px; }
+.archived-minute-signatures span { margin-top: 4px; color: #687382; font-size: 10px; }
+.archived-minute-signatures img { display: block; width: 100%; height: 58px; margin: 8px auto 0; object-fit: contain; filter: grayscale(1) contrast(1.8) brightness(.45); }
+.archived-minute-signature-value { min-height: 54px; color: #111827; font-size: 17px !important; font-weight: 700; }
+.archived-minute-signatures div div { height: 38px; margin-top: 10px; border-bottom: 1px solid #8d98a4; }
+.archived-minute-signature-register { margin-top: 24px; break-inside: avoid; }
+.archived-minute-footer { display: flex; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 8px; border-top: 1px solid #cfd5dc; color: #687382; font-size: 9px; direction: rtl; }
+.archived-minute-footer span:last-child { direction: ltr; }
+
+@media print {
+  @page { size: A4; margin: 0; }
+  .archived-minute-overlay { position: static; overflow: visible; background: #fff; }
+  .archived-minute-toolbar, .no-print { display: none !important; }
+  .archived-minute-document { width: auto; margin: 0; }
+  .archived-minute-sheet { width: auto; min-height: 0; margin: 0; padding: 13mm 15mm 14mm; box-shadow: none; page-break-after: always; }
+  .archived-minute-sheet:last-child { page-break-after: auto; }
+}
+@media (max-width: 850px) {
+  .archived-minute-document { width: calc(100% - 24px); margin: 12px auto; }
+  .archived-minute-sheet { width: 100%; min-height: 0; margin: 0 0 14px; padding: 28px 22px; }
+  .archived-minute-official-head { grid-template-columns: 1fr auto; }
+  .archived-minute-title { grid-column: 1 / -1; grid-row: 1; }
+  .archived-minute-facts { grid-template-columns: repeat(2, 1fr); }
+  .archived-minute-facts > div:nth-child(2) { border-left: 0; }
+  .archived-minute-facts > div:nth-child(-n+2) { border-bottom: 1px solid #cfd5dc; }
+  .archived-minute-attendees, .archived-minute-signatures { grid-template-columns: 1fr; gap: 12px; }
+}

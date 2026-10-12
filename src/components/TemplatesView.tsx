@@ -16,6 +16,7 @@ import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
 import { TemplateCardsSkeleton } from './LoadingState';
 import { CustomSelect } from './CustomSelect';
+import { AnimatedModal } from './AnimatedModal';
 
 const templateGridVariants = {
   hidden: {},
@@ -238,8 +239,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ isAuthenticated = 
       )}
 
       {/* Modal for creating a new template */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+      <AnimatedModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} contentClassName="w-full max-w-md">
           <div className="relative w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-white/80 dark:border-slate-800 p-6 flex flex-col gap-4 text-right">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <h3 className="font-bold text-sm text-slate-900 dark:text-white">
@@ -327,8 +327,7 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ isAuthenticated = 
               </div>
             </form>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
     </div>
   );
 };

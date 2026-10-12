@@ -5,7 +5,6 @@ import { Meeting, CommentItem, Participant, Template, OrganizationRole } from '.
 import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
 import { MeetingHero } from './components/MeetingHero';
-import { SignatureCard } from './components/SignatureCard';
 import { LeftSidebar } from './components/LeftSidebar';
 import { SignatureModal } from './components/SignatureModal';
 import { SealingModal } from './components/SealingModal';
@@ -33,6 +32,10 @@ import { MeetingCardsSkeleton, MeetingWorkspaceSkeleton } from './components/Loa
 import { useSnackbar } from './components/Snackbar';
 import { SigningRejectionModal } from './components/SigningRejectionModal';
 import { SigningRejectionDecisionModal } from './components/SigningRejectionDecisionModal';
+import { ArchivedMinuteDocument } from './components/ArchivedMinuteDocument';
+
+const hasMeetingRole = (participant: Participant, role: string) => (participant.roles || [participant.role]).includes(role as any);
+const meetingRoleLabels: Record<string, string> = { Editor: 'ویرایشگر', Reviewer: 'بازبین', Signer: 'امضاکننده' };
 
 export default function App() {
   const location = useLocation();
@@ -53,6 +56,8 @@ export default function App() {
   type AppTab = 'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'auth' | 'invitation';
   const meetingDetailMatch = location.pathname.match(/^\/meetings\/([^/]+)$/);
   const meetingDetailId = meetingDetailMatch?.[1];
+  const archivePrintMatch = location.pathname.match(/^\/archive\/print\/([^/]+)$/);
+  const archivePrintMeetingId = archivePrintMatch?.[1];
   const currentTab: AppTab = location.pathname.startsWith('/invite/')
     ? 'invitation'
     : location.pathname.startsWith('/archive')
@@ -137,7 +142,10 @@ export default function App() {
   };
   const meetingUpdateSequenceRef = useRef(0);
   const canCreateMeeting = ['Owner', 'Admin', 'User'].includes(activeUser.role);
-  const canEditActiveMeeting = Boolean(activeMeeting && (['Owner', 'Admin'].includes(activeUser.role) || activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && ['Organizer', 'Editor'].includes(participant.role))));
+  const canManageActiveMeeting = Boolean(activeMeeting && (['Owner', 'Admin'].includes(activeUser.role) || activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && (hasMeetingRole(participant, 'Organizer') || hasMeetingRole(participant, 'Editor')))));
+  const canEditActiveMeeting = Boolean(activeMeeting && activeMeeting.status === 'DRAFT' && activeMeeting.signatureRejection?.status !== 'pending' && (activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))));
+  const canReviewActiveMeeting = Boolean(activeMeeting && activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Reviewer')));
+  const canSignActiveMeeting = Boolean(activeMeeting && activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false));
 
   const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000) => {
     const controller = new AbortController();
@@ -190,10 +198,10 @@ export default function App() {
   }, [activeMeeting, activeUser.userId, activeUser.name]);
 
   useEffect(() => {
-    if (activeMeeting?.signatureRejection?.status === 'pending' && (['Owner', 'Admin'].includes(activeUser.role) || activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && ['Organizer', 'Editor'].includes(participant.role)))) {
+    if (activeMeeting?.signatureRejection?.status === 'pending' && activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))) {
       setIsSigningDecisionModalOpen(true);
     }
-  }, [activeMeeting?.signatureRejection?.id, activeMeeting?.signatureRejection?.status, activeMeeting?.organizer.id, activeUser.role, activeUser.userId]);
+  }, [activeMeeting?.signatureRejection?.id, activeMeeting?.signatureRejection?.status, activeUser.userId]);
 
   useEffect(() => {
     setViewMode(meetingDetailId ? 'hero' : 'list');
@@ -260,6 +268,10 @@ export default function App() {
 
   // Handle meeting state updates
   const handleUpdateMeeting = async (updated: Partial<Meeting>) => {
+    if (!canEditActiveMeeting) {
+      showSnackbar({ type: 'warning', message: 'ویرایش این صورت‌جلسه فقط در مرحله ثبت و پس از پذیرش درخواست اصلاح امکان‌پذیر است.' });
+      return;
+    }
     const previousMeeting = activeMeeting;
     const newMeeting = { ...activeMeeting, ...updated };
     const updateSequence = ++meetingUpdateSequenceRef.current;
@@ -301,6 +313,13 @@ export default function App() {
       showSnackbar({ type: 'warning', message: 'برای ارسال جلسه به بازبینی، ابتدا متن جلسه را ثبت کنید.' });
       return;
     }
+    if (newStatus === 'IN_REVIEW') {
+      const missingRoles = (['Editor', 'Reviewer', 'Signer'] as const).filter((role) => !activeMeeting.participants.some((participant) => hasMeetingRole(participant, role)));
+      if (missingRoles.length > 0) {
+        showSnackbar({ type: 'warning', message: `برای ارسال صورت‌جلسه به بازبینی، حداقل یک ${missingRoles.map((role) => meetingRoleLabels[role]).join('، ')} تعیین کنید.` });
+        return;
+      }
+    }
     void handleUpdateMeeting({
       status: newStatus,
       statusLabel:
@@ -329,7 +348,19 @@ export default function App() {
       return;
     }
     const participants = [...activeMeeting.participants, p];
-    const updated = { ...activeMeeting, participants, totalSignaturesRequired: participants.filter((participant) => participant.requiresSignature !== false).length + 1 };
+    const totalSignaturesRequired = participants.filter((participant) => hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false).length;
+    const updated = { ...activeMeeting, participants, totalSignaturesRequired };
+    setActiveMeeting(updated);
+    setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
+  };
+
+  const handleUpdateParticipantRole = (participant: Participant) => {
+    const participants = activeMeeting.participants.map((item) => item.id === participant.id ? participant : item);
+    const updated = {
+      ...activeMeeting,
+      participants,
+      totalSignaturesRequired: participants.filter((item) => hasMeetingRole(item, 'Signer') && item.requiresSignature !== false).length,
+    };
     setActiveMeeting(updated);
     setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
   };
@@ -415,12 +446,19 @@ export default function App() {
           try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
           return updated;
         });
-        applyMeetingLocally({
-          signatureCount: newCount,
-          status: isNowAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
-          statusLabel: isNowAllSigned ? 'آماده امضا' : 'در حال امضا',
-          documentHash: data.documentHash,
-        });
+        if (data.meeting) {
+          applyMeetingLocally(data.meeting);
+        } else {
+          applyMeetingLocally({
+            participants: activeMeeting.participants.map((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email)
+              ? { ...participant, hasSigned: true, statusText: 'امضا دریافت شد' }
+              : participant),
+            signatureCount: newCount,
+            status: isNowAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING',
+            statusLabel: isNowAllSigned ? 'آماده امضا' : 'در حال امضا',
+            documentHash: data.documentHash,
+          });
+        }
         await loadMeetings();
         return;
       }
@@ -597,8 +635,8 @@ export default function App() {
       }
       const serverMeeting = data.meeting as Partial<Meeting> | undefined;
       persistedMeeting = {
-        ...serverMeeting,
         ...newMeeting,
+        ...serverMeeting,
         id: serverMeeting?.id || newMeeting.id,
         // Keep the client shape safe even when an older API record omits nested assignee data.
         actionItems: (serverMeeting?.actionItems || newMeeting.actionItems).map((item: any) => ({
@@ -644,7 +682,7 @@ export default function App() {
       actionItems: [],
       comments: [],
       signatureCount: 0,
-      totalSignaturesRequired: 3,
+      totalSignaturesRequired: 1,
     };
 
     handleCreateNewMeeting(newMeeting);
@@ -704,6 +742,39 @@ export default function App() {
     // Keep the refresh transition quiet. The full application shell should not
     // be replaced by a separate skeleton page with its own background.
     return null;
+  }
+  if (archivePrintMeetingId) {
+    const printMeeting = meetings.find((meeting) => meeting.id === decodeURIComponent(archivePrintMeetingId));
+    if (printMeeting) {
+      return (
+        <ArchivedMinuteDocument
+          meeting={printMeeting}
+          onClose={() => {
+            if (window.opener) window.close();
+            else navigate('/archive');
+          }}
+          onPrintPdf={() => {
+            const pdfWindow = window.open('', '_blank');
+            void fetch(`/api/meetings/${printMeeting.id}/html-pdf`)
+              .then((response) => response.ok ? response.blob() : Promise.reject(new Error('PDF آماده نشد.')))
+              .then((blob) => {
+                const url = URL.createObjectURL(blob);
+                if (pdfWindow) pdfWindow.location.href = url;
+                else window.open(url, '_blank', 'noopener,noreferrer');
+                window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+              })
+              .catch((error) => {
+                const message = error instanceof Error ? error.message : 'PDF آماده نشد.';
+                if (pdfWindow) {
+                  pdfWindow.document.title = 'خطا در تولید PDF';
+                  pdfWindow.document.body.innerHTML = `<main style="font-family:Tahoma,Arial,sans-serif;padding:32px;direction:rtl"><h2>تولید PDF انجام نشد</h2><p>${message}</p><p>لطفاً سرور محلی را یک‌بار راه‌اندازی مجدد کنید.</p></main>`;
+                }
+              });
+          }}
+        />
+      );
+    }
+    if (!isMeetingsLoading) return <main className="min-h-screen flex items-center justify-center text-slate-600">سند بایگانی‌شده پیدا نشد.</main>;
   }
   if (!isAuthenticated && (currentTab === 'auth' || currentTab === 'invitation')) {
     return (
@@ -833,11 +904,18 @@ export default function App() {
               }}
             />
           ) : currentTab === 'settings' ? (
-            <SettingsView onAvatarChanged={(avatar) => setActiveUser((previous) => {
-              const updated = { ...previous, avatar };
-              try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
-              return updated;
-            })} />
+            <SettingsView
+              onAvatarChanged={(avatar) => setActiveUser((previous) => {
+                const updated = { ...previous, avatar };
+                try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
+                return updated;
+              })}
+              onSignatureChanged={(signatureData) => setActiveUser((previous) => {
+                const updated = { ...previous, signatureData };
+                try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
+                return updated;
+              })}
+            />
           ) : currentTab === 'auth' ? (
             <AuthView
               inviteToken={inviteToken}
@@ -882,12 +960,14 @@ export default function App() {
               onOpenReview={() => setIsReviewModalOpen(true)}
               onOpenSign={() => { if (['READY_FOR_SIGNATURE', 'SIGNING'].includes(activeMeeting.status)) setIsSignModalOpen(true); }}
               onStatusChange={handleMeetingStatusChange}
-              canReview={['Owner', 'Admin'].includes(activeUser.role) || Boolean(activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && ['Organizer', 'Reviewer'].includes(participant.role)))}
-              canSign={Boolean(activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && ['Organizer', 'Editor', 'Reviewer', 'Signer', 'Participant'].includes(participant.role)))}
+              canReview={canReviewActiveMeeting}
+              canSign={canSignActiveMeeting}
+              hasUserSigned={hasUserSigned}
+              canEdit={canEditActiveMeeting}
             >
-            <div className="flex flex-col items-stretch justify-center gap-6 pt-4 xl:flex-row xl:items-start">
-              {/* Left Panel: Status Stepper, Notes & Comments */}
-              <div className="no-print w-full xl:w-72">
+            <div className="flex flex-col items-stretch gap-6 pt-4 xl:flex-row xl:items-start">
+              {/* Right context rail: workflow, participants, notes and signing */}
+              <div className="no-print order-2 w-full shrink-0 xl:order-1 xl:w-[20rem]">
                 <LeftSidebar
                   meeting={activeMeeting}
                   onOpenShareModal={() => setIsShareModalOpen(true)}
@@ -895,30 +975,31 @@ export default function App() {
                   onAddComment={handleAddComment}
                   onOpenReviewModal={() => setIsReviewModalOpen(true)}
                   onStatusChange={handleMeetingStatusChange}
-                />
-              </div>
-
-              {/* Central Document Hero Canvas with Real Functional Editor */}
-              <MeetingHero
-                meeting={activeMeeting}
-                workspaceStage={getMeetingWorkspaceStage(activeMeeting)}
-                onUpdateMeeting={handleUpdateMeeting}
-                onBackToList={() => navigate('/meetings')}
-                onTriggerAI={handleTriggerAI}
-                isAiLoading={isAiLoading}
-                onPrintPdf={handlePrintPdf}
-                onDownloadPdf={handleDownloadPdf}
-                onSendTelegram={handleSendPdfToTelegram}
-              />
-
-              {/* Floating Digital Signature Card on Right of Canvas */}
-              <div className="no-print w-full xl:w-72">
-                <SignatureCard
-                  meeting={activeMeeting}
                   onOpenSignModal={() => { if (['READY_FOR_SIGNATURE', 'SIGNING'].includes(activeMeeting.status)) setIsSignModalOpen(true); }}
                   onOpenSealModal={() => setIsSealModalOpen(true)}
                   hasUserSigned={hasUserSigned}
                   onRejectSigning={() => setIsSigningRejectionModalOpen(true)}
+                  onOpenSigningDecision={() => setIsSigningDecisionModalOpen(true)}
+                  canManageMeeting={canManageActiveMeeting}
+                  canEditMeeting={canEditActiveMeeting}
+                  canReviewMeeting={canReviewActiveMeeting}
+                  canSignMeeting={canSignActiveMeeting}
+                />
+              </div>
+
+              {/* Main document canvas */}
+              <div className="order-1 min-w-0 flex-1 xl:order-2">
+                <MeetingHero
+                  meeting={activeMeeting}
+                  workspaceStage={getMeetingWorkspaceStage(activeMeeting)}
+                  onUpdateMeeting={handleUpdateMeeting}
+                  canEdit={canEditActiveMeeting}
+                  onBackToList={() => navigate('/meetings')}
+                  onTriggerAI={handleTriggerAI}
+                  isAiLoading={isAiLoading}
+                  onPrintPdf={handlePrintPdf}
+                  onDownloadPdf={handleDownloadPdf}
+                  onSendTelegram={handleSendPdfToTelegram}
                 />
               </div>
             </div>
@@ -950,7 +1031,7 @@ export default function App() {
       />
 
       <SigningRejectionDecisionModal
-        isOpen={isSigningDecisionModalOpen && canEditActiveMeeting}
+        isOpen={isSigningDecisionModalOpen && canManageActiveMeeting}
         meeting={activeMeeting}
         onClose={() => setIsSigningDecisionModalOpen(false)}
         onSubmit={handleSigningRejectionResponse}
@@ -990,7 +1071,9 @@ export default function App() {
         onClose={() => setIsAddParticipantModalOpen(false)}
         meetingId={activeMeeting?.id || ''}
         onAddParticipant={handleAddParticipant}
+        onUpdateParticipant={handleUpdateParticipantRole}
         existingParticipants={activeMeeting?.participants || []}
+        owner={activeMeeting?.organizer}
       />
 
       <NewMeetingModal

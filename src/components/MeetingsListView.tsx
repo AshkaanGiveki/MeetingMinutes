@@ -20,7 +20,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
   onSelectMeeting,
   onOpenNewMeetingModal,
 }) => {
-  const [filter, setFilter] = useState<'ALL' | 'IN_REVIEW' | 'SEALED' | 'ARCHIVED'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'DRAFT' | 'IN_REVIEW' | 'READY_FOR_SIGNATURE' | 'SIGNING' | 'SEALED' | 'ARCHIVED'>('ALL');
   const [search, setSearch] = useState('');
 
   const filtered = meetings.filter((m) => {
@@ -72,6 +72,13 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
             <span className="relative z-10">همه جلسات</span>
           </motion.button>
           <motion.button
+            onClick={() => setFilter('DRAFT')}
+            className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${filter === 'DRAFT' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'}`}
+            whileTap={{ scale: 0.96 }}
+          >
+            <span className="relative z-10">پیش‌نویس</span>
+          </motion.button>
+          <motion.button
             onClick={() => setFilter('IN_REVIEW')}
             className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'IN_REVIEW'
@@ -85,8 +92,8 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
             <span className="relative z-10">در حال بررسی</span>
           </motion.button>
           <motion.button
-            onClick={() => setFilter('SEALED')}
-            className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+            onClick={() => undefined}
+            className={`hidden relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
               filter === 'SEALED'
                 ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -96,6 +103,20 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
             {filter === 'SEALED' && <motion.span layoutId="meeting-filter-active-background" className="pointer-events-none absolute inset-0 rounded-lg bg-white shadow-xs dark:bg-slate-700" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
             {filter === 'SEALED' && <motion.span layoutId="meeting-filter-active-border" className="pointer-events-none absolute inset-0 rounded-lg border border-indigo-200/80 dark:border-indigo-800/80" transition={{ type: 'spring', stiffness: 420, damping: 32 }} />}
             <span className="relative z-10">مهر و موم شده</span>
+          </motion.button>
+          <motion.button
+            onClick={() => setFilter('READY_FOR_SIGNATURE')}
+            className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${filter === 'READY_FOR_SIGNATURE' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'}`}
+            whileTap={{ scale: 0.96 }}
+          >
+            <span className="relative z-10">آماده امضا</span>
+          </motion.button>
+          <motion.button
+            onClick={() => setFilter('SIGNING')}
+            className={`relative px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${filter === 'SIGNING' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'}`}
+            whileTap={{ scale: 0.96 }}
+          >
+            <span className="relative z-10">در حال امضا</span>
           </motion.button>
           <motion.button
             onClick={() => setFilter('ARCHIVED')}

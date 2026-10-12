@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Lock, CheckCircle2, X } from 'lucide-react';
 import { Meeting } from '../types';
+import { AnimatedModal } from './AnimatedModal';
 
 interface SealingModalProps {
   isOpen: boolean;
@@ -17,7 +18,7 @@ export const SealingModal: React.FC<SealingModalProps> = ({
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
 
-  if (!isOpen) return null;
+  if (!meeting) return null;
 
   const handleSeal = async () => {
     setIsProcessing(true);
@@ -47,7 +48,7 @@ export const SealingModal: React.FC<SealingModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+    <AnimatedModal isOpen={isOpen} onClose={onClose} contentClassName="w-full max-w-md">
       <div className="relative w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-white/80 dark:border-slate-800 p-6 flex flex-col gap-4 text-right">
         
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -125,6 +126,6 @@ export const SealingModal: React.FC<SealingModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </AnimatedModal>
   );
 };

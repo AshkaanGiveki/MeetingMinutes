@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Copy, Check, Mail, Send, Link, Smartphone } from 'lucide-react';
 import { Meeting } from '../types';
+import { AnimatedModal } from './AnimatedModal';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [invitedSent, setInvitedSent] = useState(false);
   const [inviteError, setInviteError] = useState('');
 
-  if (!isOpen) return null;
+  if (!meeting) return null;
 
   const meetingLink = `${window.location.origin}/meeting/${meeting.id}`;
 
@@ -55,7 +56,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+    <AnimatedModal isOpen={isOpen} onClose={onClose} contentClassName="w-full max-w-md">
       <div className="relative w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-white/80 dark:border-slate-800 p-6 flex flex-col gap-5 text-right">
         
         {/* Header */}
@@ -162,6 +163,6 @@ export const ShareModal: React.FC<ShareModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </AnimatedModal>
   );
 };

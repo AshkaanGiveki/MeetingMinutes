@@ -14,6 +14,8 @@ interface MeetingWorkspaceProps {
   onOpenSign?: () => void;
   canReview?: boolean;
   canSign?: boolean;
+  hasUserSigned?: boolean;
+  canEdit?: boolean;
   children: React.ReactNode;
 }
 
@@ -37,12 +39,13 @@ export function getMeetingWorkspaceStage(meeting: Meeting): MeetingWorkspaceStag
   return meeting.title.trim() && meeting.participants.length > 0 && meeting.agenda.length > 0 ? 'write' : 'prepare';
 }
 
-export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, stage, onBack, onStatusChange, onOpenReview, onOpenSign, canReview = true, canSign = true, children }) => {
+export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, stage, onBack, onStatusChange, onOpenReview, onOpenSign, canReview = true, canSign = true, hasUserSigned = false, canEdit = true, children }) => {
   const activeIndex = stageIndex(stage);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const compactRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const [isCompact, setIsCompact] = useState(false);
+  const [isWideLayout, setIsWideLayout] = useState(false);
   const [stageNotice, setStageNotice] = useState('');
 
   const isInReviewOrLater = ['IN_REVIEW', 'READY_FOR_SIGNATURE', 'SIGNING', 'SEALED', 'ARCHIVED'].includes(meeting.status);
@@ -97,6 +100,7 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
       return;
     }
     if (stage === 'sign' && onOpenSign && !isSealed) {
+      if (hasUserSigned) return;
       if (!canSign) {
         setStageNotice('ثبت امضا برای نقش یا حساب کاربری شما فعال نیست.');
         return;
@@ -112,6 +116,17 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
     : stage === 'review'
     ? meeting.status === 'IN_REVIEW' ? canReview ? 'باز کردن بازبینی رسمی' : 'در انتظار بازبین مجاز' : 'ادامه به تأیید و نهایی‌سازی'
     : isSealed ? 'جلسه نهایی و مهروموم شده است' : canSign ? 'ثبت امضای من' : 'در انتظار امضای شما';
+
+  const effectivePrimaryActionLabel = stage === 'sign'
+    ? isSealed
+      ? 'این جلسه نهایی و مهروموم شده است'
+      : hasUserSigned
+      ? 'امضای شما ثبت شده است'
+      : !canSign
+      ? 'این مرحله برای نقش شما نیست'
+      : primaryActionLabel
+    : primaryActionLabel;
+  const canUsePrimaryAction = stage === 'review' ? canReview : stage === 'sign' ? canSign : canEdit;
 
   useEffect(() => {
     const scrollContainer = workspaceRef.current?.closest<HTMLElement>('.overflow-y-auto');
@@ -147,14 +162,33 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
     };
   }, []);
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 1280px)');
+    const updateLayout = () => setIsWideLayout(mediaQuery.matches);
+    updateLayout();
+    mediaQuery.addEventListener('change', updateLayout);
+    return () => mediaQuery.removeEventListener('change', updateLayout);
+  }, []);
+
+  const compactHeaderOffset = isWideLayout ? '21.5rem' : '0px';
+  const compactHeaderWidth = isWideLayout ? 'calc(100% - 21.5rem)' : '100%';
+
   return (
     <div ref={workspaceRef} className="meeting-workspace mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6" dir="rtl" style={{ overflowAnchor: 'none' }}>
       <motion.header
         initial={false}
-        animate={{ maxWidth: isCompact ? 896 : 1500 }}
-        transition={{ type: 'spring', stiffness: 360, damping: 32, mass: 0.78 }}
+        layout
+        transition={{
+          layout: { type: 'spring', stiffness: 360, damping: 32, mass: 0.78 },
+        }}
         className={`meeting-workspace-header sticky top-0 z-50 mx-auto w-full overflow-hidden border dark:border-slate-800/90 ${isCompact ? 'rounded-2xl border-white/70 bg-white/55 px-3 py-2 shadow-[0_16px_36px_-18px_rgba(15,23,42,0.5),0_3px_10px_-5px_rgba(99,102,241,0.18)] ring-1 ring-slate-900/[0.06] backdrop-blur-2xl backdrop-saturate-150 dark:bg-slate-950/75 dark:shadow-[0_16px_36px_-18px_rgba(0,0,0,0.7)] dark:ring-white/[0.06]' : 'rounded-[1.75rem] border-white/80 bg-white/90 p-4 shadow-lg shadow-slate-200/40 backdrop-blur-xl dark:bg-slate-950/85 dark:shadow-black/20 sm:p-5'}`}
-        style={{ overflowAnchor: 'none' }}
+        style={{
+          width: isCompact ? compactHeaderWidth : '100%',
+          maxWidth: isCompact ? 'none' : 1500,
+          marginRight: isCompact ? compactHeaderOffset : 'auto',
+          marginLeft: isCompact ? '0px' : 'auto',
+          overflowAnchor: 'none',
+        }}
       >
         <motion.div
           initial={false}
@@ -265,9 +299,9 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-indigo-100/80 bg-gradient-to-l from-indigo-50/80 via-white to-cyan-50/70 px-3 py-2.5 dark:border-indigo-900/50 dark:from-indigo-950/30 dark:via-slate-950/50 dark:to-cyan-950/20">
             <div className="min-w-0">
               <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{stageCompletion[stage] ? 'این مرحله تکمیل شده است' : 'گام بعدی پیشنهادی'}</p>
-              <p className="mt-0.5 truncate text-xs font-bold text-slate-800 dark:text-slate-100">{primaryActionLabel}</p>
+            <p className="mt-0.5 truncate text-xs font-bold text-slate-800 dark:text-slate-100">{effectivePrimaryActionLabel}</p>
             </div>
-            {!isSealed && <button type="button" onClick={handlePrimaryAction} className="shrink-0 rounded-xl bg-indigo-600 px-3 py-2 text-[10px] font-bold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700 active:scale-95">{primaryActionLabel}</button>}
+            {!isSealed && !hasUserSigned && canUsePrimaryAction && <button type="button" onClick={handlePrimaryAction} className="shrink-0 rounded-xl bg-indigo-600 px-3 py-2 text-[10px] font-bold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700 active:scale-95">{effectivePrimaryActionLabel}</button>}
           </div>
         </div>
         </motion.div>

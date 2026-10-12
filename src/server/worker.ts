@@ -3,7 +3,8 @@ import { emailService, EmailMessage } from './services/email.service';
 import { telegramService } from './services/telegram.service';
 import { logger } from './services/logger';
 import { meetingRepository } from './repositories/meeting.repository';
-import { generateMeetingPdf } from './services/document.service';
+import { generateHtmlMeetingPdf } from './services/html-pdf.service';
+import { authService } from './services/auth.service';
 import { Meeting } from '../types';
 
 export function initializeWorker() {
@@ -34,12 +35,13 @@ export function initializeWorker() {
     logger.info(`Worker generating high-fidelity PDF artifact for meeting ${job.payload.meetingId}`);
     const meeting = await meetingRepository.getById(job.payload.meetingId);
     if (!meeting) throw new Error(`Meeting ${job.payload.meetingId} not found for PDF generation.`);
-    const printTemplates = [
-      { id: 'print_classic', pdfStyle: 'classic' as const },
-      { id: 'print_modern', pdfStyle: 'modern' as const },
-      { id: 'print_minimal', pdfStyle: 'minimal' as const },
-    ];
-    await generateMeetingPdf(meeting, printTemplates.find((template) => template.id === (meeting.printTemplateId || meeting.templateId)));
+    const organizationId = (meeting as Meeting & { organizationId?: string }).organizationId || '';
+    const sessionToken = await authService.createInternalSession(meeting.organizer.id, organizationId);
+    try {
+      await generateHtmlMeetingPdf(meeting, sessionToken);
+    } finally {
+      await authService.revokeSession(sessionToken);
+    }
   });
 
   // 4. Audit record consumer
@@ -57,6 +59,7 @@ export function initializeWorker() {
   queueManager.registerHandler<{
     chatId: string;
     meetingId: string;
+    organizationId: string;
     meetingTitle: string;
     organizerName: string;
     actionToken: string;
@@ -65,12 +68,14 @@ export function initializeWorker() {
     logger.info(`Worker sending Telegram sign-request for meeting ${job.payload.meetingId}`);
     const meeting = await meetingRepository.getById(job.payload.meetingId);
     if (!meeting) throw new Error(`Meeting ${job.payload.meetingId} not found for Telegram delivery.`);
-    const printTemplates = [
-      { id: 'print_classic', pdfStyle: 'classic' as const },
-      { id: 'print_modern', pdfStyle: 'modern' as const },
-      { id: 'print_minimal', pdfStyle: 'minimal' as const },
-    ];
-    const pdfPath = await generateMeetingPdf(meeting, printTemplates.find((template) => template.id === (meeting.printTemplateId || meeting.templateId)));
+    const organizationId = job.payload.organizationId || (meeting as Meeting & { organizationId?: string }).organizationId || '';
+    const sessionToken = await authService.createInternalSession(meeting.organizer.id, organizationId);
+    let pdfPath: string;
+    try {
+      pdfPath = await generateHtmlMeetingPdf(meeting, sessionToken);
+    } finally {
+      await authService.revokeSession(sessionToken);
+    }
     const sent = await telegramService.sendSignRequestPM(
       job.payload.chatId,
       job.payload.meetingId,

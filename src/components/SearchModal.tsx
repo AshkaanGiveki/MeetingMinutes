@@ -3,6 +3,7 @@ import { Search, X, Calendar, FileText, CheckCircle, User, ArrowLeft } from 'luc
 import { Meeting } from '../types';
 import { AnimatePresence, motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
+import { AnimatedModal } from './AnimatedModal';
 import { Skeleton } from './LoadingState';
 
 interface SearchModalProps {
@@ -36,8 +37,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
   const normalizedQuery = query.trim().toLowerCase();
 
   // Search through meetings, agendas, decisions, and participants
@@ -52,7 +51,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+    <AnimatedModal isOpen={isOpen} onClose={onClose} className="items-start pt-20" contentClassName="w-full max-w-2xl">
       <div className="relative w-full max-w-xl rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-white/80 dark:border-slate-800 overflow-hidden flex flex-col">
         {/* Search Input Bar */}
         <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100 dark:border-slate-800">
@@ -135,6 +134,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
           <span className="font-mono">{filteredMeetings.length} جلسه پیدا شد</span>
         </div>
       </div>
-    </div>
+    </AnimatedModal>
   );
 };

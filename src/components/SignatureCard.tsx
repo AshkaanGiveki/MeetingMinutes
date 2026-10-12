@@ -86,7 +86,7 @@ export const SignatureCard: React.FC<SignatureCardProps> = ({
               <span>امضای شما تأیید شد</span>
             </div>
 
-            {allSigned && (
+            {false && allSigned && (
               <button
                 onClick={onOpenSealModal}
                 className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-medium text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all"

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AnimatedModal } from './AnimatedModal';
 import { X, Sparkles, Wand2, FileText, ArrowLeft, Loader2 } from 'lucide-react';
 import { Meeting, Participant } from '../types';
 
@@ -23,8 +24,6 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
   );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  if (!isOpen) return null;
 
   const handleConvert = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +100,7 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+    <AnimatedModal isOpen={isOpen} onClose={onClose} contentClassName="w-full max-w-2xl">
       <div className="relative w-full max-w-xl rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-white/80 dark:border-slate-800 p-6 flex flex-col gap-4 text-right">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -174,6 +173,6 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </AnimatedModal>
   );
 };

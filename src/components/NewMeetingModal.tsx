@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { AnimatedModal } from './AnimatedModal';
 import { X, Calendar, Clock, MapPin, Plus, Sparkles } from 'lucide-react';
 import { Meeting, Participant, Template } from '../types';
 import { JalaliDatePicker } from './JalaliDatePicker';
@@ -35,8 +36,6 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
       .catch(() => setTemplates([]))
       .finally(() => setIsTemplatesLoading(false));
   }, [isOpen]);
-
-  if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +79,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+    <AnimatedModal isOpen={isOpen} onClose={onClose} contentClassName="w-full max-w-lg">
       <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-white/80 dark:border-slate-800 p-6 flex flex-col gap-4 text-right">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2">
@@ -185,6 +184,6 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </AnimatedModal>
   );
 };

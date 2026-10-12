@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>صورت‌جلسه رسمی</title>
+  <style>
+    @font-face { font-family: "IRANSans"; src: url("/src/assets/fonts/IRANSansXFaNum-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IRANSans"; src: url("/src/assets/fonts/IRANSansXFaNum-DemiBold.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IRANSans"; src: url("/src/assets/fonts/IRANSansXFaNum-Bold.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+    :root { --ink:#202a38; --muted:#687382; --line:#cfd5dc; --light-line:#e8ebef; --wash:#f5f6f7; --accent:#1f4f72; --page-width:210mm; }
+    * { box-sizing:border-box; }
+    html { background:#e8ebee; }
+    body { margin:0; color:var(--ink); background:#e8ebee; font-family:"IRANSans",Tahoma,Arial,sans-serif; font-size:11.5px; line-height:1.95; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px max(20px,calc((100vw - 1180px)/2)); color:#fff; background:#202a38; font-size:12px; }
+    .toolbar span { color:#c5cdd6; }
+    .toolbar button { border:0; padding:7px 14px; color:#fff; background:var(--accent); border-radius:3px; font:inherit; cursor:pointer; }
+    .page { width:var(--page-width); min-height:297mm; margin:28px auto; padding:15mm 16mm 16mm; background:#fff; box-shadow:0 12px 40px rgba(31,42,56,.14); }
+    .official-head { display:grid; grid-template-columns:1fr 1.6fr 1fr; align-items:center; gap:18px; padding-bottom:16px; border-bottom:3px solid var(--accent); }
+    .institution { text-align:right; }
+    .institution strong { display:block; font-size:14px; font-weight:700; }
+    .institution span { color:var(--muted); font-size:10px; }
+    .document-title { text-align:center; }
+    .document-title h1 { margin:0; font-size:21px; font-weight:700; letter-spacing:-.02em; }
+    .document-title p { margin:3px 0 0; color:var(--muted); font-size:10px; }
+    .reference { text-align:left; color:var(--muted); font-size:10px; line-height:2.2; }
+    .reference b { color:var(--ink); font-weight:600; }
+    .section { margin-top:23px; }
+    .section-title { display:flex; align-items:center; gap:10px; margin:0 0 9px; color:var(--accent); font-size:13px; font-weight:700; }
+    .section-title::after { content:""; height:1px; flex:1; background:var(--line); }
+    .section-title .number { font-size:11px; color:var(--muted); }
+    .facts { display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--line); }
+    .fact { min-height:54px; padding:8px 11px; border-left:1px solid var(--line); }
+    .fact:last-child { border-left:0; }
+    .fact label { display:block; color:var(--muted); font-size:9.5px; }
+    .fact strong { display:block; margin-top:3px; font-size:11px; font-weight:600; }
+    .intro { margin:0; padding:11px 13px; border-right:3px solid var(--accent); background:var(--wash); text-align:justify; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { padding:8px 9px; border:1px solid var(--line); vertical-align:top; text-align:right; }
+    th { background:var(--wash); color:#3d4a59; font-weight:700; }
+    td { background:#fff; }
+    .index { width:38px; text-align:center; color:var(--muted); }
+    .present { color:#236b4d; font-weight:600; }
+    .attendees { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .attendees h3 { margin:0; padding:7px 10px; border:1px solid var(--line); border-bottom:0; background:var(--wash); font-size:11px; }
+    .agenda-list { margin:0; padding:0; list-style:none; counter-reset:agenda; }
+    .agenda-list li { display:grid; grid-template-columns:28px 1fr; gap:10px; padding:8px 0; border-bottom:1px solid var(--light-line); counter-increment:agenda; }
+    .agenda-list li::before { content:counter(agenda); color:var(--accent); font-weight:700; }
+    .proceedings { margin:0; text-align:justify; }
+    .decision-title { font-weight:600; }
+    .action-table th:nth-child(1) { width:39%; } .action-table th:nth-child(2) { width:20%; } .action-table th:nth-child(3) { width:20%; } .action-table th:nth-child(4) { width:21%; }
+    .closing { margin-top:27px; padding-top:13px; border-top:1px solid var(--line); }
+    .closing p { margin:0; text-align:justify; }
+    .signatures { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:22px; }
+    .signature { min-height:100px; padding:10px 8px; border:1px solid var(--line); text-align:center; }
+    .signature strong { display:block; font-size:11px; } .signature span { display:block; margin-top:4px; color:var(--muted); font-size:10px; }
+    .signature-line { height:38px; margin-top:10px; border-bottom:1px solid #8d98a4; }
+    .footer { display:flex; justify-content:space-between; gap:16px; margin-top:29px; padding-top:8px; border-top:1px solid var(--line); color:var(--muted); font-size:9px; }
+    .footer span:last-child { direction:ltr; }
+    @media print { html,body { background:#fff; } .toolbar { display:none; } .page { width:auto; min-height:auto; margin:0; padding:13mm 15mm 14mm; box-shadow:none; } .section,table,.attendees,.signatures { break-inside:avoid; } }
+    @media (max-width:850px) { .page { width:calc(100% - 24px); margin:12px auto; padding:28px 22px; } .official-head { grid-template-columns:1fr auto; } .document-title { grid-column:1/-1; grid-row:1; } .facts { grid-template-columns:repeat(2,1fr); } .fact:nth-child(2) { border-left:0; } .fact:nth-child(-n+2) { border-bottom:1px solid var(--line); } .attendees,.signatures { grid-template-columns:1fr; gap:12px; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar"><strong>پیش‌نمایش صورت‌جلسه رسمی</strong><span>نسخه مناسب چاپ و بایگانی</span><button type="button" onclick="window.print()">چاپ / ذخیره PDF</button></div>
+  <main class="page">
+    <header class="official-head">
+      <div class="institution"><strong>سازمان نمونه</strong><span>معاونت برنامه‌ریزی و توسعه</span></div>
+      <div class="document-title"><h1>صورت‌جلسه رسمی</h1><p>جلسه بررسی کارفرما و تیم محصول</p></div>
+      <div class="reference"><div>شماره: <b>MM-1405-014</b></div><div>وضعیت: <b>بایگانی‌شده</b></div></div>
+    </header>
+    <section class="section"><h2 class="section-title"><span class="number">۰۱</span> مشخصات جلسه</h2><div class="facts"><div class="fact"><label>تاریخ برگزاری</label><strong>۱۴۰۵/۰۷/۱۹</strong></div><div class="fact"><label>ساعت</label><strong>۱۰:۰۰ تا ۱۱:۳۰</strong></div><div class="fact"><label>محل برگزاری</label><strong>اتاق جلسات مرکزی</strong></div><div class="fact"><label>ریاست جلسه</label><strong>اشکان گیوگی</strong></div></div></section>
+    <section class="section"><h2 class="section-title"><span class="number">۰۲</span> موضوع جلسه</h2><p class="intro">بررسی وضعیت پروژه، مرور دستاوردهای دوره اخیر، تصمیم‌گیری درباره اقدامات بعدی و تعیین مسئولیت‌های اجرایی.</p></section>
+    <section class="section"><h2 class="section-title"><span class="number">۰۳</span> حاضران و غایبان</h2><div class="attendees"><div><h3>حاضران</h3><table><thead><tr><th class="index">ردیف</th><th>نام و نام خانوادگی</th><th>سمت / نقش</th></tr></thead><tbody><tr><td class="index">۱</td><td>اشکان گیوگی</td><td>رئیس جلسه</td></tr><tr><td class="index">۲</td><td>رضا ملکی</td><td>مدیر محصول</td></tr><tr><td class="index">۳</td><td>سارا احمدی</td><td>کارشناس فنی</td></tr></tbody></table></div><div><h3>غایبان</h3><table><thead><tr><th class="index">ردیف</th><th>نام و نام خانوادگی</th><th>توضیحات</th></tr></thead><tbody><tr><td class="index">۱</td><td>—</td><td>موردی ثبت نشده است</td></tr></tbody></table></div></div></section>
+    <section class="section"><h2 class="section-title"><span class="number">۰۴</span> دستور جلسه</h2><ol class="agenda-list"><li>ارائه گزارش پیشرفت و بررسی وضعیت اقدامات مصوب جلسه قبل</li><li>بررسی نیازمندی‌های محصول و اولویت‌بندی فعالیت‌های دوره آینده</li><li>تعیین تصمیم‌ها، مسئولان اجرا و زمان‌بندی پیگیری</li></ol></section>
+    <section class="section"><h2 class="section-title"><span class="number">۰۵</span> شرح مذاکرات</h2><p class="proceedings">در این جلسه، گزارش وضعیت فعالیت‌های انجام‌شده ارائه و درباره اولویت‌های اجرایی دوره بعد گفت‌وگو شد. حاضران ضمن بررسی مسائل موجود، بر ضرورت هماهنگی میان تیم‌های محصول و فنی تأکید کردند و اقدامات زیر را به تصویب رساندند.</p></section>
+    <section class="section"><h2 class="section-title"><span class="number">۰۶</span> تصمیم‌ها و مصوبات</h2><table><thead><tr><th class="index">ردیف</th><th>عنوان مصوبه</th><th>شرح</th></tr></thead><tbody><tr><td class="index">۱</td><td class="decision-title">تکمیل برنامه اجرایی</td><td>برنامه اجرایی دوره آینده تا پایان هفته تهیه و برای بررسی نهایی ارسال شود.</td></tr><tr><td class="index">۲</td><td class="decision-title">بررسی فنی</td><td>ریسک‌های فنی موارد اولویت‌دار در جلسه تخصصی بررسی و نتیجه ثبت شود.</td></tr><tr><td class="index">۳</td><td class="decision-title">گزارش پیشرفت</td><td>گزارش وضعیت اقدامات در ابتدای جلسه بعد ارائه شود.</td></tr></tbody></table></section>
+    <section class="section"><h2 class="section-title"><span class="number">۰۷</span> اقدامات پیگیری</h2><table class="action-table"><thead><tr><th>اقدام</th><th>مسئول پیگیری</th><th>موعد انجام</th><th>وضعیت</th></tr></thead><tbody><tr><td>تهیه و ارسال برنامه اجرایی</td><td>رضا ملکی</td><td>۱۴۰۵/۰۷/۲۳</td><td class="present">در حال پیگیری</td></tr><tr><td>برگزاری نشست بررسی فنی</td><td>سارا احمدی</td><td>۱۴۰۵/۰۷/۲۵</td><td class="present">در حال پیگیری</td></tr></tbody></table></section>
+    <section class="closing"><p>این صورت‌جلسه پس از بررسی و تأیید حاضران، در تاریخ ۱۴۰۵/۰۷/۱۹ تنظیم و برای بایگانی رسمی ثبت شد.</p><div class="signatures"><div class="signature"><strong>رئیس جلسه</strong><span>اشکان گیوگی</span><div class="signature-line"></div></div><div class="signature"><strong>دبیر جلسه</strong><span>رضا ملکی</span><div class="signature-line"></div></div><div class="signature"><strong>تأییدکننده</strong><span>سارا احمدی</span><div class="signature-line"></div></div></div></section>
+    <footer class="footer"><span>صورت‌جلسه رسمی · نسخه بایگانی</span><span>MM-1405-014</span></footer>
+  </main>
+</body>
+</html>

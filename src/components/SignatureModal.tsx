@@ -15,6 +15,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Meeting } from '../types';
+import { AnimatedModal } from './AnimatedModal';
 
 const toLatinDigits = (value: string) => value.replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)));
 
@@ -34,7 +35,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   currentUser,
 }) => {
   const [step, setStep] = useState<'sign' | 'otp'>('sign');
-  const [activeTab, setActiveTab] = useState<'draw' | 'type'>('draw');
+  const [activeTab, setActiveTab] = useState<'draw' | 'type' | 'saved'>('draw');
   const [typedName, setTypedName] = useState(currentUser.name);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,6 +49,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const [otpError, setOtpError] = useState('');
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hasSavedSignature = Boolean(currentUser.signatureData?.startsWith('data:image/') || currentUser.signatureData?.startsWith('typed:'));
 
   // Setup canvas
   useEffect(() => {
@@ -89,7 +91,10 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setStep('sign');
-      if (currentUser.signatureData?.startsWith('typed:')) {
+      if (hasSavedSignature) {
+        setActiveTab('saved');
+        setTypedName(currentUser.name);
+      } else if (currentUser.signatureData?.startsWith('typed:')) {
         setActiveTab('type');
         setTypedName(currentUser.signatureData.slice('typed:'.length) || currentUser.name);
       } else {
@@ -101,9 +106,9 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
       setOtpError('');
       setTimerSeconds(120);
     }
-  }, [isOpen, currentUser.name, currentUser.signatureData]);
+  }, [isOpen, currentUser.name, currentUser.signatureData, hasSavedSignature]);
 
-  if (!isOpen) return null;
+  if (!meeting) return null;
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     setIsDrawing(true);
@@ -189,7 +194,9 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     setOtpError('');
 
     let signatureData = '';
-    if (activeTab === 'draw' && canvasRef.current) {
+    if (activeTab === 'saved' && currentUser.signatureData) {
+      signatureData = currentUser.signatureData;
+    } else if (activeTab === 'draw' && canvasRef.current) {
       signatureData = canvasRef.current.toDataURL();
     } else {
       signatureData = `typed:${typedName}`;
@@ -214,21 +221,9 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
         return;
       }
 
-      // 2. Finalize cryptographic signature
-      const signatureRes = await fetch('/api/signature/sign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-        body: JSON.stringify({
-          meetingId: meeting.id,
-          signerName: currentUser.name,
-          signerRole: currentUser.role,
-          signatureData,
-          signatureType: activeTab,
-          intentConfirmed: true,
-        }),
-      });
-      const signatureResult = await signatureRes.json();
-      if (!signatureRes.ok) throw new Error(signatureResult.error || 'Signature could not be saved.');
+      // The parent submits the signature after OTP verification. Keeping the
+      // final write in one place prevents the signature from being submitted
+      // twice and then incorrectly resetting the local signed state.
     } catch (err) {
       setOtpError(err instanceof Error ? err.message : 'Signature could not be saved.');
       setIsSubmitting(false);
@@ -241,7 +236,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+    <AnimatedModal isOpen={isOpen} onClose={onClose} contentClassName="w-full max-w-2xl">
       <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-[#0f172a] shadow-2xl border border-white/80 dark:border-slate-800 p-6 flex flex-col gap-5 overflow-hidden text-right transition-colors">
         
         {/* Top Header */}
@@ -295,7 +290,20 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             </div>
 
             {/* Tabs: Draw or Type */}
-            <div className="flex items-center gap-2 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
+            {!hasSavedSignature && <div className="flex items-center gap-2 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
+              {currentUser.signatureData?.startsWith('data:image/') && (
+                <button
+                  onClick={() => setActiveTab('saved')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    activeTab === 'saved'
+                      ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>امضای ذخیره‌شده</span>
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('draw')}
                 className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
@@ -318,11 +326,16 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                 <Type className="w-3.5 h-3.5" />
                 <span>تایپ نام و امضا</span>
               </button>
-            </div>
+            </div>}
 
             {/* Signature drawing/typing canvas */}
             <div className="relative rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950/40 p-2 flex flex-col items-center justify-center min-h-[250px]">
-              {activeTab === 'draw' ? (
+              {hasSavedSignature ? (
+                <div className="flex w-full flex-col items-center justify-center gap-3 py-8">
+                  {currentUser.signatureData?.startsWith('data:image/') ? <img src={currentUser.signatureData} alt="امضای ذخیره‌شده" className="h-36 max-w-full select-none object-contain" draggable={false} /> : <span className="font-serif text-4xl font-semibold italic text-indigo-900 dark:text-indigo-200">{currentUser.signatureData?.slice('typed:'.length)}</span>}
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"><ShieldCheck className="h-3.5 w-3.5" />امضای ذخیره‌شده از تنظیمات استفاده می‌شود و قابل ویرایش نیست.</span>
+                </div>
+              ) : activeTab === 'draw' ? (
                 <>
                   <canvas
                     ref={canvasRef}
@@ -486,6 +499,6 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </AnimatedModal>
   );
 };

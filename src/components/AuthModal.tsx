@@ -20,6 +20,7 @@ import {
 import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { OrganizationRole } from '../types';
+import { AnimatedModal } from './AnimatedModal';
 import { CustomSelect } from './CustomSelect';
 import { formatIranianPhoneInput } from '../utils/phone';
 
@@ -67,8 +68,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  if (!isOpen) return null;
 
   // Password complexity analysis helper
   const checkPasswordRequirements = (pwd: string) => {
@@ -266,7 +265,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const signupStrength = getPasswordStrength(signupPassword);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+    <AnimatedModal isOpen={isOpen} onClose={onClose} contentClassName="w-full max-w-lg">
       <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-[#0f172a] shadow-2xl border border-white/80 dark:border-slate-800 p-6 flex flex-col gap-4 text-right">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -675,6 +674,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </AnimatedModal>
   );
 };

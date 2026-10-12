@@ -132,6 +132,35 @@ export class AuthService {
     return { ...authSession, role: normalizedRole, permissions: RolePermissionsMap[normalizedRole] };
   }
 
+  async createInternalSession(userId: string, organizationId: string): Promise<string> {
+    const db = this.requireDb();
+    const user = await db.collection<AuthUser>('users').findOne({ id: userId });
+    const context = await organizationService.getContext(userId, organizationId);
+    if (!user || !context) throw new Error('Unable to create an internal document session.');
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const session: AuthSession = {
+      userId: user.id,
+      phoneNumber: user.phoneNumber,
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      role: context.membership.role,
+      organizationId: context.organization.id,
+      organizationName: context.organization.name,
+      permissions: context.membership.permissions,
+      signatureData: user.signatureData,
+      telegramChatId: user.telegramChatId,
+      telegramUsername: user.telegramUsername,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    };
+    await db.collection('sessions').insertOne({ token: sessionToken, ...session, createdAt: new Date() });
+    return sessionToken;
+  }
+
+  async revokeSession(sessionToken: string): Promise<void> {
+    await this.requireDb().collection('sessions').deleteOne({ token: sessionToken });
+  }
+
   async switchOrganization(sessionToken: string, userId: string, organizationId: string): Promise<AuthSession | null> {
     const context = await organizationService.getContext(userId, organizationId);
     if (!context) return null;

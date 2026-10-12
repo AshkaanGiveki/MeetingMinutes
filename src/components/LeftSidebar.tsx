@@ -2,17 +2,20 @@ import React, { useState } from 'react';
 import {
   Share2,
   Plus,
-  ChevronLeft,
   ChevronRight,
   MessageSquare,
   Send,
-  UserPlus
+  UserPlus,
+  PenTool,
+  ShieldCheck,
+  LockKeyhole
 } from 'lucide-react';
 import { Meeting, Participant, CommentItem } from '../types';
 import { motion } from 'motion/react';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
 import { UserAvatar } from './UserAvatar';
+import { MeetingRoleIcon } from './MeetingRoleIcon';
 
 interface LeftSidebarProps {
   meeting: Meeting;
@@ -21,6 +24,15 @@ interface LeftSidebarProps {
   onAddComment: (comment: CommentItem) => void;
   onStatusChange?: (status: Meeting['status']) => void;
   onOpenReviewModal?: () => void;
+  onOpenSignModal?: () => void;
+  onOpenSealModal?: () => void;
+  hasUserSigned?: boolean;
+  onRejectSigning?: () => void;
+  onOpenSigningDecision?: () => void;
+  canManageMeeting?: boolean;
+  canEditMeeting?: boolean;
+  canReviewMeeting?: boolean;
+  canSignMeeting?: boolean;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -30,8 +42,16 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onAddComment,
   onStatusChange,
   onOpenReviewModal,
+  onOpenSignModal,
+  onOpenSealModal,
+  hasUserSigned = false,
+  onRejectSigning,
+  onOpenSigningDecision,
+  canManageMeeting = false,
+  canEditMeeting = false,
+  canReviewMeeting = false,
+  canSignMeeting = false,
 }) => {
-  const [collapsed, setCollapsed] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
 
   const handleSendComment = (e?: React.FormEvent) => {
@@ -72,7 +92,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
       ? 2
       : 3;
 
-  if (collapsed) {
+  /* The context rail stays open; collapsing it hides signing and participant actions. */
+  /*
     return (
       <aside className="w-14 shrink-0 flex flex-col items-center py-4 gap-4 z-10">
         <button
@@ -84,12 +105,48 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </button>
       </aside>
     );
-  }
+  */
+
+  const isSigningStage = meeting.status === 'READY_FOR_SIGNATURE' || meeting.status === 'SIGNING';
+  const isSealed = meeting.status === 'SEALED';
+  const hasRole = (participant: Participant, role: string) => (participant.roles || [participant.role]).includes(role as any);
+  const participantRoles = (participant: Participant) => Array.from(new Set([...(participant.roles || []), participant.role])).map((role) => role === 'Participant' ? 'Viewer' : role);
+  const totalSignatures = meeting.totalSignaturesRequired || meeting.participants.filter((participant) => hasRole(participant, 'Signer')).length || 0;
+  const signedParticipantIds = new Set((meeting.signatures || []).map((signature) => signature.signerId));
+  const signedCount = Math.max(meeting.signatureCount || 0, signedParticipantIds.size, meeting.participants.filter((participant) => participant.hasSigned).length);
+  const allSignaturesCollected = totalSignatures > 0 && signedCount >= totalSignatures;
+  const participants = meeting.participants.filter(Boolean);
+  const visibleParticipants = participants.slice(0, 4);
+  const remainingParticipants = Math.max(0, participants.length - visibleParticipants.length);
+  const roleLabels: Record<string, string> = { Editor: 'ویرایشگر', Reviewer: 'بازبین', Signer: 'امضاکننده' };
+  const missingRequiredRoles = (['Editor', 'Reviewer', 'Signer'] as const).filter((role) => !participants.some((participant) => hasRole(participant, role)));
 
   return (
-    <aside className="w-72 shrink-0 flex flex-col gap-4 select-none">
+    <aside className="w-full shrink-0 flex flex-col gap-4 select-none">
+      <div className="flex items-center justify-between px-1">
+        <div>
+          <p className="text-[10px] font-semibold tracking-wide text-slate-400 dark:text-slate-500">پنل جلسه</p>
+          <h2 className="text-sm font-black text-slate-900 dark:text-white">وضعیت و همکاری</h2>
+        </div>
+        <span className="rounded-full border border-indigo-200/70 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 dark:border-indigo-800/70 dark:bg-indigo-950/40 dark:text-indigo-300">
+          {isSealed ? 'نهایی شده' : isSigningStage ? 'در انتظار امضا' : 'در جریان'}
+        </span>
+      </div>
+      {meeting.signatureRejection?.status === 'pending' && onOpenSigningDecision && canManageMeeting && (
+        <div className="rounded-[1.35rem] border border-rose-200 bg-rose-50/80 p-4 shadow-sm dark:border-rose-900/60 dark:bg-rose-950/25">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-300">!</div>
+            <div className="min-w-0 flex-1" dir="rtl">
+              <p className="text-xs font-black text-rose-900 dark:text-rose-100">درخواست اصلاح امضا</p>
+              <p className="mt-1 text-[11px] leading-5 text-rose-700 dark:text-rose-300">{meeting.signatureRejection.signerName} پیش از امضا این صورت‌جلسه را نپذیرفته است.</p>
+              <p className="mt-2 line-clamp-3 rounded-lg bg-white/60 p-2 text-[10px] leading-5 text-rose-800 dark:bg-rose-950/30 dark:text-rose-200">{meeting.signatureRejection.reason}</p>
+              <button type="button" onClick={onOpenSigningDecision} className="mt-3 w-full rounded-xl bg-rose-600 px-3 py-2 text-[11px] font-black text-white transition hover:bg-rose-700">بررسی درخواست</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 1. Top Card: In Progress / Share / Participants */}
-      <div className="rounded-3xl p-5 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border border-white/90 dark:border-slate-800 shadow-xl shadow-slate-200/50 dark:shadow-none flex flex-col gap-4">
+      <div className="rounded-[1.5rem] p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/70 dark:border-slate-800/80 shadow-lg shadow-slate-200/30 dark:shadow-black/10 flex flex-col gap-4">
         {/* Top header row */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
@@ -98,8 +155,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           </div>
 
           <button
-            onClick={() => setCollapsed(true)}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-hidden="true"
+            className="hidden"
             title="بستن پنل"
           >
             <ChevronRight className="w-4 h-4" />
@@ -107,8 +164,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </div>
 
         {/* Avatar Stack with +2 */}
-        <motion.div className="flex items-center justify-center -space-x-2.5 space-x-reverse py-1" initial="hidden" animate="show" variants={staggerContainerVariants}>
-          {meeting.participants.filter(Boolean).slice(0, 4).map((p, index) => (
+        <motion.div className="flex items-center justify-center -space-x-2.5 space-x-reverse py-1 [&>div:last-child]:hidden" initial="hidden" animate="show" variants={staggerContainerVariants}>
+          {visibleParticipants.map((p, index) => (
             <motion.span
               key={p.id || `participant-${index}`}
               variants={staggerItemVariants}
@@ -119,14 +176,16 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           </div>
         </motion.div>
 
+        {remainingParticipants > 0 && <div className="-mt-2 text-center text-[10px] font-semibold text-slate-400 dark:text-slate-500">+{remainingParticipants} نفر دیگر</div>}
+
         {/* Share Button (Vibrant purple gradient matching screenshot) */}
-        <button
+        {canManageMeeting && <button
           onClick={onOpenShareModal}
           className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-purple-500 via-indigo-600 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white font-medium text-xs shadow-md shadow-indigo-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 active:scale-98"
         >
           <Share2 className="w-4 h-4" />
           <span>اشتراک‌گذاری</span>
-        </button>
+        </button>}
 
         {/* Participants Header */}
         <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -134,13 +193,13 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             <UserPlus className="w-4 h-4 text-slate-500" />
             <span>شرکت‌کنندگان</span>
           </div>
-          <button
+          {canManageMeeting && <button
             onClick={onOpenAddParticipant}
             className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 flex items-center justify-center cursor-pointer transition-colors"
             title="افزودن شرکت‌کننده"
           >
             <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-          </button>
+          </button>}
         </div>
 
         {/* Participants list */}
@@ -157,13 +216,13 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                   <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                     {p.name}
                   </span>
-                  <span className="text-[10px] text-slate-400">
-                    {p.role}
+                  <span className="mt-1 flex items-center gap-1.5 text-[10px] text-slate-400" aria-label="نقش‌های عضو">
+                    {participantRoles(p).map((role) => <span key={role} title={role} className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800"><MeetingRoleIcon role={role} className="h-3 w-3" /></span>)}
                   </span>
                 </div>
               </div>
 
-              {p.hasSigned ? (
+              {p.hasSigned || signedParticipantIds.has(p.id) ? (
                 <span className="w-2 h-2 rounded-full bg-emerald-500" title="امضا کرده" />
               ) : (
                 <span className="w-2 h-2 rounded-full bg-amber-400/80" title="در انتظار امضا" />
@@ -174,7 +233,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
       </div>
 
       {/* 2. Middle Card: Meeting Status Stepper */}
-      <div className="rounded-3xl p-5 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border border-white/90 dark:border-slate-800 shadow-xl shadow-slate-200/50 dark:shadow-none flex flex-col gap-3">
+      <div className="rounded-[1.5rem] p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/70 dark:border-slate-800/80 shadow-lg shadow-slate-200/30 dark:shadow-black/10 flex flex-col gap-3">
         <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">
           وضعیت جلسه
         </h4>
@@ -216,7 +275,6 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           })}
         </motion.div>
 
-        {/* Labels below */}
         <motion.div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
           {statusSteps.map((step) => {
             const isCurrent = step.stepIndex === currentStepIndex;
@@ -236,7 +294,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           })}
         </motion.div>
 
-        {meeting.status === 'DRAFT' && onStatusChange && (
+        {meeting.status === 'DRAFT' && onStatusChange && canEditMeeting && (
           <button
             type="button"
             onClick={() => onStatusChange('IN_REVIEW')}
@@ -247,7 +305,13 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           </button>
         )}
 
-        {meeting.status === 'IN_REVIEW' && onOpenReviewModal && (
+        {missingRequiredRoles.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[10px] leading-5 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/25 dark:text-amber-300">
+            نقش‌های ضروری باقی‌مانده: {missingRequiredRoles.map((role) => roleLabels[role]).join('، ')}. پیش از ارسال برای بازبینی، آن‌ها را تعیین کنید.
+          </div>
+        )}
+
+        {meeting.status === 'IN_REVIEW' && onOpenReviewModal && canReviewMeeting && (
           <button
             onClick={onOpenReviewModal}
             className="mt-2 py-2 px-3 rounded-2xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
@@ -255,10 +319,72 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             <span>بازبینی رسمی و تأیید محتوا</span>
           </button>
         )}
+
+        <div className="mt-1 border-t border-slate-200/70 pt-3 dark:border-slate-800/80">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-100">
+              <PenTool className="h-3.5 w-3.5 text-indigo-500" />
+              <span>امضاهای سند</span>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {signedCount}/{totalSignatures || '—'}
+            </span>
+          </div>
+
+          {isSigningStage && !hasUserSigned && onOpenSignModal && canSignMeeting && (
+            <button
+              type="button"
+              onClick={onOpenSignModal}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-3 py-2.5 text-xs font-black text-white shadow-md shadow-indigo-600/20 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-600/30"
+            >
+              <PenTool className="h-3.5 w-3.5" />
+              <span>امضای من</span>
+            </button>
+          )}
+
+          {isSigningStage && !hasUserSigned && onRejectSigning && canSignMeeting && (
+            <button
+              type="button"
+              onClick={onRejectSigning}
+              className="mt-2 w-full rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700 transition-colors hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300 dark:hover:bg-rose-950/50"
+            >
+              عدم موافقت و ارسال دلیل
+            </button>
+          )}
+
+          {hasUserSigned && (
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+              <ShieldCheck className="h-4 w-4" />
+              <span>امضای شما ثبت شده است</span>
+            </div>
+          )}
+
+          {false && allSignaturesCollected && !isSealed && onOpenSealModal && (
+            <button
+              type="button"
+              onClick={onOpenSealModal}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-black text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50"
+            >
+              <LockKeyhole className="h-3.5 w-3.5" />
+              <span>مهر و موم نهایی</span>
+            </button>
+          )}
+
+          {!isSigningStage && !isSealed && (
+            <p className="text-[10px] leading-5 text-slate-400 dark:text-slate-500">پس از تأیید بازبینی، امضای سند فعال می‌شود.</p>
+          )}
+
+          {isSealed && (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+              <LockKeyhole className="h-4 w-4" />
+              <span>این سند نهایی و غیرقابل تغییر است</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 3. Bottom Card: Notes & Comments */}
-      <div className="rounded-3xl p-5 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border border-white/90 dark:border-slate-800 shadow-xl shadow-slate-200/50 dark:shadow-none flex flex-col gap-3">
+      <div className="rounded-[1.5rem] p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/70 dark:border-slate-800/80 shadow-lg shadow-slate-200/30 dark:shadow-black/10 flex flex-col gap-3">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-100">
