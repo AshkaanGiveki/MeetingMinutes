@@ -26,11 +26,35 @@ export const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) =
 export const MeetingCardsSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
   <div className="grid grid-cols-1 gap-4 md:grid-cols-2" aria-label="Loading meetings">
     {Array.from({ length: count }, (_, index) => (
-      <div key={index} className="flex min-h-[220px] flex-col justify-between gap-4 rounded-3xl border border-slate-200/80 bg-white/90 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/90">
-        <div className="flex flex-col gap-4"><div className="flex items-center justify-between"><Skeleton className="h-5 w-24 rounded-full" /><Skeleton className="h-4 w-28 rounded-full" /></div><Skeleton className="h-5 w-3/4" /><div className="space-y-2"><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-5/6" /></div></div>
-        <div className="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800"><div className="flex -space-x-2"><Skeleton className="h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900" /><Skeleton className="h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900" /><Skeleton className="h-3 w-16 self-center" /></div><Skeleton className="h-4 w-20" /></div>
+      <div key={index} className="flex min-h-[174px] flex-col justify-between gap-4 rounded-3xl border border-white/80 bg-white/90 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/90">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton className="h-5 w-24 rounded-full" />
+            <Skeleton className="h-4 w-28 rounded-full" />
+          </div>
+          <Skeleton className="h-4 w-3/4 rounded-lg" />
+          <div className="space-y-2 pt-1"><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-5/6" /></div>
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800">
+          <div className="flex items-center gap-2"><div className="flex -space-x-2 space-x-reverse"><Skeleton className="h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900" /><Skeleton className="h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900" /><Skeleton className="h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900" /></div><Skeleton className="h-3 w-16" /></div>
+          <Skeleton className="h-4 w-20" />
+        </div>
       </div>
     ))}
+  </div>
+);
+
+export const MeetingListSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
+  <div className="responsive-page mx-auto flex max-w-5xl flex-1 flex-col gap-6 p-6" dir="rtl" aria-label="Loading meetings page">
+    <div className="flex items-center justify-between gap-4">
+      <div className="min-w-0 space-y-2"><Skeleton className="h-6 w-44 rounded-lg" /><Skeleton className="h-3 w-64 max-w-full rounded-full" /></div>
+      <Skeleton className="h-10 w-32 shrink-0 rounded-2xl" />
+    </div>
+    <div className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-xs backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/80 sm:flex-row">
+      <div className="flex w-full gap-1 overflow-hidden rounded-xl bg-slate-100 p-1 dark:bg-slate-800 sm:w-auto"><Skeleton className="h-8 w-20 rounded-lg" /><Skeleton className="h-8 w-20 rounded-lg" /><Skeleton className="h-8 w-24 rounded-lg" /></div>
+      <Skeleton className="h-8 w-full rounded-xl sm:w-64" />
+    </div>
+    <MeetingCardsSkeleton count={count} />
   </div>
 );
 

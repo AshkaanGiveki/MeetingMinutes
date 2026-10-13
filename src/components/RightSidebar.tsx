@@ -14,6 +14,8 @@ import {
   ,BookOpen
   ,ChevronUp
 } from 'lucide-react';
+import logoIcon from '../assets/icons/Logo.png';
+import wordmarkIcon from '../assets/icons/typo.png';
 import { OrganizationRole } from '../types';
 import { UserAvatar } from './UserAvatar';
 
@@ -48,9 +50,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isContentVisible, setIsContentVisible] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [showWordmark, setShowWordmark] = useState(false);
   const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const logoInterval = window.setInterval(() => {
+      setShowWordmark((visible) => !visible);
+    }, 5000);
+
+    return () => window.clearInterval(logoInterval);
+  }, []);
 
   const clearHoverTimers = () => {
     if (expandTimerRef.current) clearTimeout(expandTimerRef.current);
@@ -162,7 +173,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           {isContentVisible && (
             <motion.div initial={{ opacity: 0, x: 10, width: 0 }} animate={{ opacity: 1, x: 0, width: 'auto' }} exit={{ opacity: 0, x: 10, width: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="relative z-10 flex flex-1 items-center justify-between overflow-hidden whitespace-nowrap">
               <span>{item.label}</span>
-              {item.badge !== undefined && item.badge > 0 && <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${item.badgeColor}`}>{item.badge}</span>}
+              {item.badge !== undefined && item.badge > 0 && <span className={`rounded-full px-2 py-0.5 font-persian text-[10px] font-bold ${item.badgeColor}`}>{item.badge}</span>}
             </motion.div>
           )}
         </AnimatePresence>
@@ -192,17 +203,35 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       {/* Top Header & Brand */}
       <div className="flex flex-col gap-4 p-4">
         <div className="flex items-center justify-between border-b border-slate-100/80 pb-4 dark:border-slate-800/80">
-          <div onClick={() => onTabChange('meetings')} className="flex cursor-pointer items-center gap-3 group">
-            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 transition-transform duration-300 group-hover:scale-105 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">
-              <Layers className="h-5 w-5" />
+          <div onClick={() => onTabChange('meetings')} className="flex min-w-0 cursor-pointer items-center gap-3 group">
+            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center transition-transform duration-300 group-hover:scale-105">
+              <AnimatePresence initial={false} mode="wait">
+                <motion.img
+                  key={showWordmark ? 'wordmark' : 'logo'}
+                  src={showWordmark ? wordmarkIcon : logoIcon}
+                  alt="Accord"
+                  className="absolute h-10 w-10 object-contain"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.45, ease: 'easeInOut' }}
+                />
+              </AnimatePresence>
             </div>
             {isContentVisible && (
-              <div className="flex flex-col text-right">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white">متا‌میت</span>
-                  <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 font-mono text-[9px] font-bold text-indigo-600 dark:bg-indigo-950/70 dark:text-indigo-400">PRO</span>
-                </div>
-                <span className="truncate text-[10px] font-medium text-slate-400">امضای الکترونیک صورت‌جلسات</span>
+              <div className="min-w-0 flex-1 overflow-hidden text-right">
+                <AnimatePresence initial={false} mode="wait">
+                  <motion.span
+                    key={showWordmark ? 'digital-signatures' : 'smart-meetings'}
+                    className="block truncate text-[11px] font-bold tracking-tight text-slate-700 dark:text-slate-200"
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -14 }}
+                    transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    {showWordmark ? 'امضای دیجیتال سازمانی' : 'مدیریت هوشمند جلسات'}
+                  </motion.span>
+                </AnimatePresence>
               </div>
             )}
           </div>

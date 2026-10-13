@@ -627,7 +627,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               <span className="text-base font-black tracking-[-0.16em]">M</span>
             </div>
             <div className="text-left">
-              <div className="text-sm font-black tracking-tight">MetaMeet</div>
+              <div className="text-sm font-black tracking-tight">Accord</div>
               <div className="text-[10px] font-medium text-indigo-900/55 dark:text-indigo-200/55">Decisions, documented.</div>
             </div>
           </div>

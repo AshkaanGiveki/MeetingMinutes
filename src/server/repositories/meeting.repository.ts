@@ -15,9 +15,30 @@ function normalizeSignatureRequirement(meeting: Meeting): Meeting {
     if (participant?.id && (participant.roles || [participant.role]).includes('Signer') && participant.requiresSignature !== false) signerIds.add(participant.id);
   }
   const totalSignaturesRequired = signerIds.size;
-  return meeting.totalSignaturesRequired === totalSignaturesRequired
-    ? meeting
-    : { ...meeting, totalSignaturesRequired };
+  const signatureRecords = Array.isArray(meeting.signatures) ? meeting.signatures : undefined;
+  if (!signatureRecords) {
+    return meeting.totalSignaturesRequired === totalSignaturesRequired
+      ? meeting
+      : { ...meeting, totalSignaturesRequired };
+  }
+
+  const signedIds = new Set(signatureRecords
+    .map((signature) => signature.signerId)
+    .filter((signerId) => signerIds.has(signerId)));
+  const participants = (meeting.participants || []).map((participant) => {
+    const hasSigned = signedIds.has(participant.id);
+    return {
+      ...participant,
+      hasSigned,
+      statusText: hasSigned ? 'امضا دریافت شد' : participant.statusText === 'امضا دریافت شد' ? undefined : participant.statusText,
+    };
+  });
+  return {
+    ...meeting,
+    participants,
+    signatureCount: signedIds.size,
+    totalSignaturesRequired,
+  };
 }
 
 export class MeetingRepository {

@@ -19,6 +19,19 @@ import { Meeting, AuditRecord } from '../types';
 import { EmptyState } from './EmptyState';
 import { TableRowsSkeleton } from './LoadingState';
 
+const auditActionLabels: Record<string, string> = {
+  MEETING_CREATED: 'جلسه ایجاد شد',
+  DOCUMENT_ARCHIVED: 'سند بایگانی شد',
+  REVIEW_APPROVED: 'بازبینی تأیید شد',
+  SIGNATURE_COMPLETED: 'امضا ثبت شد',
+  SIGNATURE_REJECTED: 'امضا رد شد',
+  SIGNATURE_CHANGE_ACCEPTED: 'درخواست اصلاح پذیرفته شد',
+  SIGNATURE_CHANGE_REJECTED: 'درخواست اصلاح رد شد',
+  DOCUMENT_SEALED: 'سند مهر و موم شد',
+  TELEGRAM_ONE_CLICK_SIGNED: 'امضای تلگرام ثبت شد',
+  GUEST_SIGNATURE_COMPLETED: 'امضای مهمان ثبت شد',
+};
+
 interface ArchiveViewProps {
   meetings: Meeting[];
   isLoading?: boolean;
@@ -52,7 +65,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
   }, [selectedAuditMeeting]);
 
   return (
-    <div className="flex-1 max-w-6xl mx-auto flex flex-col gap-6 p-6">
+    <div className="responsive-page flex-1 max-w-6xl mx-auto flex flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -91,17 +104,16 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                 <th className="py-3 px-4">عنوان جلسه</th>
                 <th className="py-3 px-4">تاریخ برگزاری</th>
                 <th className="py-3 px-4">وضعیت امضاها</th>
-                <th className="py-3 px-4">هش رمزنگاری SHA-256</th>
                 <th className="py-3 px-4">زمان پلمپ</th>
                 <th className="py-3 px-4 text-center">عملیات سند</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {isLoading ? (
-                <TableRowsSkeleton columns={6} />
+                <TableRowsSkeleton columns={5} />
               ) : sealedMeetings.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-4">
+                  <td colSpan={5} className="p-4">
                     <EmptyState icon={Archive} title={searchTerm ? 'سندی با این جست‌وجو پیدا نشد' : 'آرشیو هنوز خالی است'} description={searchTerm ? 'عنوان دیگری را جست‌وجو کنید.' : 'صورت‌جلسه‌های مهر و موم‌شده پس از تکمیل امضاها اینجا نمایش داده می‌شوند.'} compact />
                   </td>
                 </tr>
@@ -118,20 +130,17 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                   <td className="py-3.5 px-4 font-semibold text-slate-800 dark:text-slate-100">
                     <div className="flex items-center gap-2">
                       <Lock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                      <span>{m.title}</span>
+                      <span className="block max-w-[280px] truncate" title={m.title}>{m.title}</span>
                     </div>
                   </td>
-                  <td className="py-3.5 px-4 text-slate-500 font-mono text-[11px]">
+                  <td className="py-3.5 px-4 text-slate-500 text-[11px]" style={{ fontFamily: 'IRANSansXFaNum, sans-serif' }}>
                     {m.persianDate}
                   </td>
                   <td className="py-3.5 px-4">
                     <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>{m.totalSignaturesRequired} از {m.totalSignaturesRequired} امضا</span>
+                      <span>{m.signatureCount || 0}/{m.totalSignaturesRequired}</span>
                     </span>
-                  </td>
-                  <td className="py-3.5 px-4 font-mono text-slate-400 text-[10px] dir-ltr text-left truncate max-w-[140px]">
-                    {m.documentHash || 'a7f9b8c2...e1d3'}
                   </td>
                   <td className="py-3.5 px-4 text-slate-500 text-[11px]">
                     {m.sealedAt || '۱۴۰۴/۰۷/۰۱'}
@@ -141,18 +150,18 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                       <button
                         onClick={() => window.open(`/archive/print/${encodeURIComponent(m.id)}`, '_blank', 'noopener,noreferrer')}
                         title="مشاهده صورت‌جلسه رسمی"
-                        className="py-1 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                        aria-label="مشاهده صورت‌جلسه"
+                        className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
                       >
                         <FileCheck className="w-3 h-3" />
-                        <span>صورت‌جلسه</span>
                       </button>
                       <button
                         onClick={() => setSelectedCertificateMeeting(m)}
                         title="مشاهده گواهی اصالت"
-                        className="py-1 px-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 dark:hover:bg-purple-900/60 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                        aria-label="مشاهده گواهی اصالت"
+                        className="p-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 dark:hover:bg-purple-900/60 cursor-pointer"
                       >
                         <Award className="w-3 h-3" />
-                        <span>گواهی اصالت</span>
                       </button>
                       <button
                         onClick={() => setSelectedAuditMeeting(m)}
@@ -217,7 +226,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
               <div className="flex flex-col gap-1 text-[11px] text-slate-600 dark:text-slate-300">
                 <div className="flex justify-between">
                   <span>مرجع صادرکننده:</span>
-                  <span className="font-bold">سامانه ملی امضای دیجیتال MetaMeet</span>
+                  <span className="font-bold">سامانه امضای دیجیتال اکورد</span>
                 </div>
                 <div className="flex justify-between">
                   <span>تاریخ و ساعت پلمپ:</span>
@@ -288,7 +297,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                 >
                   <div className="flex items-center justify-between font-semibold">
                     <span className="text-indigo-600 dark:text-indigo-400">
-                      {log.action}
+                      {auditActionLabels[log.action] || 'رویداد سیستمی'}
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">
                       {log.timestamp}

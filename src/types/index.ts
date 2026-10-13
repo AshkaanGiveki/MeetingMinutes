@@ -51,8 +51,20 @@ export interface CommentItem {
   resolved?: boolean;
 }
 
+export interface MeetingAttachment {
+  id: string;
+  meetingId: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
 export interface Meeting {
   id: string;
+  /** Organization-scoped human-facing minute number; distinct from the internal meeting id. */
+  organizationMinuteId?: number;
   title: string;
   persianDate: string;
   timeRange: string;
@@ -70,6 +82,7 @@ export interface Meeting {
   decisions: DecisionItem[];
   actionItems: ActionItem[];
   comments: CommentItem[];
+  attachments?: MeetingAttachment[];
   documentHash?: string;
   sealedAt?: string;
   signatureCount: number;

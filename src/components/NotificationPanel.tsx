@@ -39,9 +39,9 @@ const getLocalizedNotification = (item: NotificationItem) => {
   return item;
 };
 
-interface Props { isOpen: boolean; onClose: () => void; }
+interface Props { isOpen: boolean; onClose: () => void; onUnreadCountChange?: (count: number) => void; }
 
-export const NotificationPanel: React.FC<Props> = ({ isOpen, onClose }) => {
+export const NotificationPanel: React.FC<Props> = ({ isOpen, onClose, onUnreadCountChange }) => {
   const navigate = useNavigate();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,22 +53,30 @@ export const NotificationPanel: React.FC<Props> = ({ isOpen, onClose }) => {
     setLoading(true);
     fetch('/api/notifications', { signal: controller.signal })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load notifications')))
-      .then((data) => setItems(data.notifications || []))
+      .then((data) => {
+        setItems(data.notifications || []);
+        onUnreadCountChange?.(Number(data.unreadCount ?? (data.notifications || []).filter((item: NotificationItem) => !item.readAt).length));
+      })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         setItems([]);
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [isOpen]);
+  }, [isOpen, onUnreadCountChange]);
 
   const markAllRead = async () => {
     await fetch('/api/notifications/read-all', { method: 'POST' });
     setItems((current) => current.map((item) => ({ ...item, readAt: new Date().toISOString() })));
+    onUnreadCountChange?.(0);
   };
   const markRead = async (id: string) => {
     await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
-    setItems((current) => current.map((item) => item.id === id ? { ...item, readAt: new Date().toISOString() } : item));
+    setItems((current) => {
+      const wasUnread = current.some((item) => item.id === id && !item.readAt);
+      if (wasUnread) onUnreadCountChange?.(Math.max(0, current.filter((item) => !item.readAt).length - 1));
+      return current.map((item) => item.id === id ? { ...item, readAt: new Date().toISOString() } : item);
+    });
   };
 
   return (

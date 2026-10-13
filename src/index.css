@@ -636,6 +636,214 @@ button:disabled {
   height: 0;
 }
 
+/* Responsive application shell. The desktop layout stays framed while narrow
+   screens get a true viewport-height workspace, safe-area spacing, and compact
+   page gutters without changing the information architecture. */
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.app-shell {
+  min-height: 100svh;
+}
+
+.app-content {
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 7rem;
+}
+
+.responsive-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.responsive-page h1,
+.responsive-page h2,
+.responsive-page h3 {
+  overflow-wrap: anywhere;
+}
+
+.meeting-filter-bar {
+  min-width: 0;
+}
+
+.meeting-filter-bar > div:first-child {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.meeting-filter-bar input,
+.responsive-page input,
+.responsive-page select,
+.responsive-page textarea {
+  min-width: 0;
+}
+
+.responsive-page .overflow-x-auto {
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Organization invitations are intentionally phone-only. Keep the legacy
+   fields mounted for compatibility with older state while presenting the
+   streamlined signed-up-user detection flow. */
+.contacts-invite-form > div:first-child,
+.contacts-invite-form > div:nth-child(3),
+.contacts-invite-form input[type='email'] {
+  display: none;
+}
+
+.contacts-invite-form > div:nth-child(2) label {
+  font-size: 0;
+}
+
+.contacts-invite-form > div:nth-child(2) label::after {
+  content: 'شماره تلفن';
+  font-size: 0.75rem;
+}
+
+.app-modal-backdrop {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 1023px) {
+  .app-shell {
+    height: 100svh;
+    padding: 0.625rem;
+    gap: 0.625rem;
+  }
+
+  .app-workspace {
+    height: 100%;
+  }
+
+  .app-content {
+    padding-inline: 0.125rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .app-shell {
+    padding: 0.5rem;
+  }
+
+  .app-content {
+    margin-top: 0.5rem;
+    padding-bottom: calc(6.75rem + env(safe-area-inset-bottom));
+  }
+
+  .responsive-page {
+    gap: 1rem;
+    padding: 0.75rem 0.25rem;
+  }
+
+  .responsive-page > :first-child {
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .responsive-page > :first-child > div:first-child {
+    min-width: 0;
+  }
+
+  .responsive-page > :first-child h1 {
+    font-size: 1rem;
+    line-height: 1.8;
+  }
+
+  .responsive-page > :first-child p {
+    line-height: 1.7;
+  }
+
+  .responsive-page > :first-child > button,
+  .responsive-page > :first-child > div:last-child > button {
+    flex-shrink: 0;
+    padding-inline: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .meeting-filter-bar {
+    align-items: stretch;
+    padding: 0.5rem;
+  }
+
+  .meeting-filter-bar > div:first-child {
+    width: 100%;
+    justify-content: flex-start;
+    border-radius: 0.85rem;
+  }
+
+  .meeting-filter-bar > div:first-child button {
+    flex: 0 0 auto;
+    min-height: 2.25rem;
+    white-space: nowrap;
+  }
+
+  .meeting-filter-bar > div:last-child {
+    width: 100%;
+  }
+
+  .responsive-page table {
+    min-width: 680px;
+  }
+
+  .responsive-page .overflow-x-auto {
+    margin-inline: -0.125rem;
+    padding-inline: 0.125rem;
+  }
+
+  .app-modal-backdrop {
+    align-items: flex-end;
+    padding: 0.5rem;
+  }
+
+  .app-modal-backdrop > div {
+    max-height: calc(100svh - 1rem);
+    overflow-y: auto;
+    border-radius: 1.35rem;
+  }
+
+  form button,
+  form [role='button'] {
+    min-height: 2.75rem;
+  }
+
+  .mobile-bottom-nav {
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .mobile-bottom-nav-inner {
+    min-height: 3.9rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .app-shell {
+    padding: 0.35rem;
+  }
+
+  .responsive-page {
+    padding-inline: 0;
+  }
+
+  .mobile-bottom-nav {
+    inset-inline: 0.35rem;
+  }
+
+  .mobile-bottom-nav-item {
+    padding-inline: 0.15rem;
+    font-size: 9px;
+  }
+}
+
 /* Printable PDF styles */
 @media print {
   body {
@@ -649,4 +857,3 @@ button:disabled {
     display: block !important;
   }
 }
-

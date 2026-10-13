@@ -164,7 +164,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 py-6" dir="rtl">
+    <div className="responsive-page mx-auto max-w-4xl space-y-5 py-6" dir="rtl">
       <div className="flex items-center justify-between">
         <div><h1 className="text-xl font-bold text-slate-900 dark:text-white">سازمان‌های من</h1><p className="mt-1 text-sm text-slate-500">عضویت‌ها، دعوت‌نامه‌ها و دسترسی‌های سازمانی خود را مدیریت کنید.</p></div>
         <motion.button

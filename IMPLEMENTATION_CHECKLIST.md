@@ -1,6 +1,6 @@
-# MetaMeet Production-Readiness Implementation Checklist
+# Accord Production-Readiness Implementation Checklist
 
-This checklist tracks the work required to move MetaMeet from a UI-heavy prototype to a production-ready meeting, review, signature, archive, and notification platform.
+This checklist tracks the work required to move Accord from a UI-heavy prototype to a production-ready meeting, review, signature, archive, and notification platform.
 
 Status legend: `[ ]` not started, `[-]` in progress/partial, `[x]` implemented and verified.
 

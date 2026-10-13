@@ -266,7 +266,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
   };
 
   return (
-    <div className="flex-1 max-w-4xl mx-auto flex flex-col gap-6 p-6">
+    <div className="responsive-page flex-1 max-w-4xl mx-auto flex flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">

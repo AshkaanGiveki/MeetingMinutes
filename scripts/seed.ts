@@ -64,7 +64,7 @@ async function main() {
   try {
     const passwordHash = bcrypt.hashSync(seedPassword, 12);
     const users: AuthUser[] = Object.values(participants).map((participant, index) => ({ id: participant.id, phoneNumber: `+9891212345${String(index + 1).padStart(2, '0')}`, email: participant.email, passwordHash, name: participant.name, preferences: {} }));
-    const organization: OrganizationRecord = { id: 'org_main', name: 'سازمان متامیت', createdBy: participants.maryam.id, visibility: 'private', createdAt: new Date().toISOString() };
+    const organization: OrganizationRecord = { id: 'org_main', name: 'سازمان اکورد', createdBy: participants.maryam.id, visibility: 'private', createdAt: new Date().toISOString() };
     await db.collection<OrganizationRecord>('organizations').updateOne({ id: organization.id }, { $setOnInsert: organization }, { upsert: true });
     for (const user of users) await db.collection('users').updateOne({ id: user.id }, { $setOnInsert: user }, { upsert: true });
     for (const participant of Object.values(participants)) {

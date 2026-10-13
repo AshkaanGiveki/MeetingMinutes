@@ -113,7 +113,10 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const participantRoles = (participant: Participant) => Array.from(new Set([...(participant.roles || []), participant.role])).map((role) => role === 'Participant' ? 'Viewer' : role);
   const totalSignatures = meeting.totalSignaturesRequired || meeting.participants.filter((participant) => hasRole(participant, 'Signer')).length || 0;
   const signedParticipantIds = new Set((meeting.signatures || []).map((signature) => signature.signerId));
-  const signedCount = Math.max(meeting.signatureCount || 0, signedParticipantIds.size, meeting.participants.filter((participant) => participant.hasSigned).length);
+  const hasSignatureRecords = Array.isArray(meeting.signatures);
+  const signedCount = hasSignatureRecords
+    ? signedParticipantIds.size
+    : (meeting.signatureCount || meeting.participants.filter((participant) => participant.hasSigned).length);
   const allSignaturesCollected = totalSignatures > 0 && signedCount >= totalSignatures;
   const participants = meeting.participants.filter(Boolean);
   const visibleParticipants = participants.slice(0, 4);
@@ -222,7 +225,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                 </div>
               </div>
 
-              {p.hasSigned || signedParticipantIds.has(p.id) ? (
+              {(hasSignatureRecords ? signedParticipantIds.has(p.id) : Boolean(p.hasSigned)) ? (
                 <span className="w-2 h-2 rounded-full bg-emerald-500" title="امضا کرده" />
               ) : (
                 <span className="w-2 h-2 rounded-full bg-amber-400/80" title="در انتظار امضا" />

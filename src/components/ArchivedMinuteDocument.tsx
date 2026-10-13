@@ -171,7 +171,7 @@ export const ArchivedMinuteDocument: React.FC<ArchivedMinuteDocumentProps> = ({ 
             <p>{meeting.title}</p>
           </div>
           <div className="archived-minute-reference">
-            <div>شماره: <b>{meeting.id}</b></div>
+            <div>شماره صورت‌جلسه: <b>{meeting.organizationMinuteId || meeting.id}</b></div>
             <div>وضعیت: <b>{meeting.statusLabel || 'بایگانی شده'}</b></div>
           </div>
         </header>

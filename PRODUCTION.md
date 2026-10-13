@@ -1,4 +1,4 @@
-# MetaMeet production runbook
+# Accord production runbook
 
 ## Required configuration
 

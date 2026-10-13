@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Users, Plus, Shield, Mail, CheckCircle2, UserCheck, Key, X, Trash2 } from 'lucide-react';
+import { Users, Plus, CheckCircle2, UserCheck, Key, X, Trash2, LoaderCircle } from 'lucide-react';
 import { Participant } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { EmptyState } from './EmptyState';
@@ -16,15 +16,29 @@ interface ContactsViewProps {
   canManageMembers?: boolean;
 }
 
+interface PendingOrganizationInvitation {
+  token: string;
+  phoneNumber?: string;
+  name?: string;
+  role: string;
+  createdAt: string;
+  expiresAt: number;
+}
+
 export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = true, organizationId, canManageMembers = false }) => {
   const [members, setMembers] = useState<Participant[]>([]);
+  const [invitations, setInvitations] = useState<PendingOrganizationInvitation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [operationMessage, setOperationMessage] = useState('');
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [isInviting, setIsInviting] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newRole, setNewRole] = useState('User');
+  const [memberPendingRemoval, setMemberPendingRemoval] = useState<Participant | null>(null);
+  const [isRemovingMember, setIsRemovingMember] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -34,7 +48,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
     const timeout = window.setTimeout(() => controller.abort(), 30000);
     fetch('/api/members', { signal: controller.signal })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('اعضای سازمان قابل دریافت نیستند.')))
-      .then((data) => { setMembers((data.members || []).map((member: Participant) => ({ ...member, hasSigned: false }))); setIsLoading(false); })
+      .then((data) => { setMembers((data.members || []).map((member: Participant) => ({ ...member, hasSigned: false }))); setInvitations(data.invitations || []); setIsLoading(false); })
       .catch((error) => setLoadError(error instanceof DOMException && error.name === 'AbortError' ? 'دریافت اعضای سازمان بیش از حد طول کشید. لطفاً دوباره تلاش کنید.' : error instanceof Error ? error.message : 'اعضای سازمان قابل دریافت نیستند.'))
       .finally(() => window.clearTimeout(timeout));
     return () => {
@@ -56,42 +70,50 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
 
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim() || !newPhone.trim()) return;
+    if (!newPhone.trim()) return;
+    setIsInviting(true);
+    setLoadError('');
+    setOperationMessage('');
 
     void fetch('/api/members/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: newEmail.trim(), phoneNumber: newPhone.trim(), name: newName.trim(), role: 'User' }),
+      body: JSON.stringify({ phoneNumber: newPhone.trim() }),
     }).then(async (response) => {
       if (!response.ok) throw new Error((await response.json()).error || 'دعوت عضو انجام نشد.');
-      setNewName('');
-      setNewEmail('');
       setNewPhone('');
       setIsInviteModalOpen(false);
-    }).catch((error) => setLoadError(error instanceof Error ? error.message : 'دعوت عضو انجام نشد.'));
-    return;
-
-    const newMember: Participant = {
-      id: `usr_${Date.now()}`,
-      name: newName.trim(),
-      email: newEmail.trim(),
-      role: newRole,
-      hasSigned: false,
-    };
-
-    setMembers([...members, newMember]);
-    setNewName('');
-    setNewEmail('');
-    setIsInviteModalOpen(false);
+      setOperationMessage('دعوت‌نامه با موفقیت ارسال شد و در فهرست دعوت‌های در انتظار قرار گرفت.');
+      return fetch('/api/members').then(async (refreshResponse) => {
+        if (!refreshResponse.ok) return;
+        const refreshed = await refreshResponse.json();
+        setInvitations(refreshed.invitations || []);
+      });
+    }).catch((error) => setLoadError(error instanceof Error ? error.message : 'دعوت عضو انجام نشد.')).finally(() => setIsInviting(false));
   };
 
-  const handleRemoveMember = async (id: string) => {
-    const response = await fetch(`/api/members/${id}`, { method: 'DELETE' });
-    if (response.ok) setMembers((current) => current.filter((member) => member.id !== id));
+  const handleRemoveMember = async () => {
+    if (!memberPendingRemoval) return;
+    setIsRemovingMember(true);
+    try {
+      const response = await fetch(`/api/members/${memberPendingRemoval.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'حذف عضو انجام نشد.');
+      }
+      setMembers((current) => current.filter((member) => member.id !== memberPendingRemoval.id));
+      setMemberPendingRemoval(null);
+      setLoadError('');
+      setOperationMessage('عضو با موفقیت از سازمان حذف شد.');
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'حذف عضو انجام نشد.');
+    } finally {
+      setIsRemovingMember(false);
+    }
   };
 
   return (
-    <div className="flex-1 max-w-5xl mx-auto flex flex-col gap-6 p-6">
+    <div className="responsive-page flex-1 max-w-5xl mx-auto flex flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -118,6 +140,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
       </div>
 
       {loadError && <div className="rounded-xl bg-rose-50 px-4 py-3 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{loadError}</div>}
+      {operationMessage && <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4 shrink-0" />{operationMessage}</div>}
 
       {/* Permissions overview bar */}
       <div className="p-4 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
@@ -139,6 +162,22 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
           ))}
         </motion.div>
       </div>
+
+      {invitations.length > 0 && <section className="rounded-3xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/60 dark:bg-amber-950/20">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-black text-amber-900 dark:text-amber-100">دعوت‌نامه‌های در انتظار</h2>
+            <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">تا تعیین تکلیف این دعوت‌نامه‌ها، ارسال دعوت‌نامه تکراری برای همان شماره امکان‌پذیر نیست.</p>
+          </div>
+          <span className="rounded-full bg-amber-200/70 px-2.5 py-1 text-[10px] font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">{invitations.length} دعوت</span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {invitations.map((invitation) => <div key={invitation.token} className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-amber-200/80 bg-white/75 p-3 dark:border-amber-900/50 dark:bg-slate-900/50">
+            <div className="min-w-0"><p className="truncate text-xs font-bold text-slate-800 dark:text-slate-100">{invitation.name || invitation.phoneNumber}</p><p className="mt-1 truncate font-mono text-[10px] text-slate-500 dark:text-slate-400">{invitation.phoneNumber}</p></div>
+            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-200">در انتظار پذیرش</span>
+          </div>)}
+        </div>
+      </section>}
 
       {/* Members Table */}
       <div className="rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -194,7 +233,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
                   </td>
                   <td className="py-3.5 px-4 text-center">
                     {canManageMembers && <button
-                      onClick={() => handleRemoveMember(m.id)}
+                      onClick={() => setMemberPendingRemoval(m)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
                       title="حذف عضو"
                     >
@@ -223,13 +262,14 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
               </button>
             </div>
 
-            <form onSubmit={handleInvite} className="flex flex-col gap-3 text-xs">
+            <form onSubmit={handleInvite} className="contacts-invite-form flex flex-col gap-3 text-xs">
               <div className="flex flex-col gap-1">
                 <label className="font-semibold text-slate-700 dark:text-slate-300">
                   نام و نام خانوادگی:
                 </label>
                 <input
                   type="text"
+                  disabled
                   required
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
@@ -252,6 +292,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
                 />
                 <input
                   type="email"
+                  disabled
                   required
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
@@ -287,13 +328,56 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold cursor-pointer shadow-md shadow-indigo-600/20 active:scale-98"
+                  disabled={isInviting}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold cursor-pointer shadow-md shadow-indigo-600/20 active:scale-98 disabled:cursor-not-allowed disabled:opacity-60"
                 >
+                  {isInviting && <LoaderCircle className="ml-1 inline h-3.5 w-3.5 animate-spin" />}
                   ارسال دعوت‌نامه
                 </button>
               </div>
             </form>
           </div>
+      </AnimatedModal>
+
+      {/* Remove member confirmation */}
+      <AnimatedModal
+        isOpen={Boolean(memberPendingRemoval)}
+        onClose={() => { if (!isRemovingMember) setMemberPendingRemoval(null); }}
+        contentClassName="w-full max-w-md"
+      >
+        {memberPendingRemoval && (
+          <div className="w-full max-w-md rounded-3xl border border-white/80 bg-white p-6 text-right shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 dark:text-white">حذف عضو از سازمان</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">این عضو دیگر به جلسات و اطلاعات این سازمان دسترسی نخواهد داشت.</p>
+                  </div>
+                  <button type="button" onClick={() => setMemberPendingRemoval(null)} disabled={isRemovingMember} className="rounded-xl p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200" aria-label="بستن">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/60">
+              <UserAvatar name={memberPendingRemoval.name} avatar={memberPendingRemoval.avatar} className="h-10 w-10 shrink-0 text-xs ring-2 ring-white dark:ring-slate-700" imageClassName="h-10 w-10 rounded-full object-cover ring-2 ring-white dark:ring-slate-700" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-slate-800 dark:text-slate-100">{memberPendingRemoval.name}</p>
+                <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{memberPendingRemoval.email || 'عضو سازمان'}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center gap-2">
+              <button type="button" onClick={() => setMemberPendingRemoval(null)} disabled={isRemovingMember} className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">انصراف</button>
+              <button type="button" onClick={() => void handleRemoveMember()} disabled={isRemovingMember} className="flex-1 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-rose-600/20 transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50">{isRemovingMember ? 'در حال حذف…' : 'حذف عضو'}</button>
+            </div>
+          </div>
+        )}
       </AnimatedModal>
     </div>
   );

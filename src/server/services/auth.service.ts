@@ -32,6 +32,7 @@ export interface AuthUser {
   avatar?: string;
   telegramChatId?: string;
   telegramUsername?: string;
+  activeOrganizationId?: string;
   preferences?: Record<string, unknown>;
   signatureData?: string;
 }
@@ -60,7 +61,18 @@ export class AuthService {
       return null;
     }
 
-    const context = await organizationService.getContext(user.id);
+    // Keep the user's last selected organization as the source of truth across
+    // logout, login, and server restarts. Fall back only when that membership
+    // no longer exists or is no longer active.
+    const context = (user.activeOrganizationId
+      ? await organizationService.getContext(user.id, user.activeOrganizationId)
+      : null) || await organizationService.getContext(user.id);
+    if (context && user.activeOrganizationId !== context.organization.id) {
+      await db.collection<AuthUser>('users').updateOne(
+        { id: user.id },
+        { $set: { activeOrganizationId: context.organization.id, updatedAt: new Date().toISOString() } },
+      );
+    }
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const session: AuthSession = {
       userId: user.id,
@@ -100,7 +112,7 @@ export class AuthService {
     return this.login(normalizedPhone, passwordPlain);
   }
 
-  async ensureBootstrapOwner(email?: string, password?: string, name = 'MetaMeet Owner', phoneNumber?: string): Promise<void> {
+  async ensureBootstrapOwner(email?: string, password?: string, name = 'Accord Owner', phoneNumber?: string): Promise<void> {
     if (!email || !password || !phoneNumber || process.env.NODE_ENV !== 'production') return;
     const db = getDb();
     if (!db) return;
@@ -164,7 +176,8 @@ export class AuthService {
   async switchOrganization(sessionToken: string, userId: string, organizationId: string): Promise<AuthSession | null> {
     const context = await organizationService.getContext(userId, organizationId);
     if (!context) return null;
-    const user = await this.requireDb().collection<AuthUser>('users').findOne({ id: userId });
+    const db = this.requireDb();
+    const user = await db.collection<AuthUser>('users').findOne({ id: userId });
     if (!user) return null;
     const session: AuthSession = {
       userId,
@@ -181,7 +194,17 @@ export class AuthService {
       telegramUsername: user.telegramUsername,
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
     };
-    await this.requireDb().collection('sessions').updateOne({ token: sessionToken, userId }, { $set: session });
+    // Persist the choice on the user, not just in one browser session.
+    await db.collection<AuthUser>('users').updateOne(
+      { id: userId },
+      { $set: { activeOrganizationId: context.organization.id, updatedAt: new Date().toISOString() } },
+    );
+    // Keep other active sessions consistent with the same account-level choice.
+    await db.collection('sessions').updateMany(
+      { userId, token: { $ne: sessionToken }, expiresAt: { $gt: Date.now() } },
+      { $set: { organizationId: context.organization.id, organizationName: context.organization.name, role: context.membership.role, permissions: context.membership.permissions } },
+    );
+    await db.collection('sessions').updateOne({ token: sessionToken, userId }, { $set: session });
     return session;
   }
 

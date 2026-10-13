@@ -33,7 +33,7 @@ function drawRoundedCard(document: PDFKit.PDFDocument, x: number, y: number, wid
 
 function addFooter(document: PDFKit.PDFDocument, pageNumber: number, totalPages: number, color: string) {
   document.save().strokeColor('#e5e7eb').lineWidth(0.6).moveTo(margin, pageHeight - 62).lineTo(pageWidth - margin, pageHeight - 62).stroke();
-  document.fillColor(color).fontSize(8).text('MetaMeet  |  صورت‌جلسه رسمی دیجیتال', margin, pageHeight - 53, { width: contentWidth / 2, align: 'left' });
+  document.fillColor(color).fontSize(8).text('Accord  |  صورت‌جلسه رسمی دیجیتال', margin, pageHeight - 53, { width: contentWidth / 2, align: 'left' });
   document.fillColor('#64748b').fontSize(8).text(`صفحه ${pageNumber} از ${totalPages}`, pageWidth / 2, pageHeight - 53, { width: contentWidth / 2, ...rtl });
   document.restore();
 }
@@ -67,7 +67,7 @@ export async function generateMeetingPdf(meeting: Meeting, template?: Pick<Print
   const signatureByPerson = new Map(signatures.map((signature) => [signature.signerId, signature]));
 
   await new Promise<void>((resolve, reject) => {
-    const document = new PDFDocument({ size: 'A4', margin, bufferPages: true, info: { Title: meeting.title, Author: 'MetaMeet', Subject: 'صورت‌جلسه رسمی' } });
+    const document = new PDFDocument({ size: 'A4', margin, bufferPages: true, info: { Title: meeting.title, Author: 'Accord', Subject: 'صورت‌جلسه رسمی' } });
     const output = createWriteStream(filePath); document.pipe(output);
     output.on('finish', resolve); output.on('error', reject);
     try { document.font(persianFont); } catch { /* PDFKit fallback */ }
@@ -76,11 +76,11 @@ export async function generateMeetingPdf(meeting: Meeting, template?: Pick<Print
 
     document.save().roundedRect(margin, cursor, contentWidth, 132, 18).fill(colors.paper).restore();
     document.save().roundedRect(margin, cursor, contentWidth, 8, 4).fill(colors.accent).restore();
-    document.fillColor(colors.accent).fontSize(10).font(persianFont).text('METAMEET', margin + 20, cursor + 23, { width: 150, align: 'left' });
+    document.fillColor(colors.accent).fontSize(10).font(persianFont).text('ACCORD', margin + 20, cursor + 23, { width: 150, align: 'left' });
     document.fillColor(colors.muted).fontSize(8.5).font(persianFont).text('صورت‌جلسه رسمی دیجیتال', margin + 20, cursor + 38, { width: 180, align: 'left' });
     document.fillColor(colors.accent).fontSize(9).text(normalizeStatus(meeting.status), margin + 20, cursor + 94, { width: 180, align: 'left' });
     document.fillColor(colors.ink).fontSize(18).font(persianFont).text(textOrDash(meeting.title), margin + 210, cursor + 22, { width: contentWidth - 230, ...rtl });
-    document.fillColor(colors.muted).fontSize(8.5).font(persianFont).text(`شناسه سند: ${meeting.id}`, margin + 210, cursor + 108, { width: contentWidth - 230, ...rtl });
+    document.fillColor(colors.muted).fontSize(8.5).font(persianFont).text(`شماره صورت‌جلسه: ${meeting.organizationMinuteId || meeting.id}`, margin + 210, cursor + 108, { width: contentWidth - 230, ...rtl });
     cursor += 152;
 
     cursor = addSectionHeader(document, 'مشخصات جلسه', 'اطلاعات پایه و مرجع رسمی جلسه', colors.accent, cursor);
@@ -102,8 +102,12 @@ export async function generateMeetingPdf(meeting: Meeting, template?: Pick<Print
     document.fillColor(colors.muted).fontSize(8).font(persianFont).text('عضو و نقش', margin + 18, tableY + 10, { width: 220, ...rtl });
     document.text('وضعیت امضا', margin + 280, tableY + 10, { width: 100, ...rtl });
     document.text('مسئولیت', margin + 398, tableY + 10, { width: 110, ...rtl });
+    const hasAuthoritativeSignatureRecords = Array.isArray(meeting.signatures);
     participants.forEach((person, index) => {
-      const y = tableY + 34 + index * rowHeight; const signed = Boolean(signatureByPerson.get(person.id) || person.hasSigned);
+      const y = tableY + 34 + index * rowHeight;
+      const signed = hasAuthoritativeSignatureRecords
+        ? Boolean(signatureByPerson.get(person.id))
+        : Boolean(signatureByPerson.get(person.id) || person.hasSigned);
       document.strokeColor('#edf1f5').lineWidth(0.6).moveTo(margin + 14, y - 5).lineTo(pageWidth - margin - 14, y - 5).stroke();
       document.fillColor(colors.ink).fontSize(9.5).font(persianFont).text(person.name, margin + 18, y + 1, { width: 220, ...rtl });
       document.fillColor(colors.muted).fontSize(7.8).font(persianFont).text(rolesOf(person).join('  |  '), margin + 18, y + 15, { width: 220, ...rtl });

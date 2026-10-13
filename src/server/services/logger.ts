@@ -15,7 +15,7 @@ export interface StructuredLog {
 export class Logger {
   private serviceName: string;
 
-  constructor(serviceName: string = 'metameet-backend') {
+  constructor(serviceName: string = 'accord-backend') {
     this.serviceName = serviceName;
   }
 
@@ -75,4 +75,4 @@ export class Logger {
   }
 }
 
-export const logger = new Logger('metameet-server');
+export const logger = new Logger('accord-server');

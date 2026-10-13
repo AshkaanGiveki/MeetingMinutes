@@ -118,7 +118,7 @@ export class TelegramService {
               { text: 'مشاهده در وب‌سایت', url: viewUrl },
             ],
           },
-          { type: 'footer', text: 'MetaMeet · امضای امن و مستقیم از تلگرام' },
+          { type: 'footer', text: 'Accord · امضای امن و مستقیم از تلگرام' },
         ],
       };
       const form = new FormData();
@@ -151,7 +151,7 @@ export class TelegramService {
       blocks: [
         { type: 'heading', size: 3, text: `${tone === 'success' ? '✅' : '❌'} ${title}` },
         { type: 'paragraph', text: message },
-        { type: 'footer', text: 'MetaMeet · این پیام فقط برای شما نمایش داده می‌شود' },
+        { type: 'footer', text: 'Accord · این پیام فقط برای شما نمایش داده می‌شود' },
       ],
     };
     if (!this.botToken) {
@@ -196,7 +196,7 @@ export class TelegramService {
       blocks: [
         { type: 'heading', size: 3, text: `${tone === 'success' ? '✅' : '❌'} ${title}` },
         { type: 'paragraph', text: message },
-        { type: 'footer', text: 'MetaMeet · این درخواست دیگر قابل تغییر نیست' },
+        { type: 'footer', text: 'Accord · این درخواست دیگر قابل تغییر نیست' },
       ],
     };
     try {

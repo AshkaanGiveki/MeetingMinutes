@@ -49,7 +49,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState(currentUserEmail);
-  const [loginPassword, setLoginPassword] = useState('MetaMeet@2028');
+  const [loginPassword, setLoginPassword] = useState('Accord@2028');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   // Sign up form state

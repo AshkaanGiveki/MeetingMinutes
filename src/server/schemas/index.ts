@@ -58,6 +58,7 @@ export const CommentItemSchema = z.object({
 });
 
 export const CreateMeetingSchema = z.object({
+  organizationMinuteId: z.number().int().positive().max(2_147_483_647).optional(),
   title: z.string().min(3),
   persianDate: z.string().min(6),
   timeRange: z.string().min(3),

@@ -20,6 +20,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   organizer,
 }) => {
   const [title, setTitle] = useState('');
+  const [organizationMinuteId, setOrganizationMinuteId] = useState('');
   const [persianDate, setPersianDate] = useState('۱۵ مهر ۱۴۰۴');
   const [timeRange, setTimeRange] = useState('۱۰:۰۰ - ۱۱:۳۰');
   const [location, setLocation] = useState('اتاق جلسات اصلی');
@@ -46,6 +47,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
 
     const newMeeting: Meeting = {
       id: `meet_${Date.now()}`,
+      organizationMinuteId: organizationMinuteId ? Number(organizationMinuteId) : undefined,
       title: title.trim(),
       contentTemplateId: chosenTemplate?.id,
       persianDate: persianDate.trim(),
@@ -111,6 +113,20 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
               placeholder="مثال: جلسه بازنگری معماری فنی سامانه چهارم"
               className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
             />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="font-semibold text-slate-700 dark:text-slate-300">شماره صورت‌جلسه (اختیاری):</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={organizationMinuteId}
+              onChange={(e) => setOrganizationMinuteId(e.target.value)}
+              placeholder="خودکار از آخرین شماره ادامه می‌یابد"
+              className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
+            />
+            <p className="text-[10px] text-slate-400">برای ثبت صورت‌جلسه‌های قدیمی می‌توانید عددی مانند ۱۳۸۶ وارد کنید.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

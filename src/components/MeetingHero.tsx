@@ -62,6 +62,19 @@ interface MeetingHeroProps {
   canEdit?: boolean;
 }
 
+const getAttachmentDesign = (fileName: string, mimeType: string) => {
+  const extension = fileName.split('.').pop()?.toLowerCase() || '';
+  if (extension === 'pdf' || mimeType === 'application/pdf') return { label: 'PDF', kind: 'سند PDF', gradient: 'from-rose-500 via-red-500 to-orange-500', glow: 'shadow-rose-500/20', soft: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' };
+  if (['doc', 'docx', 'odt', 'rtf'].includes(extension) || mimeType.includes('word')) return { label: extension.toUpperCase(), kind: 'سند متنی', gradient: 'from-blue-500 via-indigo-500 to-violet-500', glow: 'shadow-blue-500/20', soft: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' };
+  if (['xls', 'xlsx', 'csv', 'ods'].includes(extension) || mimeType.includes('sheet') || mimeType.includes('excel')) return { label: extension.toUpperCase(), kind: 'صفحه گسترده', gradient: 'from-emerald-500 via-teal-500 to-cyan-500', glow: 'shadow-emerald-500/20', soft: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' };
+  if (['ppt', 'pptx', 'odp'].includes(extension) || mimeType.includes('presentation')) return { label: extension.toUpperCase(), kind: 'ارائه', gradient: 'from-orange-500 via-amber-500 to-yellow-500', glow: 'shadow-orange-500/20', soft: 'bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300' };
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension) || mimeType.startsWith('image/')) return { label: extension.toUpperCase() || 'IMG', kind: 'تصویر', gradient: 'from-fuchsia-500 via-purple-500 to-indigo-500', glow: 'shadow-purple-500/20', soft: 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300' };
+  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(extension) || mimeType.startsWith('video/')) return { label: extension.toUpperCase() || 'VIDEO', kind: 'ویدئو', gradient: 'from-violet-500 via-purple-600 to-fuchsia-500', glow: 'shadow-violet-500/20', soft: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' };
+  if (['mp3', 'wav', 'm4a', 'ogg'].includes(extension) || mimeType.startsWith('audio/')) return { label: extension.toUpperCase() || 'AUDIO', kind: 'فایل صوتی', gradient: 'from-amber-500 via-orange-500 to-rose-500', glow: 'shadow-amber-500/20', soft: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' };
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) return { label: extension.toUpperCase(), kind: 'فایل فشرده', gradient: 'from-slate-500 via-slate-600 to-slate-800', glow: 'shadow-slate-500/20', soft: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' };
+  return { label: extension.toUpperCase() || 'FILE', kind: 'فایل پیوست', gradient: 'from-sky-500 via-cyan-500 to-blue-600', glow: 'shadow-sky-500/20', soft: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300' };
+};
+
 export const MeetingHero: React.FC<MeetingHeroProps> = ({
   meeting,
   workspaceStage = 'write',
@@ -77,6 +90,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   // Title editing state
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(meeting.title);
+  const [minuteNumberInput, setMinuteNumberInput] = useState(String(meeting.organizationMinuteId || ''));
 
   // Editor states
   const [editorMode, setEditorMode] = useState<'edit' | 'preview'>('edit');
@@ -88,6 +102,10 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const isHeaderCompact = false;
+
+  useEffect(() => {
+    setMinuteNumberInput(String(meeting.organizationMinuteId || ''));
+  }, [meeting.id, meeting.organizationMinuteId]);
 
   useEffect(() => {
     if (!canEdit) {
@@ -145,6 +163,12 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskAssigneeId, setNewTaskAssigneeId] = useState(meeting.participants[0]?.id || 'usr_arash');
   const [newTaskDeadline, setNewTaskDeadline] = useState('۱۵ آبان ۱۴۰۴');
+  const [editingActionId, setEditingActionId] = useState<string | null>(null);
+  const [editingActionText, setEditingActionText] = useState('');
+  const [editingActionAssigneeId, setEditingActionAssigneeId] = useState('');
+  const [editingActionDeadline, setEditingActionDeadline] = useState('');
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState('');
 
   // Link Insertion Modal
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
@@ -161,6 +185,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
       setTitleInput(meeting.title);
       setEditingAgendaId(null);
       setEditingDecisionId(null);
+      setEditingActionId(null);
     }
   }, [meeting.id]);
 
@@ -406,16 +431,25 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
     setIsEditingTitle(false);
   };
 
+  const parseListEntries = (value: string): string[] => {
+    const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const numberedLine = /^(?:\d+|[۰-۹٠-٩]+)[.)،:-]\s*/;
+    const bulletLine = /^(?:[-•*])\s*/;
+    return lines.map((line) => line.replace(numberedLine, '').replace(bulletLine, '').trim()).filter(Boolean);
+  };
+
   // Agenda handlers (Add, Inline Edit, Delete, Reorder)
   const handleSaveNewAgenda = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAgendaText.trim()) return;
-    const newItem: AgendaItem = {
-      id: `ag_${Date.now()}`,
-      order: meeting.agenda.length + 1,
-      text: newAgendaText.trim(),
-    };
-    onUpdateMeeting({ agenda: [...meeting.agenda, newItem] });
+    const entries = parseListEntries(newAgendaText);
+    if (entries.length === 0) return;
+    const timestamp = Date.now();
+    const newItems: AgendaItem[] = entries.map((text, index) => ({
+      id: `ag_${timestamp}_${index}`,
+      order: meeting.agenda.length + index + 1,
+      text,
+    }));
+    onUpdateMeeting({ agenda: [...meeting.agenda, ...newItems] });
     setNewAgendaText('');
     setIsAddingAgenda(false);
   };
@@ -452,13 +486,15 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   // Decision handlers
   const handleSaveNewDecision = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDecisionText.trim()) return;
-    const newDec: DecisionItem = {
-      id: `dec_${Date.now()}`,
-      text: newDecisionText.trim(),
+    const entries = parseListEntries(newDecisionText);
+    if (entries.length === 0) return;
+    const timestamp = Date.now();
+    const newDecisions: DecisionItem[] = entries.map((text, index) => ({
+      id: `dec_${timestamp}_${index}`,
+      text,
       approved: true,
-    };
-    onUpdateMeeting({ decisions: [...meeting.decisions, newDec] });
+    }));
+    onUpdateMeeting({ decisions: [...meeting.decisions, ...newDecisions] });
     setNewDecisionText('');
     setIsAddingDecision(false);
   };
@@ -491,20 +527,22 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   // Action Items handlers
   const handleSaveNewAction = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskTitle.trim()) return;
+    const entries = parseListEntries(newTaskTitle);
+    if (entries.length === 0) return;
     const assignee =
       meeting.participants.find((p) => p.id === newTaskAssigneeId) ||
       meeting.participants[0] ||
       meeting.organizer;
 
-    const newAction: ActionItem = {
-      id: `act_${Date.now()}`,
-      task: newTaskTitle.trim(),
+    const timestamp = Date.now();
+    const newActions: ActionItem[] = entries.map((task, index) => ({
+      id: `act_${timestamp}_${index}`,
+      task,
       assignee,
       dueDate: newTaskDeadline.trim() || '۱۰ روز آینده',
       completed: false,
-    };
-    onUpdateMeeting({ actionItems: [...meeting.actionItems, newAction] });
+    }));
+    onUpdateMeeting({ actionItems: [...meeting.actionItems, ...newActions] });
     setNewTaskTitle('');
     setIsAddingAction(false);
   };
@@ -518,6 +556,69 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
 
   const handleDeleteAction = (id: string) => {
     onUpdateMeeting({ actionItems: meeting.actionItems.filter((a) => a.id !== id) });
+  };
+
+  const handleStartEditAction = (action: ActionItem) => {
+    setEditingActionId(action.id);
+    setEditingActionText(action.task);
+    setEditingActionAssigneeId(action.assignee?.id || meeting.organizer.id);
+    setEditingActionDeadline(action.dueDate || '');
+  };
+
+  const handleSaveEditAction = (id: string) => {
+    const entries = parseListEntries(editingActionText);
+    const current = meeting.actionItems.find((item) => item.id === id);
+    if (entries.length === 0 || !current) return;
+    const assignee = meeting.participants.find((person) => person.id === editingActionAssigneeId) || meeting.organizer;
+    const timestamp = Date.now();
+    const replacement = entries.map((task, index) => ({
+      ...current,
+      id: index === 0 ? id : `act_${timestamp}_${index}`,
+      task,
+      assignee,
+      dueDate: editingActionDeadline.trim() || current.dueDate,
+    }));
+    onUpdateMeeting({ actionItems: meeting.actionItems.flatMap((item) => item.id === id ? replacement : [item]) });
+    setEditingActionId(null);
+  };
+
+  const handleUploadAttachment = async (file?: File) => {
+    if (!file || !canEdit) return;
+    if (file.size > 10 * 1024 * 1024) { setAttachmentError('حجم فایل باید کمتر از ۱۰ مگابایت باشد.'); return; }
+    setIsUploadingAttachment(true);
+    setAttachmentError('');
+    try {
+      const encoded = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+        reader.onerror = () => reject(new Error('خواندن فایل انجام نشد.'));
+        reader.readAsDataURL(file);
+      });
+      const response = await fetch(`/api/meetings/${meeting.id}/attachments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type || 'application/octet-stream', data: encoded }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'بارگذاری فایل انجام نشد.');
+      onUpdateMeeting({ attachments: data.meeting?.attachments || [] });
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : 'بارگذاری فایل انجام نشد.');
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (!canEdit) return;
+    try {
+      const response = await fetch(`/api/meetings/${meeting.id}/attachments/${attachmentId}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'حذف فایل انجام نشد.');
+      onUpdateMeeting({ attachments: data.meeting?.attachments || [] });
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : 'حذف فایل انجام نشد.');
+    }
   };
 
   // Render markdown-like preview
@@ -688,6 +789,10 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               <span>{meeting.statusLabel}</span>
             </div>
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 dark:bg-slate-800/70">
+              <span className="text-slate-400">شماره:</span>
+              {canEdit ? <input type="number" min="1" step="1" value={minuteNumberInput} onChange={(event) => setMinuteNumberInput(event.target.value)} onBlur={() => { const value = Number(minuteNumberInput); if (Number.isInteger(value) && value > 0 && value !== meeting.organizationMinuteId) onUpdateMeeting({ organizationMinuteId: value }); else if (!minuteNumberInput) setMinuteNumberInput(String(meeting.organizationMinuteId || '')); }} className="w-16 bg-transparent text-center font-bold text-slate-700 outline-none dark:text-slate-200" aria-label="شماره صورت‌جلسه" /> : <span className="font-bold text-slate-700 dark:text-slate-200">{meeting.organizationMinuteId || '—'}</span>}
+            </div>
             <div className="inline-flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-indigo-500" /><span>{meeting.persianDate}</span></div>
             <div className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-slate-400" /><span>{meeting.timeRange}</span></div>
             <div className="inline-flex min-w-0 items-center gap-1.5"><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{meeting.location}</span></div>
@@ -800,7 +905,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                 <Calendar className="w-4 h-4" />
               </div>
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                دستور جلسه (Agenda)
+                دستور جلسه
               </h2>
             </div>
 
@@ -818,12 +923,12 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
           {isAddingAgenda && (
             <form onSubmit={handleSaveNewAgenda} className="flex items-center gap-2 p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 text-xs">
               <input
-                type="text"
                 autoFocus
                 required
                 value={newAgendaText}
                 onChange={(e) => setNewAgendaText(e.target.value)}
-                placeholder="عنوان بند جدید دستور جلسه را وارد کنید..."
+                onPaste={(e) => { const pasted = e.clipboardData.getData('text'); if (/\r?\n/.test(pasted)) { e.preventDefault(); setNewAgendaText(pasted); } }}
+                placeholder="عنوان بند جدید یا فهرست شماره‌گذاری‌شده را وارد کنید..."
                 className="flex-1 p-2 rounded-xl bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 text-slate-800 dark:text-slate-100 focus:outline-none"
               />
               <button
@@ -1150,7 +1255,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         </section>
 
         {/* Section 3: پیشنهاد هوش مصنوعی (AI Suggestion Box) */}
-        <section id="meeting-section-ai" className="meeting-section meeting-section-write relative overflow-hidden rounded-2xl p-4 bg-gradient-to-r from-purple-50/70 via-indigo-50/50 to-pink-50/40 dark:from-purple-950/20 dark:via-indigo-950/30 dark:to-slate-900 border border-purple-100 dark:border-purple-900/50 flex flex-col gap-2.5">
+        <section id="meeting-section-ai" className="hidden">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-400">
               <Sparkles className="w-4 h-4 text-indigo-500 animate-pulse" />
@@ -1218,12 +1323,12 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
           {isAddingDecision && (
             <form onSubmit={handleSaveNewDecision} className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs">
               <input
-                type="text"
                 autoFocus
                 required
                 value={newDecisionText}
                 onChange={(e) => setNewDecisionText(e.target.value)}
-                placeholder="متن تصمیم مصوب را وارد نمایید..."
+                onPaste={(e) => { const pasted = e.clipboardData.getData('text'); if (/\r?\n/.test(pasted)) { e.preventDefault(); setNewDecisionText(pasted); } }}
+                placeholder="متن مصوبه یا فهرست شماره‌گذاری‌شده را وارد نمایید..."
                 className="flex-1 p-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 text-slate-800 dark:text-slate-100 focus:outline-none"
               />
               <button
@@ -1327,7 +1432,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                 <CheckSquare className="w-4 h-4" />
               </div>
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                اقدامات و مسئولیت‌ها (Action Items)
+                اقدامات و مسئولیت‌ها
               </h2>
             </div>
             <button
@@ -1345,11 +1450,11 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             <form onSubmit={handleSaveNewAction} className="flex flex-col gap-2 p-3 rounded-2xl bg-sky-50/60 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <input
-                  type="text"
                   required
-                  placeholder="عنوان اقدام / وظیفه..."
+                  placeholder="عنوان اقدام یا فهرست شماره‌گذاری‌شده را وارد کنید..."
                   value={newTaskTitle}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
+                  onPaste={(e) => { const pasted = e.clipboardData.getData('text'); if (/\r?\n/.test(pasted)) { e.preventDefault(); setNewTaskTitle(pasted); } }}
                   className="sm:col-span-2 p-2 rounded-xl bg-white dark:bg-slate-900 border border-sky-300 dark:border-sky-700 text-slate-800 dark:text-slate-100 focus:outline-none"
                 />
                 <div className="flex min-h-10 items-center rounded-xl border border-sky-300 bg-white px-3 py-2 dark:border-sky-700 dark:bg-slate-900">
@@ -1397,7 +1502,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                   <th className="py-2.5 px-4">شرح وظیفه</th>
                   <th className="py-2.5 px-4">مسئول پیگیری</th>
                   <th className="py-2.5 px-4">مهلت انجام</th>
-                  <th className="py-2.5 px-4 w-12 text-center">حذف</th>
+                  <th className="py-2.5 px-4 w-20 text-center">عملیات</th>
                 </tr>
               </thead>
               <motion.tbody className="divide-y divide-slate-100 dark:divide-slate-800/80" initial="hidden" animate="show" variants={staggerContainerVariants}>
@@ -1419,29 +1524,25 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                         className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
                       />
                     </td>
-                    <td className="py-2.5 px-4 font-medium text-slate-800 dark:text-slate-200">
-                      <span className={act.completed ? 'line-through text-slate-400' : ''}>
-                        {act.task}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <UserAvatar name={act.assignee?.name || 'بدون مسئول'} avatar={act.assignee?.avatar} className="h-5 w-5 text-[8px]" imageClassName="h-5 w-5 rounded-full object-cover" />
-                        <span className="text-slate-600 dark:text-slate-300">{act.assignee?.name || 'بدون مسئول'}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-4 text-slate-500 text-[11px] font-persian">
-                      {act.dueDate}
-                    </td>
-                    <td className="py-2.5 px-4 text-center">
-                      <button
-                        onClick={() => handleDeleteAction(act.id)}
-                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                        title="حذف وظیفه"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
+                    {editingActionId === act.id ? <>
+                      <td className="py-2.5 px-4 font-medium text-slate-800 dark:text-slate-200">
+                        <input autoFocus value={editingActionText} onChange={(event) => setEditingActionText(event.target.value)} onPaste={(event) => { const pasted = event.clipboardData.getData('text'); if (/\r?\n/.test(pasted)) { event.preventDefault(); setEditingActionText(pasted); } }} className="w-full rounded-lg border border-sky-300 bg-white p-2 text-xs outline-none dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <CustomSelect value={editingActionAssigneeId} onChange={setEditingActionAssigneeId} className="min-w-[9rem]" options={[...meeting.participants.filter(Boolean), meeting.organizer].map((person, index) => ({ value: person.id || `participant-${index}`, label: `${person.name} (${person.role})` }))} />
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <input value={editingActionDeadline} onChange={(event) => setEditingActionDeadline(event.target.value)} className="w-full rounded-lg border border-sky-300 bg-white p-2 text-[11px] outline-none dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
+                      </td>
+                      <td className="py-2.5 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1"><button onClick={() => handleSaveEditAction(act.id)} className="p-1 text-emerald-600 hover:text-emerald-700" title="ذخیره"><Check className="h-3.5 w-3.5" /></button><button onClick={() => setEditingActionId(null)} className="p-1 text-slate-400 hover:text-slate-600" title="انصراف"><X className="h-3.5 w-3.5" /></button></div>
+                      </td>
+                    </> : <>
+                      <td className="py-2.5 px-4 font-medium text-slate-800 dark:text-slate-200"><span className={act.completed ? 'line-through text-slate-400' : ''}>{act.task}</span></td>
+                      <td className="py-2.5 px-4"><div className="flex items-center gap-2"><UserAvatar name={act.assignee?.name || 'بدون مسئول'} avatar={act.assignee?.avatar} className="h-5 w-5 text-[8px]" imageClassName="h-5 w-5 rounded-full object-cover" /><span className="text-slate-600 dark:text-slate-300">{act.assignee?.name || 'بدون مسئول'}</span></div></td>
+                      <td className="py-2.5 px-4 text-slate-500 text-[11px] font-persian">{act.dueDate}</td>
+                      <td className="py-2.5 px-4 text-center"><div className="flex items-center justify-center gap-1">{canEdit && <button onClick={() => handleStartEditAction(act)} className="p-1 text-slate-400 hover:text-sky-600 transition-colors cursor-pointer" title="ویرایش وظیفه"><Edit3 className="w-3.5 h-3.5" /></button>}<button onClick={() => handleDeleteAction(act.id)} className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer" title="حذف وظیفه"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
+                    </>}
                   </motion.tr>
                 ))}
               </motion.tbody>
@@ -1461,29 +1562,23 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               </h2>
             </div>
 
-            <label className="no-print py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors">
+            <label className={`no-print py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5 transition-colors ${canEdit ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
               <Upload className="w-3.5 h-3.5" />
-              <span>پیوست فایل جدید</span>
+              <span>{isUploadingAttachment ? 'در حال بارگذاری...' : 'پیوست فایل جدید'}</span>
               <input
                 type="file"
                 className="hidden"
+                disabled={!canEdit || isUploadingAttachment}
                 onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    const file = e.target.files[0];
-                    const note = `\n\n[پیوست سند]: ${file.name} (${Math.round(file.size / 1024)} KB)`;
-                    handleDiscussionChange(discussionText + note);
-                  }
+                  void handleUploadAttachment(e.target.files?.[0]);
+                  e.currentTarget.value = '';
                 }}
               />
             </label>
           </div>
 
-          <EmptyState
-            compact
-            icon={Paperclip}
-            title="هنوز پیوستی ثبت نشده است"
-            description="فایل‌های پشتیبان جلسه پس از بارگذاری در این بخش نمایش داده می‌شوند."
-          />
+          {attachmentError && <p className="rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300">{attachmentError}</p>}
+          {meeting.attachments?.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">{meeting.attachments.map((attachment) => { const design = getAttachmentDesign(attachment.fileName, attachment.mimeType); return <article key={attachment.id} className={`group relative aspect-[5/6] overflow-hidden rounded-[1.6rem] border border-slate-200/80 bg-white shadow-lg ${design.glow} transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-slate-800 dark:bg-slate-950`}><div className={`absolute inset-x-0 top-0 h-28 bg-gradient-to-br ${design.gradient}`} /><div className="absolute -right-10 -top-12 h-32 w-32 rounded-full border-[18px] border-white/10" /><div className="absolute -left-10 top-12 h-24 w-24 rounded-full bg-white/10 blur-2xl" /><div className="relative flex h-full flex-col justify-between p-3.5"><div className="flex items-start justify-between"><div className="flex h-14 w-14 rotate-[-4deg] items-center justify-center rounded-2xl bg-white/95 text-[11px] font-black tracking-tight text-slate-800 shadow-xl shadow-black/10 dark:bg-slate-900/95 dark:text-white">{design.label}</div><span className="rounded-full bg-black/15 px-2 py-1 text-[9px] font-bold text-white backdrop-blur-sm">{design.kind}</span></div><div className="rounded-2xl border border-white/70 bg-white/90 p-3 shadow-sm backdrop-blur-xl dark:border-slate-700/70 dark:bg-slate-900/90"><p className="line-clamp-3 break-words text-xs font-black leading-5 text-slate-800 dark:text-slate-100">{attachment.fileName}</p><div className="mt-2 flex items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${design.soft}`}>{Math.max(1, Math.round(attachment.size / 1024))} KB</span><span className="text-[9px] text-slate-400">{new Date(attachment.uploadedAt).toLocaleDateString('fa-IR')}</span></div></div><div className="flex items-center gap-2"><a href={`/api/meetings/${meeting.id}/attachments/${attachment.id}`} download={attachment.fileName} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-2 text-[10px] font-bold text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200" title="دانلود"><Download className="h-3.5 w-3.5" />دانلود</a>{canEdit && <button type="button" onClick={() => void handleDeleteAttachment(attachment.id)} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900" title="حذف"><Trash2 className="h-3.5 w-3.5" /></button>}</div></div></article>; })}</div> : <EmptyState compact icon={Paperclip} title="هنوز پیوستی ثبت نشده است" description="فایل‌های پشتیبان جلسه پس از بارگذاری در این بخش نمایش داده می‌شوند." />}
         </section>
       </div>
 

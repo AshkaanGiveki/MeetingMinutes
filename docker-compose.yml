@@ -49,7 +49,7 @@ services:
       - "1080:1080" # Web UI
       - "1025:1025" # SMTP server
 
-  # 5. MetaMeet Web Application
+  # 5. Accord Web Application
   web:
     build:
       context: .
@@ -72,7 +72,7 @@ services:
       - redis
       - rabbitmq
 
-  # 6. MetaMeet Background Worker
+  # 6. Accord Background Worker
   worker:
     build:
       context: .

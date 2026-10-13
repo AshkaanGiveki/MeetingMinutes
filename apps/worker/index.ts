@@ -4,7 +4,7 @@ import { logger } from '../../src/server/services/logger';
 
 dotenv.config();
 
-logger.info('Starting MetaMeet Standalone Background Worker Process...');
+logger.info('Starting Accord Standalone Background Worker Process...');
 initializeWorker();
 
 // Keep worker alive

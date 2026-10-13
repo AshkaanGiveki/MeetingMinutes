@@ -67,7 +67,7 @@ export class SmsService {
     }
     const provider = process.env.SMS_PROVIDER;
     if (provider === 'sms.ir' || provider === 'smsir' || process.env.SMS_API_KEY) {
-      return this.sendSmsIr(normalized, `کد تأیید متامیت: ${code}`);
+      return this.sendSmsIr(normalized, `کد تأیید اکورد: ${code}`);
     }
 
     if (process.env.NODE_ENV === 'production') return { success: false, error: 'No production SMS provider is configured.' };

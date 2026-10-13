@@ -6,9 +6,15 @@ let client: MongoClient | null = null;
 let db: Db | null = null;
 let isConnected = false;
 let hasAttempted = false;
+let lastAttemptAt = 0;
+const RETRY_INTERVAL_MS = 5000;
 
 export async function connectMongoDB(): Promise<{ client: MongoClient | null; db: Db | null }> {
-  if (hasAttempted && !isConnected) {
+  if (isConnected && db) {
+    return { client, db };
+  }
+
+  if (hasAttempted && Date.now() - lastAttemptAt < RETRY_INTERVAL_MS) {
     return { client: null, db: null };
   }
 
@@ -23,11 +29,8 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
     return { client: null, db: null };
   }
 
-  if (isConnected && db) {
-    return { client, db };
-  }
-
   hasAttempted = true;
+  lastAttemptAt = Date.now();
 
   try {
     logger.info('Connecting to MongoDB Atlas / cluster...');
@@ -81,6 +84,23 @@ export async function connectMongoDB(): Promise<{ client: MongoClient | null; db
   }
 }
 
+/**
+ * Marks the current MongoDB connection as unusable after a network/topology
+ * failure. The next API request can then trigger a fresh connection attempt.
+ */
+export function markMongoUnavailable(): void {
+  const staleClient = client;
+  client = null;
+  db = null;
+  isConnected = false;
+  hasAttempted = false;
+  lastAttemptAt = 0;
+
+  if (staleClient) {
+    void staleClient.close().catch(() => undefined);
+  }
+}
+
 async function normalizeIranianPhoneData(database: Db) {
   const collections = ['users', 'organization_invitations', 'sessions'];
   let updated = 0;
@@ -109,6 +129,10 @@ async function setupIndexes(database: Db) {
     await database.collection('meetings').createIndex({ status: 1 });
     await database.collection('meetings').createIndex({ 'organizer.id': 1 });
     await database.collection('meetings').createIndex({ organizationId: 1, updatedAt: -1 });
+    await database.collection('meetings').createIndex(
+      { organizationId: 1, organizationMinuteId: 1 },
+      { unique: true, sparse: true, name: 'organization_minute_id_unique' }
+    );
     await database.collection('organizations').createIndex({ id: 1 }, { unique: true });
     await database.collection('organizations').createIndex({ createdBy: 1, createdAt: -1 });
     await database.collection('organization_memberships').createIndex({ organizationId: 1, userId: 1 }, { unique: true });

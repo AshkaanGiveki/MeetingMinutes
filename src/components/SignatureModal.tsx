@@ -372,7 +372,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                     placeholder="نام خود را وارد کنید"
                   />
                   <span className="text-[11px] text-slate-400">
-                    قلم رسمی خوشنویسی سازمانی MetaMeet
+                    قلم رسمی خوشنویسی سازمانی اکورد
                   </span>
                 </div>
               )}

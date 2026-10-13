@@ -84,7 +84,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       )}
       <button onClick={onOpenNotifications} className="notification-button relative flex h-9 w-9 items-center justify-center p-1" title="اعلان‌ها" aria-label="اعلان‌ها">
         <img src={notificationIcon} alt="" className="notification-icon" />
-        {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-slate-900">{unreadCount}</span>}
+        {unreadCount > 0 && <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-900">{unreadCount}</span>}
       </button>
       <ThemeToggleButton isDark={isDark} onToggleTheme={onToggleTheme} />
     </div>
@@ -112,7 +112,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       </motion.span>
       <button onClick={onOpenNotifications} className="notification-button pointer-events-auto absolute left-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-2xl p-1 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800" title="اعلان‌ها" aria-label="اعلان‌ها">
         <img src={notificationIcon} alt="" className="notification-icon" />
-        {unreadCount > 0 && <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-900">{unreadCount}</span>}
+        {unreadCount > 0 && <span className="absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-900">{unreadCount}</span>}
       </button>
     </div>
     <AnimatePresence>
@@ -120,7 +120,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <motion.button className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-[2px] lg:hidden" onClick={() => setIsMobileMenuOpen(false)} aria-label="بستن منو" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
         <motion.div id="mobile-header-menu" className="mobile-header-menu absolute inset-x-2 top-[calc(100%+0.7rem)] z-50 overflow-hidden rounded-[1.7rem] border border-white/80 bg-white/95 p-3 text-right shadow-[0_24px_70px_-25px_rgba(15,23,42,0.6)] backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/50" dir="rtl" initial={{ opacity: 0, y: -12, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.97 }} transition={{ type: 'spring', stiffness: 380, damping: 28 }}>
           <div className="relative mb-2 flex items-center justify-between border-b border-slate-100 px-2 pb-3 dark:border-slate-800">
-            <div><p className="text-sm font-extrabold text-slate-900 dark:text-white">منوی متامیت</p><p className="mt-0.5 text-[10px] text-slate-400">دسترسی سریع به همه بخش‌ها</p></div>
+            <div><p className="text-sm font-extrabold text-slate-900 dark:text-white">منوی اکورد</p><p className="mt-0.5 text-[10px] text-slate-400">دسترسی سریع به همه بخش‌ها</p></div>
             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300"><Layers className="h-4 w-4" /></span>
             <motion.button type="button" onClick={() => setIsMobileMenuOpen(false)} whileHover={{ rotate: 90, scale: 1.08 }} whileTap={{ scale: 0.9 }} transition={{ type: 'spring', stiffness: 420, damping: 22 }} className="mobile-menu-close absolute left-0 top-0 flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200/80 bg-white/80 text-slate-400 shadow-sm transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400 dark:hover:border-rose-900/70 dark:hover:bg-rose-950/40 dark:hover:text-rose-300" aria-label="بستن منو" title="بستن منو"><X className="h-4 w-4" /></motion.button>
           </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { Meeting, CommentItem, Participant, Template, OrganizationRole } from './types';
+import { Meeting, CommentItem, Participant, Template, OrganizationRole, MeetingRole } from './types';
 import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
 import { MeetingHero } from './components/MeetingHero';
@@ -28,7 +28,7 @@ import { OrganizationsView } from './components/OrganizationsView';
 import { GuestSigningView } from './components/GuestSigningView';
 import { InvitationView } from './components/InvitationView';
 import { OrganizationOnboarding } from './components/OrganizationOnboarding';
-import { MeetingCardsSkeleton, MeetingWorkspaceSkeleton } from './components/LoadingState';
+import { MeetingListSkeleton, MeetingWorkspaceSkeleton } from './components/LoadingState';
 import { useSnackbar } from './components/Snackbar';
 import { SigningRejectionModal } from './components/SigningRejectionModal';
 import { SigningRejectionDecisionModal } from './components/SigningRejectionDecisionModal';
@@ -127,12 +127,37 @@ export default function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [isAddParticipantModalOpen, setIsAddParticipantModalOpen] = useState(false);
   const [isNewMeetingModalOpen, setIsNewMeetingModalOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isRoughNotesModalOpen, setIsRoughNotesModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+    let isActive = true;
+    const loadUnreadNotificationCount = async () => {
+      try {
+        const response = await fetch('/api/notifications?unreadOnly=true');
+        if (!response.ok) return;
+        const data = await response.json();
+        if (isActive) setUnreadNotificationCount(Number(data.unreadCount ?? data.notifications?.length ?? 0));
+      } catch {
+        // Notification count is non-critical and will retry on the next poll.
+      }
+    };
+    void loadUnreadNotificationCount();
+    const interval = window.setInterval(loadUnreadNotificationCount, 30000);
+    return () => {
+      isActive = false;
+      window.clearInterval(interval);
+    };
+  }, [isAuthenticated, activeUser.organizationId]);
   const [hasUserSigned, setHasUserSigned] = useState(false);
   const setOperationError = (message: string) => {
     if (!message) return;
@@ -145,7 +170,9 @@ export default function App() {
   const canManageActiveMeeting = Boolean(activeMeeting && (['Owner', 'Admin'].includes(activeUser.role) || activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && (hasMeetingRole(participant, 'Organizer') || hasMeetingRole(participant, 'Editor')))));
   const canEditActiveMeeting = Boolean(activeMeeting && activeMeeting.status === 'DRAFT' && activeMeeting.signatureRejection?.status !== 'pending' && (activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))));
   const canReviewActiveMeeting = Boolean(activeMeeting && activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Reviewer')));
-  const canSignActiveMeeting = Boolean(activeMeeting && activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false));
+  const canSignActiveMeeting = Boolean(activeMeeting && activeUser.signatureData && !(
+    activeMeeting.signatureRejection?.status === 'pending' && activeMeeting.signatureRejection.signerId === activeUser.userId
+  ) && activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false && !participant.hasSigned));
 
   const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000) => {
     const controller = new AbortController();
@@ -188,14 +215,27 @@ export default function App() {
     if (routeMeeting) setActiveMeeting(routeMeeting);
   }, [meetingDetailId, meetings]);
 
+  useEffect(() => {
+    if (!meetingDetailId || !activeUser.userId) return;
+    const key = `metameet:last-opened:${activeUser.userId || activeUser.email}`;
+    try {
+      const previous = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, number>;
+      localStorage.setItem(key, JSON.stringify({ ...previous, [meetingDetailId]: Date.now() }));
+    } catch {}
+  }, [meetingDetailId, activeUser.userId, activeUser.email]);
+
   // Keep the signature CTA correct after a refresh or when a notification opens
   // a meeting that the current user has already signed.
   useEffect(() => {
     if (!activeMeeting) return;
-    setHasUserSigned(Boolean(activeMeeting.signatures?.some((signature) =>
+    const signedByRecord = activeMeeting.signatures?.some((signature) =>
       signature.signerId === activeUser.userId || signature.signerName === activeUser.name,
-    )));
-  }, [activeMeeting, activeUser.userId, activeUser.name]);
+    );
+    const signedByParticipant = activeMeeting.participants.some((participant) =>
+      (participant.id === activeUser.userId || participant.email === activeUser.email) && participant.hasSigned,
+    );
+    setHasUserSigned(Boolean(signedByRecord || signedByParticipant));
+  }, [activeMeeting, activeUser.userId, activeUser.name, activeUser.email]);
 
   useEffect(() => {
     if (activeMeeting?.signatureRejection?.status === 'pending' && activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))) {
@@ -287,12 +327,16 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...updated,
-          version: (activeMeeting as Meeting & { version?: number }).version,
         }),
       });
-      if (!response.ok) throw new Error('تغییرات جلسه ذخیره نشد.');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'تغییرات جلسه ذخیره نشد.');
       // A slower response from an older edit must never affect newer local state.
       if (updateSequence !== meetingUpdateSequenceRef.current) return;
+      if (data?.meeting) {
+        setActiveMeeting(data.meeting);
+        setMeetings((prev) => prev.map((m) => (m.id === data.meeting.id ? data.meeting : m)));
+      }
     } catch (error) {
       if (updateSequence !== meetingUpdateSequenceRef.current) return;
       setActiveMeeting(previousMeeting);
@@ -355,6 +399,18 @@ export default function App() {
   };
 
   const handleUpdateParticipantRole = (participant: Participant) => {
+    if (activeMeeting.organizer.id === participant.id) {
+      const updatedOrganizer = {
+        ...activeMeeting.organizer,
+        ...participant,
+        role: 'Organizer',
+        roles: (participant.roles?.includes('Organizer') ? participant.roles : ['Organizer', ...(participant.roles || [])]) as MeetingRole[],
+      };
+      const updated = { ...activeMeeting, organizer: updatedOrganizer };
+      setActiveMeeting(updated);
+      setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
+      return;
+    }
     const participants = activeMeeting.participants.map((item) => item.id === participant.id ? participant : item);
     const updated = {
       ...activeMeeting,
@@ -417,6 +473,11 @@ export default function App() {
 
   // Confirm Signature with Server Cryptographic SHA-256
   const handleConfirmSignature = async (signatureDataUrl: string) => {
+    if (!activeUser.signatureData) {
+      setCurrentTab('settings');
+      showSnackbar({ type: 'warning', message: 'ابتدا امضای خود را در تنظیمات حساب کاربری ثبت کنید.' });
+      return;
+    }
     const newCount = activeMeeting.signatureCount + 1;
     const isNowAllSigned = newCount >= activeMeeting.totalSignaturesRequired;
 
@@ -440,12 +501,6 @@ export default function App() {
       if (!res.ok) throw new Error(data?.error || 'Signature could not be recorded.');
       if (data?.documentHash) {
         setHasUserSigned(true);
-        setActiveUser((previous) => {
-          if (previous.signatureData) return previous;
-          const updated = { ...previous, signatureData: signatureDataUrl };
-          try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
-          return updated;
-        });
         if (data.meeting) {
           applyMeetingLocally(data.meeting);
         } else {
@@ -604,6 +659,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          organizationMinuteId: newMeeting.organizationMinuteId,
           title: newMeeting.title,
           persianDate: newMeeting.persianDate,
           timeRange: newMeeting.timeRange,
@@ -815,7 +871,7 @@ export default function App() {
 
   return (
     <div
-      className={`h-screen flex gap-3 overflow-hidden p-3 text-slate-800 transition-colors duration-300 font-sans ${
+      className={`app-shell h-screen flex gap-3 overflow-hidden p-3 text-slate-800 transition-colors duration-300 font-sans ${
         isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'
       }`}
     >
@@ -845,7 +901,7 @@ export default function App() {
       </div>
 
       {/* Main Workspace Frame to the left */}
-      <div className="z-10 flex h-[calc(100vh-1.5rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="app-workspace z-10 flex h-[calc(100vh-1.5rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top Header */}
         <div className="no-print shrink-0">
           <TopBar
@@ -857,12 +913,13 @@ export default function App() {
             onToggleTheme={() => setIsDark(!isDark)}
             onOpenSearch={() => setIsSearchModalOpen(true)}
             onOpenNotifications={() => setIsNotificationsOpen(true)}
+            unreadCount={unreadNotificationCount}
             onOpenRoughNotes={isAuthenticated && canCreateMeeting ? () => setIsRoughNotesModalOpen(true) : undefined}
           />
         </div>
 
         {/* Content View Router */}
-        <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-4 pb-28 sm:px-6 lg:pb-6">
+        <div className="app-content mt-3 min-h-0 flex-1 overflow-y-auto px-4 pb-28 sm:px-6 lg:pb-6">
           <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={`${location.pathname}:${currentTab}:${meetingDetailId || ''}`}
@@ -870,7 +927,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
             exit={{ opacity: 0, y: -6, filter: 'blur(8px)' }}
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="min-h-full"
+            className="app-page min-h-full"
           >
           {currentTab === 'archive' ? (
             <ArchiveView
@@ -926,7 +983,7 @@ export default function App() {
               onBackToApp={() => setCurrentTab('meetings')}
             />
           ) : isMeetingsLoading ? (
-            meetingDetailId ? <MeetingWorkspaceSkeleton /> : <MeetingCardsSkeleton />
+            meetingDetailId ? <MeetingWorkspaceSkeleton /> : <MeetingListSkeleton />
           ) : meetings.length === 0 ? (
             <div className="min-h-[60vh] flex items-center justify-center text-center">
               <div className="max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-8 shadow-sm">
@@ -938,6 +995,7 @@ export default function App() {
           ) : viewMode === 'list' || !activeMeeting ? (
             <MeetingsListView
               meetings={meetings}
+              userId={activeUser.userId || activeUser.email}
               isLoading={isMeetingsLoading}
               onSelectMeeting={(m) => {
                 setActiveMeeting(m);
@@ -1064,6 +1122,7 @@ export default function App() {
       <NotificationPanel
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
+        onUnreadCountChange={setUnreadNotificationCount}
       />
 
       <AddParticipantModal

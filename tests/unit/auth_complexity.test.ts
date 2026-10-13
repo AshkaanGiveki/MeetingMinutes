@@ -16,19 +16,19 @@ describe('Enterprise Authentication & Password Security Suite', () => {
   });
 
   it('Should reject passwords without uppercase characters', () => {
-    expect(isPasswordStrong('metameet@2028')).toBe(false);
+    expect(isPasswordStrong('accord@2028')).toBe(false);
   });
 
   it('Should reject passwords without numbers', () => {
-    expect(isPasswordStrong('MetaMeet@Password')).toBe(false);
+    expect(isPasswordStrong('Accord@Password')).toBe(false);
   });
 
   it('Should reject passwords without special characters', () => {
-    expect(isPasswordStrong('MetaMeet2028NoSymbol')).toBe(false);
+    expect(isPasswordStrong('Accord2028NoSymbol')).toBe(false);
   });
 
   it('Should accept compliant enterprise passwords meeting all 5 requirements', () => {
-    expect(isPasswordStrong('MetaMeet@2028')).toBe(true);
+    expect(isPasswordStrong('Accord@2028')).toBe(true);
     expect(isPasswordStrong('Str0ng#Persian99')).toBe(true);
   });
 

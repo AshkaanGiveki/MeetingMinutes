@@ -8,7 +8,7 @@ import { authService } from './services/auth.service';
 import { Meeting } from '../types';
 
 export function initializeWorker() {
-  logger.info('Initializing MetaMeet asynchronous background worker...');
+  logger.info('Initializing Accord asynchronous background worker...');
 
   // 1. Email consumer
   queueManager.registerHandler<EmailMessage>('metameet.email.send', async (job: QueueJob<EmailMessage>) => {

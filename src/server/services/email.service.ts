@@ -37,7 +37,7 @@ export class ResendEmailProvider implements EmailProvider {
           Authorization: `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify({
-          from: 'MetaMeet <notifications@metameet.ir>',
+          from: 'Accord <notifications@metameet.ir>',
           to: message.to,
           subject: message.subject,
           html: message.html,
@@ -69,7 +69,7 @@ export class SmtpEmailProvider implements EmailProvider {
   async sendEmail(message: EmailMessage) {
     try {
       const result = await this.transporter.sendMail({
-        from: process.env.EMAIL_FROM || 'MetaMeet <notifications@metameet.ir>',
+        from: process.env.EMAIL_FROM || 'Accord <notifications@metameet.ir>',
         to: message.to,
         subject: message.subject,
         html: message.html,
@@ -134,7 +134,7 @@ export class EmailService {
     signingLink = encodeURI(signingLink);
     const html = `
       <div dir="rtl" style="font-family: Tahoma, 'Vazirmatn', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 16px;">
-        <h2 style="color: #4338ca;">درخواست امضای دیجیتال صورت‌جلسه در MetaMeet</h2>
+        <h2 style="color: #4338ca;">درخواست امضای دیجیتال صورت‌جلسه در Accord</h2>
         <p>کاربر گرامی <strong>${signerName}</strong>،</p>
         <p>دعوت‌نامه‌ای از طرف <strong>${organizerName}</strong> جهت بررسی و امضای دیجیتال صورت‌جلسه زیر برای شما ارسال شده است:</p>
         <div style="background: #f8fafc; padding: 15px; border-radius: 12px; margin: 20px 0;">
@@ -158,9 +158,9 @@ export class EmailService {
     code = escapeHtml(code);
     return this.deliver({
       to,
-      subject: 'MetaMeet password reset code',
-      text: `Your MetaMeet password reset code is ${code}. It expires in 10 minutes.`,
-      html: `<div dir="rtl"><h2>کد بازیابی رمز عبور MetaMeet</h2><p>کد شما: <strong>${code}</strong></p><p>این کد تا ۱۰ دقیقه معتبر است.</p></div>`,
+      subject: 'Accord password reset code',
+      text: `Your Accord password reset code is ${code}. It expires in 10 minutes.`,
+      html: `<div dir="rtl"><h2>کد بازیابی رمز عبور Accord</h2><p>کد شما: <strong>${code}</strong></p><p>این کد تا ۱۰ دقیقه معتبر است.</p></div>`,
     });
   }
 
@@ -169,9 +169,9 @@ export class EmailService {
     invitationLink = encodeURI(invitationLink);
     return this.deliver({
       to,
-      subject: 'MetaMeet organization invitation',
-      text: `Hello ${name}, accept your MetaMeet invitation here: ${invitationLink}`,
-      html: `<div dir="rtl"><h2>دعوت به سازمان MetaMeet</h2><p>${name} عزیز، برای تکمیل عضویت از لینک زیر استفاده کنید:</p><p><a href="${invitationLink}">پذیرش دعوت‌نامه</a></p></div>`,
+      subject: 'Accord organization invitation',
+      text: `Hello ${name}, accept your Accord invitation here: ${invitationLink}`,
+      html: `<div dir="rtl"><h2>دعوت به سازمان Accord</h2><p>${name} عزیز، برای تکمیل عضویت از لینک زیر استفاده کنید:</p><p><a href="${invitationLink}">پذیرش دعوت‌نامه</a></p></div>`,
     });
   }
 }
