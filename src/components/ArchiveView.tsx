@@ -13,11 +13,13 @@ import {
   X,
   FileCheck,
   Calendar,
-  Award
+  Award,
+  MoreVertical
 } from 'lucide-react';
 import { Meeting, AuditRecord } from '../types';
 import { EmptyState } from './EmptyState';
 import { TableRowsSkeleton } from './LoadingState';
+import { PageHeader } from './PageHeader';
 
 const auditActionLabels: Record<string, string> = {
   MEETING_CREATED: 'جلسه ایجاد شد',
@@ -49,6 +51,8 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
   const [selectedAuditMeeting, setSelectedAuditMeeting] = useState<Meeting | null>(null);
   const [selectedCertificateMeeting, setSelectedCertificateMeeting] = useState<Meeting | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([]);
+  const [expandedMeetingId, setExpandedMeetingId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const sealedMeetings = meetings.filter(
     (m) =>
@@ -64,10 +68,32 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
       .catch(() => setAuditLogs([]));
   }, [selectedAuditMeeting]);
 
+  React.useEffect(() => {
+    if (!openMenuId) return;
+    const closeMenu = () => setOpenMenuId(null);
+    document.addEventListener('click', closeMenu);
+    return () => document.removeEventListener('click', closeMenu);
+  }, [openMenuId]);
+
   return (
     <div className="responsive-page flex-1 max-w-6xl mx-auto flex flex-col gap-6 p-6">
+      <PageHeader
+        icon={Archive}
+        title={'\u0622\u0631\u0634\u06cc\u0648 \u0627\u0633\u0646\u0627\u062f \u0631\u0633\u0645\u06cc \u0648 \u0645\u0647\u0631 \u0648 \u0645\u0648\u0645\u200c\u0634\u062f\u0647'}
+        description={'\u0627\u0633\u0646\u0627\u062f \u0646\u0647\u0627\u06cc\u06cc\u200c\u0634\u062f\u0647 \u062f\u0627\u0631\u0627\u06cc \u06af\u0648\u0627\u0647\u06cc \u0631\u0645\u0632\u0646\u06af\u0627\u0631\u06cc\u060c \u0627\u0645\u0636\u0627\u0647\u0627\u06cc \u06a9\u0627\u0645\u0644 \u0648 \u063a\u06cc\u0631\u0642\u0627\u0628\u0644 \u062a\u063a\u06cc\u06cc\u0631'}
+        action={<div className="archive-search flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs w-64 shadow-xs">
+          <Search className="w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder={'\u062c\u0633\u062a\u062c\u0648 \u062f\u0631 \u0622\u0631\u0634\u06cc\u0648...'}
+            className="w-full bg-transparent focus:outline-none text-slate-700 dark:text-slate-200"
+          />
+        </div>}
+      />
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="archive-page-heading flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
             <Archive className="w-5 h-5" />
@@ -83,7 +109,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         </div>
 
         {/* Search Input */}
-        <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs w-64 shadow-xs">
+        <div className="archive-search flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs w-64 shadow-xs">
           <Search className="w-4 h-4 text-slate-400" />
           <input
             type="text"
@@ -96,7 +122,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
       </div>
 
       {/* Sealed Meetings List */}
-      <div className="rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm overflow-hidden">
+      <div className="archive-table rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-right">
             <thead>
@@ -184,6 +210,37 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="archive-mobile-list" dir="rtl">
+        {isLoading ? <div className="rounded-3xl bg-white p-5 text-center text-sm text-slate-500 shadow-sm dark:bg-slate-900">در حال بارگذاری آرشیو…</div> : sealedMeetings.length === 0 ? (
+          <div className="rounded-3xl bg-white p-5 shadow-sm dark:bg-slate-900"><EmptyState icon={Archive} title={searchTerm ? 'سندی با این جست‌وجو پیدا نشد' : 'آرشیو هنوز خالی است'} description="عنوان دیگری را جست‌وجو کنید." compact /></div>
+        ) : sealedMeetings.map((meeting) => {
+          const isExpanded = expandedMeetingId === meeting.id;
+          const isMenuOpen = openMenuId === meeting.id;
+          return <motion.article key={meeting.id} layout="size" transition={{ layout: { duration: 0.22, ease: [0.22, 1, 0.36, 1] } }} className={`archive-mobile-card ${isMenuOpen ? 'archive-mobile-card-menu-open' : ''} rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900`}>
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300"><Lock className="h-4 w-4" /></div>
+              <button type="button" className="min-w-0 flex-1 text-right" onClick={() => setExpandedMeetingId(isExpanded ? null : meeting.id)}>
+                <h2 className="truncate text-sm font-bold text-slate-900 dark:text-white">{meeting.title}</h2>
+                <p className="mt-1 text-[11px] text-slate-500">{meeting.persianDate || 'تاریخ ثبت نشده'} · {meeting.signatureCount || 0}/{meeting.totalSignaturesRequired} امضا</p>
+              </button>
+              <div className="relative shrink-0">
+                <button type="button" aria-label="عملیات سند" onClick={(event) => { event.stopPropagation(); setOpenMenuId(isMenuOpen ? null : meeting.id); }} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><MoreVertical className="h-4 w-4" /></button>
+                {isMenuOpen && <div onClick={(event) => event.stopPropagation()} className="archive-mobile-menu absolute left-0 top-10 z-20 min-w-44 rounded-2xl border p-1.5">
+                  <button type="button" onClick={() => window.open(`/archive/print/${encodeURIComponent(meeting.id)}`, '_blank', 'noopener,noreferrer')} className="w-full rounded-xl px-3 py-2 text-right text-xs hover:bg-slate-50 dark:hover:bg-slate-800">مشاهده صورت‌جلسه</button>
+                  <button type="button" onClick={() => setSelectedCertificateMeeting(meeting)} className="w-full rounded-xl px-3 py-2 text-right text-xs hover:bg-slate-50 dark:hover:bg-slate-800">گواهی اصالت</button>
+                  <button type="button" onClick={() => setSelectedAuditMeeting(meeting)} className="w-full rounded-xl px-3 py-2 text-right text-xs hover:bg-slate-50 dark:hover:bg-slate-800">لاگ‌های بازرسی</button>
+                </div>}
+              </div>
+            </div>
+            {isExpanded && <div className="mt-4 grid gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600 dark:border-slate-800 dark:text-slate-300">
+              <div className="flex items-center justify-between"><span>زمان پلمپ</span><span className="font-medium">{meeting.sealedAt || '۱۴۰۴/۰۷/۰۱'}</span></div>
+              <div className="flex items-center justify-between"><span>وضعیت امضاها</span><span className="font-medium text-emerald-600">{meeting.signatureCount || 0} از {meeting.totalSignaturesRequired}</span></div>
+              <button type="button" onClick={() => onOpenMeeting(meeting)} className="mt-2 rounded-xl bg-indigo-600 px-3 py-2.5 text-center text-xs font-bold text-white">مشاهده سند کامل</button>
+            </div>}
+          </motion.article>;
+        })}
       </div>
 
       {/* Certificate of Authenticity Modal */}

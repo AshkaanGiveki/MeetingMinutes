@@ -1,10 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { flushSync } from 'react-dom';
-import { Calendar, ChevronLeft, FileText, FolderArchive, Home, Layers, Search, Settings, Sparkles, Users, Building2, Menu, X, Palette } from 'lucide-react';
+import { createPortal, flushSync } from 'react-dom';
+import { Calendar, ChevronLeft, FileText, FolderArchive, Home, Layers, Search, Settings, Sparkles, Users, Building2, Menu, X, Palette, LogOut } from 'lucide-react';
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import moonIcon from '../assets/icons/moon.png';
 import notificationIcon from '../assets/icons/notification.png';
 import sunIcon from '../assets/icons/sun.png';
+import logoIcon from '../assets/icons/Logo.png';
+import wordmarkIcon from '../assets/icons/typo.png';
 
 interface TopBarProps {
   currentTab: string;
@@ -17,6 +19,7 @@ interface TopBarProps {
   unreadCount?: number;
   onOpenNotifications?: () => void;
   onOpenRoughNotes?: () => void;
+  onLogout?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -30,8 +33,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   unreadCount = 0,
   onOpenNotifications,
   onOpenRoughNotes,
+  onLogout,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [showMobileWordmark, setShowMobileWordmark] = React.useState(false);
   const breadcrumbItems = [
     { id: 'meetings', label: 'جلسات جاری', icon: Calendar },
     { id: 'archive', label: 'آرشیو اسناد پلمپ', icon: FolderArchive },
@@ -56,6 +61,14 @@ export const TopBar: React.FC<TopBarProps> = ({
     return () => window.removeEventListener('keydown', handleShortcut);
   }, [onOpenSearch]);
 
+  useEffect(() => {
+    const logoInterval = window.setInterval(() => {
+      setShowMobileWordmark((visible) => !visible);
+    }, 5000);
+
+    return () => window.clearInterval(logoInterval);
+  }, []);
+
   const mobileMenuItems = [
     { id: 'meetings', label: 'جلسات جاری', icon: Calendar },
     { id: 'archive', label: 'آرشیو اسناد', icon: FolderArchive },
@@ -69,6 +82,10 @@ export const TopBar: React.FC<TopBarProps> = ({
     setIsMobileMenuOpen(false);
     onTabChange(tab);
   };
+
+  const mobileMenuBackdrop = isMobileMenuOpen && typeof document !== 'undefined'
+    ? createPortal(<motion.button className="mobile-menu-backdrop fixed inset-0 z-[90] bg-slate-950/35 backdrop-blur-[2px] lg:hidden" onClick={() => setIsMobileMenuOpen(false)} aria-label="بستن منو" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />, document.body)
+    : null;
 
   return (
   <header className="relative z-[100] h-[4.5rem] rounded-[22px] border border-slate-200/80 bg-white/95 px-4 shadow-[0_8px_24px_-18px_rgba(15,23,42,0.3)] backdrop-blur-xl dark:border-slate-800/80 dark:bg-slate-900/95 dark:shadow-black/20 sm:px-5 lg:z-auto" dir="ltr">
@@ -102,14 +119,33 @@ export const TopBar: React.FC<TopBarProps> = ({
       >
         {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </motion.button>
-      <motion.span
-        className="pointer-events-auto absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-2xl border border-indigo-200/80 bg-indigo-50 text-indigo-600 shadow-sm dark:border-indigo-800/80 dark:bg-indigo-950/60 dark:text-indigo-300"
-        animate={{ rotate: isMobileMenuOpen ? -8 : 0, scale: isMobileMenuOpen ? 1.05 : 1 }}
-        transition={{ type: 'spring', stiffness: 380, damping: 24 }}
-        aria-hidden="true"
-      >
-        <Layers className="h-5 w-5" />
-      </motion.span>
+      <div className="pointer-events-none absolute left-1/2 top-1/2 flex h-10 w-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-visible">
+        <AnimatePresence initial={false} mode="wait">
+          {!showMobileWordmark ? (
+            <motion.img
+              key="mobile-logo"
+              src={logoIcon}
+              alt="Accord"
+              className="absolute h-10 w-10 object-contain"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, rotate: isMobileMenuOpen ? -8 : 0, scale: isMobileMenuOpen ? 1.05 : 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ opacity: { duration: 0.35 }, rotate: { type: 'spring', stiffness: 380, damping: 24 }, scale: { type: 'spring', stiffness: 380, damping: 24 } }}
+            />
+          ) : (
+            <motion.img
+              key="mobile-wordmark"
+              src={wordmarkIcon}
+              alt="Accord"
+              className="absolute h-7 w-auto max-w-24 object-contain"
+              initial={{ opacity: 0, clipPath: 'inset(0 100% 0 0)' }}
+              animate={{ opacity: 1, clipPath: 'inset(0 0% 0 0)' }}
+              exit={{ opacity: 0, clipPath: 'inset(0 0 0 100%)' }}
+              transition={{ opacity: { duration: 0.25 }, clipPath: { duration: 0.85, ease: [0.22, 1, 0.36, 1] } }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
       <button onClick={onOpenNotifications} className="notification-button pointer-events-auto absolute left-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-2xl p-1 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800" title="اعلان‌ها" aria-label="اعلان‌ها">
         <img src={notificationIcon} alt="" className="notification-icon" />
         {unreadCount > 0 && <span className="absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-900">{unreadCount}</span>}
@@ -121,7 +157,6 @@ export const TopBar: React.FC<TopBarProps> = ({
         <motion.div id="mobile-header-menu" className="mobile-header-menu absolute inset-x-2 top-[calc(100%+0.7rem)] z-50 overflow-hidden rounded-[1.7rem] border border-white/80 bg-white/95 p-3 text-right shadow-[0_24px_70px_-25px_rgba(15,23,42,0.6)] backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/50" dir="rtl" initial={{ opacity: 0, y: -12, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.97 }} transition={{ type: 'spring', stiffness: 380, damping: 28 }}>
           <div className="relative mb-2 flex items-center justify-between border-b border-slate-100 px-2 pb-3 dark:border-slate-800">
             <div><p className="text-sm font-extrabold text-slate-900 dark:text-white">منوی اکورد</p><p className="mt-0.5 text-[10px] text-slate-400">دسترسی سریع به همه بخش‌ها</p></div>
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300"><Layers className="h-4 w-4" /></span>
             <motion.button type="button" onClick={() => setIsMobileMenuOpen(false)} whileHover={{ rotate: 90, scale: 1.08 }} whileTap={{ scale: 0.9 }} transition={{ type: 'spring', stiffness: 420, damping: 22 }} className="mobile-menu-close absolute left-0 top-0 flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200/80 bg-white/80 text-slate-400 shadow-sm transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400 dark:hover:border-rose-900/70 dark:hover:bg-rose-950/40 dark:hover:text-rose-300" aria-label="بستن منو" title="بستن منو"><X className="h-4 w-4" /></motion.button>
           </div>
           <LayoutGroup id="mobile-header-menu-navigation">
@@ -142,6 +177,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-2 py-1.5 dark:bg-slate-800/70"><Palette className="h-4 w-4 text-slate-400" /><ThemeToggleButton isDark={isDark} onToggleTheme={onToggleTheme} inputId="theme-switch-mobile" /></div>
           </div>
           {onOpenRoughNotes && <button type="button" onClick={() => { setIsMobileMenuOpen(false); onOpenRoughNotes(); }} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-200/70 bg-indigo-50/70 px-3 py-2.5 text-[11px] font-bold text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/70"><Sparkles className="h-4 w-4" />دستیار هوشمند صورت‌جلسه</button>}
+          {onLogout && <button type="button" onClick={() => { setIsMobileMenuOpen(false); onLogout(); }} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2.5 text-[11px] font-bold text-rose-700 transition hover:bg-rose-100 dark:border-rose-900/70 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/70"><LogOut className="h-4 w-4" />خروج از حساب</button>}
         </motion.div>
       </>}
     </AnimatePresence>

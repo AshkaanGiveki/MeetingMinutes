@@ -76,7 +76,29 @@ export const JalaliDatePicker: React.FC<JalaliDatePickerProps> = ({ value, onCha
   const [isOpen, setIsOpen] = useState(false);
   const [selectionPanel, setSelectionPanel] = useState<'month' | 'year' | null>(null);
   const [view, setView] = useState({ jy: parsedValue.jy, jm: parsedValue.jm });
+  const [pickerStyle, setPickerStyle] = useState<React.CSSProperties>({});
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const positionPicker = () => {
+    const bounds = rootRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+    const popupWidth = Math.min(320, window.innerWidth - 32);
+    const popupHeight = 520;
+    const right = Math.min(
+      Math.max(16, window.innerWidth - bounds.right),
+      Math.max(16, window.innerWidth - popupWidth - 16),
+    );
+    const opensAbove = bounds.bottom + popupHeight > window.innerHeight && bounds.top > popupHeight;
+    setPickerStyle({
+      right,
+      top: opensAbove
+        ? Math.max(16, bounds.top - popupHeight - 12)
+        : Math.min(Math.max(16, bounds.bottom + 12), Math.max(16, window.innerHeight - popupHeight - 16)),
+      width: popupWidth,
+      maxHeight: Math.max(240, window.innerHeight - 32),
+      overflowY: 'auto',
+    });
+  };
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -95,6 +117,17 @@ export const JalaliDatePicker: React.FC<JalaliDatePickerProps> = ({ value, onCha
       document.removeEventListener('metameet:picker-open', handlePickerOpen);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    positionPicker();
+    window.addEventListener('resize', positionPicker);
+    window.addEventListener('scroll', positionPicker, true);
+    return () => {
+      window.removeEventListener('resize', positionPicker);
+      window.removeEventListener('scroll', positionPicker, true);
+    };
+  }, [isOpen]);
 
   const calendarDays = useMemo(() => {
     const first = jalaliToGregorian(view.jy, view.jm, 1);
@@ -121,7 +154,10 @@ export const JalaliDatePicker: React.FC<JalaliDatePickerProps> = ({ value, onCha
   const today = gregorianToJalali(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
 
   const togglePicker = () => {
-    if (!isOpen) document.dispatchEvent(new CustomEvent('metameet:picker-open', { detail: 'jalali-date' }));
+    if (!isOpen) {
+      document.dispatchEvent(new CustomEvent('metameet:picker-open', { detail: 'jalali-date' }));
+      positionPicker();
+    }
     setIsOpen((open) => !open);
     setSelectionPanel(null);
   };
@@ -134,7 +170,7 @@ export const JalaliDatePicker: React.FC<JalaliDatePickerProps> = ({ value, onCha
       </button>
       <AnimatePresence>
         {isOpen && (
-          <motion.div initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.98 }} transition={{ duration: 0.18 }} className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2rem))] rounded-3xl border border-slate-200/90 bg-white p-4 text-right shadow-2xl shadow-slate-900/15 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40">
+          <motion.div initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.98 }} transition={{ duration: 0.18 }} style={pickerStyle} className="fixed z-[60] rounded-3xl border border-slate-200/90 bg-white p-4 text-right shadow-2xl shadow-slate-900/15 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40">
             <div className="mb-3 flex items-center justify-between">
               <button type="button" onClick={() => selectionPanel === 'year' ? shiftYear(1) : shiftMonth(1)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-slate-800"><ChevronRight className="h-4 w-4" /></button>
               <div className="flex items-center gap-1.5">

@@ -32,7 +32,8 @@ import {
   Upload,
   ChevronUp,
   ChevronDown,
-  MoreHorizontal,
+  MoreVertical,
+  Loader2,
   Quote,
   Code,
   Eraser,
@@ -64,12 +65,12 @@ interface MeetingHeroProps {
 
 const getAttachmentDesign = (fileName: string, mimeType: string) => {
   const extension = fileName.split('.').pop()?.toLowerCase() || '';
-  if (extension === 'pdf' || mimeType === 'application/pdf') return { label: 'PDF', kind: 'سند PDF', gradient: 'from-rose-500 via-red-500 to-orange-500', glow: 'shadow-rose-500/20', soft: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' };
-  if (['doc', 'docx', 'odt', 'rtf'].includes(extension) || mimeType.includes('word')) return { label: extension.toUpperCase(), kind: 'سند متنی', gradient: 'from-blue-500 via-indigo-500 to-violet-500', glow: 'shadow-blue-500/20', soft: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' };
+  if (extension === 'pdf' || mimeType === 'application/pdf') return { label: 'PDF', kind: 'سند PDF', gradient: 'from-indigo-500 via-indigo-600 to-indigo-700', glow: 'shadow-indigo-500/20', soft: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300' };
+  if (['doc', 'docx', 'odt', 'rtf'].includes(extension) || mimeType.includes('word')) return { label: extension.toUpperCase(), kind: 'سند متنی', gradient: 'from-indigo-500 via-indigo-600 to-indigo-700', glow: 'shadow-indigo-500/20', soft: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300' };
   if (['xls', 'xlsx', 'csv', 'ods'].includes(extension) || mimeType.includes('sheet') || mimeType.includes('excel')) return { label: extension.toUpperCase(), kind: 'صفحه گسترده', gradient: 'from-emerald-500 via-teal-500 to-cyan-500', glow: 'shadow-emerald-500/20', soft: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' };
-  if (['ppt', 'pptx', 'odp'].includes(extension) || mimeType.includes('presentation')) return { label: extension.toUpperCase(), kind: 'ارائه', gradient: 'from-orange-500 via-amber-500 to-yellow-500', glow: 'shadow-orange-500/20', soft: 'bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300' };
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension) || mimeType.startsWith('image/')) return { label: extension.toUpperCase() || 'IMG', kind: 'تصویر', gradient: 'from-fuchsia-500 via-purple-500 to-indigo-500', glow: 'shadow-purple-500/20', soft: 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300' };
-  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(extension) || mimeType.startsWith('video/')) return { label: extension.toUpperCase() || 'VIDEO', kind: 'ویدئو', gradient: 'from-violet-500 via-purple-600 to-fuchsia-500', glow: 'shadow-violet-500/20', soft: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' };
+  if (['ppt', 'pptx', 'odp'].includes(extension) || mimeType.includes('presentation')) return { label: extension.toUpperCase(), kind: 'ارائه', gradient: 'from-indigo-500 via-indigo-600 to-indigo-700', glow: 'shadow-indigo-500/20', soft: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300' };
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension) || mimeType.startsWith('image/')) return { label: extension.toUpperCase() || 'IMG', kind: 'تصویر', gradient: 'from-indigo-500 via-indigo-600 to-indigo-700', glow: 'shadow-indigo-500/20', soft: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300' };
+  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(extension) || mimeType.startsWith('video/')) return { label: extension.toUpperCase() || 'VIDEO', kind: 'ویدئو', gradient: 'from-indigo-500 via-indigo-600 to-indigo-700', glow: 'shadow-indigo-500/20', soft: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300' };
   if (['mp3', 'wav', 'm4a', 'ogg'].includes(extension) || mimeType.startsWith('audio/')) return { label: extension.toUpperCase() || 'AUDIO', kind: 'فایل صوتی', gradient: 'from-amber-500 via-orange-500 to-rose-500', glow: 'shadow-amber-500/20', soft: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' };
   if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) return { label: extension.toUpperCase(), kind: 'فایل فشرده', gradient: 'from-slate-500 via-slate-600 to-slate-800', glow: 'shadow-slate-500/20', soft: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' };
   return { label: extension.toUpperCase() || 'FILE', kind: 'فایل پیوست', gradient: 'from-sky-500 via-cyan-500 to-blue-600', glow: 'shadow-sky-500/20', soft: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300' };
@@ -100,6 +101,11 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [pdfTemplates, setPdfTemplates] = useState<PrintTemplate[]>([]);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [mobileActionMenuId, setMobileActionMenuId] = useState<string | null>(null);
+  const [mobileExpandedActionId, setMobileExpandedActionId] = useState<string | null>(null);
+  const [mobileDrag, setMobileDrag] = useState<{ type: 'agenda' | 'decision'; index: number } | null>(null);
+  const mobileDragHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mobilePointerStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const isHeaderCompact = false;
 
@@ -138,6 +144,53 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   }, [isExportMenuOpen]);
 
   useEffect(() => {
+    if (!mobileActionMenuId) return;
+    const closeMenu = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest('[data-mobile-item-menu]')) setMobileActionMenuId(null);
+    };
+    document.addEventListener('pointerdown', closeMenu);
+    return () => document.removeEventListener('pointerdown', closeMenu);
+  }, [mobileActionMenuId]);
+
+  useEffect(() => {
+    if (!mobileDrag) return;
+
+    const move = (event: PointerEvent) => {
+      event.preventDefault();
+      const selector = `[data-mobile-sort-type="${mobileDrag.type}"]`;
+      const rows = Array.from(document.querySelectorAll<HTMLElement>(selector));
+      const currentRow = rows[mobileDrag.index];
+      if (!currentRow) return;
+
+      const previousRow = rows[mobileDrag.index - 1];
+      const nextRow = rows[mobileDrag.index + 1];
+      if (previousRow && event.clientY < previousRow.getBoundingClientRect().top + previousRow.offsetHeight / 2) {
+        if (mobileDrag.type === 'agenda') handleMoveAgenda(mobileDrag.index, 'up');
+        else handleMoveDecision(mobileDrag.index, 'up');
+        setMobileDrag({ ...mobileDrag, index: mobileDrag.index - 1 });
+      } else if (nextRow && event.clientY > nextRow.getBoundingClientRect().top + nextRow.offsetHeight / 2) {
+        if (mobileDrag.type === 'agenda') handleMoveAgenda(mobileDrag.index, 'down');
+        else handleMoveDecision(mobileDrag.index, 'down');
+        setMobileDrag({ ...mobileDrag, index: mobileDrag.index + 1 });
+      }
+    };
+
+    const end = () => setMobileDrag(null);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+  }, [mobileDrag]);
+
+  useEffect(() => () => {
+    if (mobileDragHoldRef.current) clearTimeout(mobileDragHoldRef.current);
+  }, []);
+
+  useEffect(() => {
     fetch('/api/print-templates').then((response) => response.ok ? response.json() : null).then((data) => setPdfTemplates(data?.templates || [])).catch(() => undefined);
   }, []);
 
@@ -168,6 +221,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   const [editingActionAssigneeId, setEditingActionAssigneeId] = useState('');
   const [editingActionDeadline, setEditingActionDeadline] = useState('');
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [uploadingAttachmentName, setUploadingAttachmentName] = useState('');
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState('');
 
   // Link Insertion Modal
@@ -483,6 +538,48 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
     onUpdateMeeting({ agenda: newItems });
   };
 
+  const handleMoveDecision = (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= meeting.decisions.length) return;
+    const newItems = [...meeting.decisions];
+    const temp = newItems[index];
+    newItems[index] = newItems[targetIdx];
+    newItems[targetIdx] = temp;
+    onUpdateMeeting({ decisions: newItems });
+  };
+
+  const handleMobileSortStart = (event: React.PointerEvent<HTMLDivElement>, type: 'agenda' | 'decision', index: number) => {
+    if (event.pointerType === 'mouse' || window.matchMedia('(min-width: 640px)').matches) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('button, input, textarea, select, [data-mobile-item-menu]')) return;
+    if (mobileDragHoldRef.current) clearTimeout(mobileDragHoldRef.current);
+    mobilePointerStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    mobileDragHoldRef.current = setTimeout(() => {
+      if (mobilePointerStartRef.current?.pointerId !== event.pointerId) return;
+      setMobileActionMenuId(null);
+      setMobileDrag({ type, index });
+      mobilePointerStartRef.current = null;
+    }, 280);
+  };
+
+  const handleMobileSortMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = mobilePointerStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8) {
+      if (mobileDragHoldRef.current) clearTimeout(mobileDragHoldRef.current);
+      mobileDragHoldRef.current = null;
+      mobilePointerStartRef.current = null;
+    }
+  };
+
+  const handleMobileSortEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (mobilePointerStartRef.current?.pointerId === event.pointerId) {
+      if (mobileDragHoldRef.current) clearTimeout(mobileDragHoldRef.current);
+      mobileDragHoldRef.current = null;
+      mobilePointerStartRef.current = null;
+    }
+  };
+
   // Decision handlers
   const handleSaveNewDecision = (e: React.FormEvent) => {
     e.preventDefault();
@@ -606,11 +703,13 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
       setAttachmentError(error instanceof Error ? error.message : 'بارگذاری فایل انجام نشد.');
     } finally {
       setIsUploadingAttachment(false);
+      setUploadingAttachmentName('');
     }
   };
 
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!canEdit) return;
+    setDeletingAttachmentId(attachmentId);
     try {
       const response = await fetch(`/api/meetings/${meeting.id}/attachments/${attachmentId}`, { method: 'DELETE' });
       const data = await response.json();
@@ -618,6 +717,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
       onUpdateMeeting({ attachments: data.meeting?.attachments || [] });
     } catch (error) {
       setAttachmentError(error instanceof Error ? error.message : 'حذف فایل انجام نشد.');
+    } finally {
+      setDeletingAttachmentId(null);
     }
   };
 
@@ -672,9 +773,9 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   };
 
   return (
-    <main className="meeting-editor w-full min-w-0 flex-1 flex flex-col gap-6 pb-12 select-text font-persian" data-workspace-stage={workspaceStage}>
+    <main className="meeting-editor w-full min-w-0 flex-1 flex flex-col gap-3 sm:gap-6 pb-8 sm:pb-12 select-text font-persian" data-workspace-stage={workspaceStage}>
       {/* Central White / Dark Document Canvas */}
-      <div className="relative rounded-3xl bg-white dark:bg-[#0f172a] border border-slate-200/90 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none p-8 flex flex-col gap-6 transition-colors duration-200">
+      <div className="relative rounded-2xl sm:rounded-3xl bg-white dark:bg-[#0f172a] border border-slate-200/90 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none p-4 sm:p-8 flex flex-col gap-4 sm:gap-6 transition-colors duration-200">
         {!canEdit && <div className="no-print flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300"><Lock className="h-4 w-4 text-slate-400" /><span>این صورت‌جلسه در مرحله‌ای است که برای نقش شما فقط قابل مشاهده است.</span></div>}
         
         {/* Redesigned document toolbar */}
@@ -696,7 +797,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                   <div className="min-w-0">
                     <p className="truncate text-xs font-bold text-slate-900 dark:text-white">{meeting.title}</p>
                     <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-400">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
                       <span>{meeting.statusLabel}</span>
                     </div>
                   </div>
@@ -706,13 +807,13 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                     <Printer className="h-3.5 w-3.5" /><span className="hidden sm:inline">PDF</span>
                   </button>
                   <button type="button" onClick={() => setIsExportMenuOpen((current) => !current)} aria-expanded={isExportMenuOpen} className={`flex h-9 w-9 items-center justify-center rounded-xl border transition ${isExportMenuOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-600 dark:border-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800'}`} title="سایر گزینه‌های خروجی">
-                    <MoreHorizontal className="h-4 w-4" />
+                    <MoreVertical className="h-4 w-4" />
                   </button>
                   <AnimatePresence>
                     {isExportMenuOpen && (
                       <motion.div initial={{ opacity: 0, y: -8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }} transition={{ type: 'spring', stiffness: 420, damping: 28 }} role="menu" className="absolute left-0 top-[calc(100%+0.55rem)] z-40 w-52 rounded-2xl border border-slate-200 bg-white p-2 text-right shadow-2xl shadow-slate-900/10 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/30">
                         <button type="button" role="menuitem" onClick={() => { onDownloadPdf(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"><Download className="h-4 w-4 text-indigo-500" />دانلود PDF</button>
-                        <button type="button" role="menuitem" onClick={() => { onSendTelegram(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"><Send className="h-4 w-4 text-sky-500" />ارسال PDF در تلگرام</button>
+                        <button type="button" role="menuitem" onClick={() => { onSendTelegram(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"><Send className="h-4 w-4 text-indigo-500" />ارسال PDF در تلگرام</button>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -733,7 +834,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={onPrintPdf}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3.5 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700 active:translate-y-0"
+                className="meeting-preview-pdf-button inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3.5 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700 active:translate-y-0"
               >
                 <Printer className="h-4 w-4" />
                 <span className="hidden sm:inline">پیش‌نمایش PDF</span>
@@ -745,10 +846,10 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                   onClick={() => setIsExportMenuOpen((current) => !current)}
                   aria-expanded={isExportMenuOpen}
                   aria-haspopup="menu"
-                  className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${isExportMenuOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-600 dark:border-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' : 'border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:bg-slate-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-800 dark:hover:bg-slate-800'}`}
+                  className={`meeting-export-menu-button inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${isExportMenuOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-600 dark:border-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' : 'border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:bg-slate-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-800 dark:hover:bg-slate-800'}`}
                   title="سایر گزینه‌های خروجی"
                 >
-                  <MoreHorizontal className="h-5 w-5" />
+                <MoreVertical className="h-5 w-5" />
                 </button>
                 <AnimatePresence initial={false}>
                 {isExportMenuOpen && (
@@ -760,12 +861,16 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                     role="menu"
                     className="absolute left-0 top-[calc(100%+0.6rem)] z-40 w-64 origin-top-left rounded-2xl border border-slate-200 bg-white p-2 text-right shadow-[0_20px_45px_-18px_rgba(15,23,42,0.45)] ring-1 ring-slate-900/[0.04] dark:border-slate-700 dark:bg-slate-900 dark:shadow-[0_20px_45px_-18px_rgba(0,0,0,0.7)] dark:ring-white/[0.06]"
                   >
+                    <button type="button" role="menuitem" onClick={() => { onPrintPdf(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                      <Printer className="h-4 w-4 text-indigo-500" />
+                      <span>{'\u067e\u06cc\u0634\u200c\u0646\u0645\u0627\u06cc\u0634 PDF'}</span>
+                    </button>
                     <button type="button" role="menuitem" onClick={() => { onDownloadPdf(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
                       <Download className="h-4 w-4 text-indigo-500" />
                       <span>دانلود PDF</span>
                     </button>
                     <button type="button" role="menuitem" onClick={() => { onSendTelegram(); setIsExportMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
-                      <Send className="h-4 w-4 text-sky-500" />
+                      <Send className="h-4 w-4 text-indigo-500" />
                       <span>ارسال PDF در تلگرام</span>
                     </button>
                     <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
@@ -784,18 +889,18 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1 text-[11px] text-slate-500 dark:text-slate-400">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <div className="meeting-mobile-metadata grid grid-cols-2 gap-2 px-1 text-[11px] text-slate-500 dark:text-slate-400 sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
               <span>{meeting.statusLabel}</span>
             </div>
             <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 dark:bg-slate-800/70">
               <span className="text-slate-400">شماره:</span>
               {canEdit ? <input type="number" min="1" step="1" value={minuteNumberInput} onChange={(event) => setMinuteNumberInput(event.target.value)} onBlur={() => { const value = Number(minuteNumberInput); if (Number.isInteger(value) && value > 0 && value !== meeting.organizationMinuteId) onUpdateMeeting({ organizationMinuteId: value }); else if (!minuteNumberInput) setMinuteNumberInput(String(meeting.organizationMinuteId || '')); }} className="w-16 bg-transparent text-center font-bold text-slate-700 outline-none dark:text-slate-200" aria-label="شماره صورت‌جلسه" /> : <span className="font-bold text-slate-700 dark:text-slate-200">{meeting.organizationMinuteId || '—'}</span>}
             </div>
-            <div className="inline-flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-indigo-500" /><span>{meeting.persianDate}</span></div>
-            <div className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-slate-400" /><span>{meeting.timeRange}</span></div>
-            <div className="inline-flex min-w-0 items-center gap-1.5"><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{meeting.location}</span></div>
+            <div className="inline-flex min-w-0 items-center gap-1.5"><Calendar className="h-3.5 w-3.5 shrink-0 text-indigo-500" /><span className="truncate">{meeting.persianDate}</span></div>
+            <div className="inline-flex min-w-0 items-center gap-1.5"><Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{meeting.timeRange}</span></div>
+            <div className="col-span-2 inline-flex min-w-0 items-center gap-1.5 sm:col-span-1"><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{meeting.location}</span></div>
           </div>
           </div>
         </div>
@@ -821,15 +926,15 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               <Printer className="w-4 h-4" />
             </button>
             <button onClick={onDownloadPdf} className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800" title="دانلود PDF"><Download className="w-4 h-4" /></button>
-            <button onClick={onSendTelegram} className="p-2 rounded-xl text-slate-500 hover:text-sky-600 hover:bg-slate-100 dark:hover:bg-slate-800" title="ارسال PDF در تلگرام"><Send className="w-4 h-4" /></button>
+            <button onClick={onSendTelegram} className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800" title="ارسال PDF در تلگرام"><Send className="w-4 h-4" /></button>
             <select value={meeting.printTemplateId || (meeting.templateId?.startsWith('print_') ? meeting.templateId : 'print_classic')} onChange={(event) => onUpdateMeeting({ printTemplateId: event.target.value || undefined })} className="max-w-40 rounded-xl border border-slate-200 bg-white px-2 py-2 text-[10px] text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" title="قالب چاپ PDF">
               <option value="print_classic">چاپ رسمی: کلاسیک</option>
               {pdfTemplates.map((template) => <option key={template.id} value={template.id}>{template.title}</option>)}
             </select>
 
             <span className="hidden xl:inline text-[10px] text-slate-400">قالب چاپ فقط ظاهر PDF را تغییر می‌دهد؛ برای دیدن نتیجه روی چاپ یا دانلود بزنید.</span>
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/60 text-xs font-semibold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-900/60 text-xs font-semibold">
+              <span className="w-2 h-2 rounded-full bg-indigo-500" />
               <span>{meeting.statusLabel}</span>
             </div>
 
@@ -866,7 +971,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             <div className="flex items-center justify-between group">
               <h1
                 onClick={canEdit ? () => setIsEditingTitle(true) : undefined}
-                className="text-2xl font-black text-slate-900 dark:text-white tracking-tight cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors text-right"
+                className="meeting-detail-title text-2xl font-black text-slate-900 dark:text-white tracking-tight cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors text-right"
                 title="کلیک برای ویرایش عنوان جلسه"
               >
                 {meeting.title}
@@ -911,6 +1016,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
 
             <button
               onClick={() => setIsAddingAgenda(true)}
+              aria-label="افزودن بند جدید"
               disabled={!canEdit}
               className="no-print py-1.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
             >
@@ -921,7 +1027,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
 
           {/* Inline Add Agenda Form */}
           {isAddingAgenda && (
-            <form onSubmit={handleSaveNewAgenda} className="flex items-center gap-2 p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 text-xs">
+            <form onSubmit={handleSaveNewAgenda} className="meeting-inline-add-form hidden flex flex-col items-stretch gap-2 p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 text-xs sm:flex-row sm:items-center">
               <input
                 autoFocus
                 required
@@ -955,7 +1061,12 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                 variants={staggerItemVariants}
                 layout
                 exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
-                className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/80 hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors group text-xs text-slate-700 dark:text-slate-300"
+                data-mobile-sort-type="agenda"
+                onPointerDown={(event) => handleMobileSortStart(event, 'agenda', idx)}
+                onPointerMove={handleMobileSortMove}
+                onPointerUp={handleMobileSortEnd}
+                onPointerCancel={handleMobileSortEnd}
+                className={`meeting-list-item flex items-center justify-between p-2.5 rounded-2xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/80 hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors group text-xs text-slate-700 dark:text-slate-300 ${mobileDrag?.type === 'agenda' && mobileDrag.index === idx ? 'meeting-list-item-dragging' : ''}`}
               >
                 {editingAgendaId === item.id ? (
                   <div className="flex-1 flex items-center gap-2">
@@ -969,7 +1080,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                     />
                     <button
                       onClick={() => handleSaveEditAgenda(item.id)}
-                      className="p-2 rounded-xl bg-emerald-600 text-white font-bold cursor-pointer"
+                      className="p-2 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer"
                       title="ذخیره"
                     >
                       <Check className="w-3.5 h-3.5" />
@@ -985,7 +1096,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                 ) : (
                   <>
                     <div className="flex items-center gap-3">
-                      <span className="w-5 h-5 rounded-md bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold text-[11px] flex items-center justify-center font-mono">
+                      <span className="w-5 h-5 rounded-md bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold text-[11px] flex items-center justify-center font-mono" style={{ fontFamily: 'IRANSansXFaNum, sans-serif' }}>
                         {idx + 1}
                       </span>
                       <span
@@ -997,7 +1108,14 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="meeting-item-actions flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" data-mobile-item-menu>
+                      <button type="button" className="meeting-mobile-menu-trigger" aria-label="گزینه‌های بند" aria-expanded={mobileActionMenuId === `agenda-${item.id}`} onPointerDown={(event) => event.stopPropagation()} onClick={() => setMobileActionMenuId((current) => current === `agenda-${item.id}` ? null : `agenda-${item.id}`)}><MoreVertical className="h-4 w-4" /></button>
+                      {mobileActionMenuId === `agenda-${item.id}` && <div className="meeting-mobile-item-dropdown" onPointerDown={(event) => event.stopPropagation()}>
+                        <button type="button" onClick={() => { handleMoveAgenda(idx, 'up'); setMobileActionMenuId(null); }} disabled={idx === 0}><ChevronUp className="h-3.5 w-3.5" />بالا</button>
+                        <button type="button" onClick={() => { handleMoveAgenda(idx, 'down'); setMobileActionMenuId(null); }} disabled={idx === meeting.agenda.length - 1}><ChevronDown className="h-3.5 w-3.5" />پایین</button>
+                        <button type="button" onClick={() => { handleStartEditAgenda(item); setMobileActionMenuId(null); }}><Edit3 className="h-3.5 w-3.5" />ویرایش</button>
+                        <button type="button" onClick={() => { handleDeleteAgenda(item.id); setMobileActionMenuId(null); }}><Trash2 className="h-3.5 w-3.5" />حذف</button>
+                      </div>}
                       <button
                         onClick={() => handleMoveAgenda(idx, 'up')}
                         disabled={idx === 0}
@@ -1023,7 +1141,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                       </button>
                       <button
                         onClick={() => handleDeleteAgenda(item.id)}
-                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                        className="p-1 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
                         title="حذف بند"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1040,7 +1158,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         <section id="meeting-section-notes" className="meeting-section meeting-section-write flex flex-col gap-3 scroll-mt-40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-purple-50 dark:bg-purple-950/70 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+              <div className="w-7 h-7 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                 <FileText className="w-4 h-4" />
               </div>
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
@@ -1049,7 +1167,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             </div>
 
             {/* View Mode Toggle: Edit vs Preview */}
-            <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 text-xs font-semibold">
+            <div className="flex w-full rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 text-xs font-semibold sm:w-auto">
               <button
                 type="button"
                 onClick={() => setEditorMode('edit')}
@@ -1079,8 +1197,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
 
           {/* Full Working Formatting Toolbar */}
           {editorMode === 'edit' && canEdit && (
-            <div className="flex items-center justify-between p-2 rounded-2xl bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200/90 dark:border-slate-800 text-slate-700 dark:text-slate-200 text-xs flex-wrap gap-1">
-              <div className="flex items-center gap-1">
+            <div className="meeting-formatting-toolbar flex items-center justify-between p-2 rounded-2xl bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200/90 dark:border-slate-800 text-slate-700 dark:text-slate-200 text-xs flex-wrap gap-1">
+              <div className="meeting-formatting-tools flex items-center gap-1">
                 {/* Undo / Redo */}
                 <button
                   type="button"
@@ -1223,11 +1341,11 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               </div>
 
               {/* Autosave status indicator */}
-              <div className="text-[11px] text-slate-400 flex items-center gap-1.5 select-none font-mono">
+              <div className="meeting-formatting-status text-[11px] text-slate-400 flex items-center gap-1.5 select-none" style={{ fontFamily: 'IRANSansXFaNum, sans-serif' }}>
                 {saveStatus === 'saving' ? (
-                  <span className="text-amber-500 animate-pulse">در حال ذخیره...</span>
+                  <span className="text-indigo-500 animate-pulse">در حال ذخیره...</span>
                 ) : (
-                  <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <span className="text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
                     <span>ذخیره در سرور</span>
                     <Check className="w-3 h-3" />
                   </span>
@@ -1245,7 +1363,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               onChange={(e) => handleDiscussionChange(e.target.value)}
               readOnly={!canEdit}
               placeholder="مشروح مذاکرات، نظرات، تصمیمات و بندهای مطرح شده جلسه را اینجا بنویسید..."
-              className="w-full text-xs text-slate-800 dark:text-slate-100 leading-relaxed bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 focus:outline-none focus:border-indigo-500 font-sans resize-y"
+              className="min-h-52 w-full text-xs text-slate-800 dark:text-slate-100 leading-relaxed bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 focus:outline-none focus:border-indigo-500 font-sans resize-y"
             />
           ) : (
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 min-h-[140px]">
@@ -1288,7 +1406,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               disabled={meeting.aiSuggestion.applied}
               className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
                 meeting.aiSuggestion.applied
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+                  ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
                   : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
               }`}
             >
@@ -1302,7 +1420,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         <section id="meeting-section-review" className="meeting-section meeting-section-review flex flex-col gap-3 scroll-mt-40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <div className="w-7 h-7 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                 <ShieldCheck className="w-4 h-4" />
               </div>
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
@@ -1311,8 +1429,9 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             </div>
             <button
               onClick={() => setIsAddingDecision(true)}
+              aria-label="ثبت مصوبه جدید"
               disabled={!canEdit}
-              className="no-print py-1.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+              className="no-print py-1.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>ثبت مصوبه جدید</span>
@@ -1321,7 +1440,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
 
           {/* Inline Add Decision Form */}
           {isAddingDecision && (
-            <form onSubmit={handleSaveNewDecision} className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs">
+            <form onSubmit={handleSaveNewDecision} className="meeting-inline-add-form hidden flex items-center gap-2 p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 text-xs">
               <input
                 autoFocus
                 required
@@ -1329,18 +1448,18 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                 onChange={(e) => setNewDecisionText(e.target.value)}
                 onPaste={(e) => { const pasted = e.clipboardData.getData('text'); if (/\r?\n/.test(pasted)) { e.preventDefault(); setNewDecisionText(pasted); } }}
                 placeholder="متن مصوبه یا فهرست شماره‌گذاری‌شده را وارد نمایید..."
-                className="flex-1 p-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 text-slate-800 dark:text-slate-100 focus:outline-none"
+                className="flex-1 p-2 rounded-xl bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 text-slate-800 dark:text-slate-100 focus:outline-none"
               />
               <button
                 type="submit"
-                className="py-2 px-3.5 rounded-xl bg-emerald-600 text-white font-bold cursor-pointer"
+                className="min-h-11 py-2 px-3.5 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer sm:min-h-0"
               >
                 ثبت مصوبه
               </button>
               <button
                 type="button"
                 onClick={() => setIsAddingDecision(false)}
-                className="py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
+                className="min-h-11 py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer sm:min-h-0"
               >
                 انصراف
               </button>
@@ -1348,13 +1467,18 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
           )}
 
           <motion.div className="flex flex-col gap-2" initial="hidden" animate="show" variants={staggerContainerVariants}>
-            {meeting.decisions.length === 0 ? <EmptyState compact icon={CheckCircle2} title="مصوبه‌ای ثبت نشده است" description="مصوبات جلسه پس از ثبت در این بخش نمایش داده می‌شوند." /> : meeting.decisions.map((dec) => (
+            {meeting.decisions.length === 0 ? <EmptyState compact icon={CheckCircle2} title="مصوبه‌ای ثبت نشده است" description="مصوبات جلسه پس از ثبت در این بخش نمایش داده می‌شوند." /> : meeting.decisions.map((dec, idx) => (
               <motion.div
                 key={dec.id}
                 variants={staggerItemVariants}
                 layout
                 exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
-                className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 group transition-all"
+                data-mobile-sort-type="decision"
+                onPointerDown={(event) => handleMobileSortStart(event, 'decision', idx)}
+                onPointerMove={handleMobileSortMove}
+                onPointerUp={handleMobileSortEnd}
+                onPointerCancel={handleMobileSortEnd}
+                className={`meeting-list-item flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 group transition-all ${mobileDrag?.type === 'decision' && mobileDrag.index === idx ? 'meeting-list-item-dragging' : ''}`}
               >
                 {editingDecisionId === dec.id ? (
                   <div className="flex-1 flex items-center gap-2">
@@ -1364,11 +1488,11 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                       value={editingDecisionText}
                       onChange={(e) => setEditingDecisionText(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSaveEditDecision(dec.id)}
-                      className="flex-1 p-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-400 text-slate-800 dark:text-slate-100 text-xs focus:outline-none"
+                      className="flex-1 p-2 rounded-xl bg-white dark:bg-slate-900 border border-indigo-400 text-slate-800 dark:text-slate-100 text-xs focus:outline-none"
                     />
                     <button
                       onClick={() => handleSaveEditDecision(dec.id)}
-                      className="p-2 rounded-xl bg-emerald-600 text-white font-bold cursor-pointer"
+                      className="p-2 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer"
                     >
                       <Check className="w-3.5 h-3.5" />
                     </button>
@@ -1386,9 +1510,9 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                       className="flex items-center gap-2.5 cursor-pointer select-none"
                     >
                       {dec.approved ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                        <XCircle className="w-4 h-4 text-indigo-500 shrink-0" />
                       )}
                       <span
                         className={`text-xs font-medium ${
@@ -1401,17 +1525,22 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="meeting-item-actions flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" data-mobile-item-menu>
+                      <button type="button" className="meeting-mobile-menu-trigger" aria-label="گزینه‌های مصوبه" aria-expanded={mobileActionMenuId === `decision-${dec.id}`} onPointerDown={(event) => event.stopPropagation()} onClick={() => setMobileActionMenuId((current) => current === `decision-${dec.id}` ? null : `decision-${dec.id}`)}><MoreVertical className="h-4 w-4" /></button>
+                      {mobileActionMenuId === `decision-${dec.id}` && <div className="meeting-mobile-item-dropdown" onPointerDown={(event) => event.stopPropagation()}>
+                        <button type="button" onClick={() => { handleStartEditDecision(dec); setMobileActionMenuId(null); }}><Edit3 className="h-3.5 w-3.5" />ویرایش</button>
+                        <button type="button" onClick={() => { handleDeleteDecision(dec.id); setMobileActionMenuId(null); }}><Trash2 className="h-3.5 w-3.5" />حذف</button>
+                      </div>}
                       <button
                         onClick={() => handleStartEditDecision(dec)}
-                        className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer"
+                        className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
                         title="ویرایش مصوبه"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDeleteDecision(dec.id)}
-                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                        className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
                         title="حذف تصمیم"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1428,7 +1557,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         <section id="meeting-section-actions" className="meeting-section meeting-section-review flex flex-col gap-3 scroll-mt-40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-sky-50 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+              <div className="w-7 h-7 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                 <CheckSquare className="w-4 h-4" />
               </div>
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
@@ -1437,8 +1566,9 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             </div>
             <button
               onClick={() => setIsAddingAction(true)}
+              aria-label="افزودن اقدام جدید"
               disabled={!canEdit}
-              className="no-print py-1.5 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+              className="no-print py-1.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>اقدام جدید</span>
@@ -1447,7 +1577,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
 
           {/* Inline Add Action Form */}
           {isAddingAction && (
-            <form onSubmit={handleSaveNewAction} className="flex flex-col gap-2 p-3 rounded-2xl bg-sky-50/60 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-xs">
+            <form onSubmit={handleSaveNewAction} className="meeting-inline-add-form hidden flex flex-col gap-2 p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <input
                   required
@@ -1455,9 +1585,9 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                   value={newTaskTitle}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
                   onPaste={(e) => { const pasted = e.clipboardData.getData('text'); if (/\r?\n/.test(pasted)) { e.preventDefault(); setNewTaskTitle(pasted); } }}
-                  className="sm:col-span-2 p-2 rounded-xl bg-white dark:bg-slate-900 border border-sky-300 dark:border-sky-700 text-slate-800 dark:text-slate-100 focus:outline-none"
+                className="sm:col-span-2 p-2 rounded-xl bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 text-slate-800 dark:text-slate-100 focus:outline-none"
                 />
-                <div className="flex min-h-10 items-center rounded-xl border border-sky-300 bg-white px-3 py-2 dark:border-sky-700 dark:bg-slate-900">
+                <div className="flex min-h-10 items-center rounded-xl border border-indigo-300 bg-white px-3 py-2 dark:border-indigo-700 dark:bg-slate-900">
                   <JalaliDatePicker value={newTaskDeadline} onChange={setNewTaskDeadline} />
                 </div>
               </div>
@@ -1484,7 +1614,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="py-1.5 px-4 rounded-xl bg-sky-600 text-white font-bold cursor-pointer"
+                    className="py-1.5 px-4 rounded-xl bg-indigo-600 text-white font-bold cursor-pointer"
                   >
                     ثبت اقدام
                   </button>
@@ -1494,8 +1624,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
           )}
 
           {/* Table of Actions */}
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-            <table className="w-full text-xs text-right">
+          <div className="meeting-actions-desktop-table rounded-2xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
+            <table className="w-full min-w-[620px] text-xs text-right">
               <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-900/80 text-slate-400 text-[11px] font-semibold border-b border-slate-200 dark:border-slate-800">
                   <th className="py-2.5 px-4 w-10"></th>
@@ -1521,18 +1651,18 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                         type="checkbox"
                         checked={act.completed}
                         onChange={() => handleToggleAction(act.id)}
-                        className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                       />
                     </td>
                     {editingActionId === act.id ? <>
                       <td className="py-2.5 px-4 font-medium text-slate-800 dark:text-slate-200">
-                        <input autoFocus value={editingActionText} onChange={(event) => setEditingActionText(event.target.value)} onPaste={(event) => { const pasted = event.clipboardData.getData('text'); if (/\r?\n/.test(pasted)) { event.preventDefault(); setEditingActionText(pasted); } }} className="w-full rounded-lg border border-sky-300 bg-white p-2 text-xs outline-none dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
+                        <input autoFocus value={editingActionText} onChange={(event) => setEditingActionText(event.target.value)} onPaste={(event) => { const pasted = event.clipboardData.getData('text'); if (/\r?\n/.test(pasted)) { event.preventDefault(); setEditingActionText(pasted); } }} className="w-full rounded-lg border border-indigo-300 bg-white p-2 text-xs outline-none dark:border-indigo-700 dark:bg-slate-900 dark:text-slate-100" />
                       </td>
                       <td className="py-2.5 px-4">
                         <CustomSelect value={editingActionAssigneeId} onChange={setEditingActionAssigneeId} className="min-w-[9rem]" options={[...meeting.participants.filter(Boolean), meeting.organizer].map((person, index) => ({ value: person.id || `participant-${index}`, label: `${person.name} (${person.role})` }))} />
                       </td>
                       <td className="py-2.5 px-4">
-                        <input value={editingActionDeadline} onChange={(event) => setEditingActionDeadline(event.target.value)} className="w-full rounded-lg border border-sky-300 bg-white p-2 text-[11px] outline-none dark:border-sky-700 dark:bg-slate-900 dark:text-slate-100" />
+                        <input value={editingActionDeadline} onChange={(event) => setEditingActionDeadline(event.target.value)} className="w-full rounded-lg border border-indigo-300 bg-white p-2 text-[11px] outline-none dark:border-indigo-700 dark:bg-slate-900 dark:text-slate-100" />
                       </td>
                       <td className="py-2.5 px-4 text-center">
                         <div className="flex items-center justify-center gap-1"><button onClick={() => handleSaveEditAction(act.id)} className="p-1 text-emerald-600 hover:text-emerald-700" title="ذخیره"><Check className="h-3.5 w-3.5" /></button><button onClick={() => setEditingActionId(null)} className="p-1 text-slate-400 hover:text-slate-600" title="انصراف"><X className="h-3.5 w-3.5" /></button></div>
@@ -1545,8 +1675,56 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                     </>}
                   </motion.tr>
                 ))}
-              </motion.tbody>
+            </motion.tbody>
             </table>
+          </div>
+
+          <div className="meeting-actions-mobile-list">
+            {meeting.actionItems.length === 0 ? (
+              <EmptyState compact icon={CheckSquare} title="اقدامی ثبت نشده است" description="وظایف و مسئولیت‌های جلسه را برای پیگیری اضافه کنید." />
+            ) : meeting.actionItems.map((act) => (
+              <article key={act.id} className={`meeting-action-card ${act.completed ? 'is-completed' : ''} ${mobileExpandedActionId === act.id ? 'is-expanded' : ''}`}>
+                {editingActionId === act.id ? (
+                  <div className="flex flex-col gap-3">
+                    <textarea autoFocus rows={3} value={editingActionText} onChange={(event) => setEditingActionText(event.target.value)} className="w-full resize-y rounded-xl border border-indigo-300 bg-white p-2.5 text-xs outline-none dark:border-indigo-700 dark:bg-slate-950 dark:text-slate-100" />
+                    <CustomSelect value={editingActionAssigneeId} onChange={setEditingActionAssigneeId} options={[...meeting.participants.filter(Boolean), meeting.organizer].map((person, index) => ({ value: person.id || `participant-${index}`, label: `${person.name} (${person.role})` }))} />
+                    <div className="flex min-h-9 items-center rounded-xl border border-indigo-200 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-950"><JalaliDatePicker value={editingActionDeadline} onChange={setEditingActionDeadline} /></div>
+                    <div className="flex gap-2"><button type="button" onClick={() => setEditingActionId(null)} className="flex-1 rounded-xl border border-slate-200 py-2 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">انصراف</button><button type="button" onClick={() => handleSaveEditAction(act.id)} className="flex-1 rounded-xl bg-indigo-600 py-2 text-xs font-bold text-white">ذخیره</button></div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="meeting-action-card-header">
+                      <label className="meeting-action-checkbox" title={act.completed ? 'علامت‌گذاری به‌عنوان انجام‌نشده' : 'علامت‌گذاری به‌عنوان انجام‌شده'}>
+                        <input type="checkbox" checked={act.completed} onChange={() => handleToggleAction(act.id)} aria-label="وضعیت اقدام" />
+                        <span><Check className="h-3.5 w-3.5" /></span>
+                      </label>
+                      <button type="button" onClick={() => setMobileExpandedActionId((current) => current === act.id ? null : act.id)} className={`meeting-action-card-title ${act.completed ? 'line-through' : ''}`}>{act.task}</button>
+                      <div className="meeting-action-card-controls">
+                        <button type="button" className="meeting-action-expand-button" onClick={() => setMobileExpandedActionId((current) => current === act.id ? null : act.id)} aria-label={mobileExpandedActionId === act.id ? 'بستن جزئیات' : 'نمایش جزئیات'} aria-expanded={mobileExpandedActionId === act.id}><ChevronDown className="h-4 w-4" /></button>
+                        <div className="meeting-item-actions" data-mobile-item-menu>
+                          <button type="button" className="meeting-mobile-menu-trigger" aria-label="گزینه‌های اقدام" aria-expanded={mobileActionMenuId === `action-${act.id}`} onClick={() => setMobileActionMenuId((current) => current === `action-${act.id}` ? null : `action-${act.id}`)}><MoreVertical className="h-4 w-4" /></button>
+                          {mobileActionMenuId === `action-${act.id}` && <div className="meeting-mobile-item-dropdown" onPointerDown={(event) => event.stopPropagation()}>
+                            {canEdit && <button type="button" onClick={() => { handleStartEditAction(act); setMobileActionMenuId(null); }}><Edit3 className="h-3.5 w-3.5" />ویرایش</button>}
+                            <button type="button" onClick={() => { handleDeleteAction(act.id); setMobileActionMenuId(null); }}><Trash2 className="h-3.5 w-3.5" />حذف</button>
+                          </div>}
+                        </div>
+                      </div>
+                    </div>
+                    <AnimatePresence initial={false}>
+                      {mobileExpandedActionId === act.id && (
+                        <motion.div className="meeting-action-card-details" initial={{ height: 0, opacity: 0, y: -6 }} animate={{ height: 'auto', opacity: 1, y: 0 }} exit={{ height: 0, opacity: 0, y: -6 }} transition={{ duration: 0.24, ease: 'easeOut' }}>
+                          <div className={`meeting-action-status ${act.completed ? 'is-complete' : ''}`}><span className="meeting-action-status-dot" />{act.completed ? 'اقدام انجام شده' : 'اقدام در انتظار انجام'}</div>
+                          <div className="meeting-action-detail-grid">
+                            <div className="meeting-action-detail-item"><span><User className="h-3.5 w-3.5" />مسئول پیگیری</span><strong>{act.assignee?.name || 'بدون مسئول'}</strong></div>
+                            <div className="meeting-action-detail-item"><span><Calendar className="h-3.5 w-3.5" />مهلت انجام</span><strong>{act.dueDate || 'بدون مهلت'}</strong></div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </>
+                )}
+              </article>
+            ))}
           </div>
         </section>
 
@@ -1554,7 +1732,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
         <section id="meeting-section-sign" className="meeting-section meeting-section-sign flex flex-col gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center">
+              <div className="w-7 h-7 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                 <Paperclip className="w-4 h-4" />
               </div>
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
@@ -1562,14 +1740,16 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
               </h2>
             </div>
 
-            <label className={`no-print py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5 transition-colors ${canEdit ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
-              <Upload className="w-3.5 h-3.5" />
-              <span>{isUploadingAttachment ? 'در حال بارگذاری...' : 'پیوست فایل جدید'}</span>
+            <label aria-label="افزودن پیوست" className={`no-print py-1.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex items-center gap-1.5 transition-colors ${canEdit ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
+              <Plus className="w-3.5 h-3.5" />
+              <span>{isUploadingAttachment ? 'در حال بارگذاری...' : 'افزودن پیوست'}</span>
               <input
                 type="file"
                 className="hidden"
                 disabled={!canEdit || isUploadingAttachment}
                 onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  setUploadingAttachmentName(file?.name || 'در حال بارگذاری فایل...');
                   void handleUploadAttachment(e.target.files?.[0]);
                   e.currentTarget.value = '';
                 }}
@@ -1577,10 +1757,132 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
             </label>
           </div>
 
-          {attachmentError && <p className="rounded-xl border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300">{attachmentError}</p>}
-          {meeting.attachments?.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">{meeting.attachments.map((attachment) => { const design = getAttachmentDesign(attachment.fileName, attachment.mimeType); return <article key={attachment.id} className={`group relative aspect-[5/6] overflow-hidden rounded-[1.6rem] border border-slate-200/80 bg-white shadow-lg ${design.glow} transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-slate-800 dark:bg-slate-950`}><div className={`absolute inset-x-0 top-0 h-28 bg-gradient-to-br ${design.gradient}`} /><div className="absolute -right-10 -top-12 h-32 w-32 rounded-full border-[18px] border-white/10" /><div className="absolute -left-10 top-12 h-24 w-24 rounded-full bg-white/10 blur-2xl" /><div className="relative flex h-full flex-col justify-between p-3.5"><div className="flex items-start justify-between"><div className="flex h-14 w-14 rotate-[-4deg] items-center justify-center rounded-2xl bg-white/95 text-[11px] font-black tracking-tight text-slate-800 shadow-xl shadow-black/10 dark:bg-slate-900/95 dark:text-white">{design.label}</div><span className="rounded-full bg-black/15 px-2 py-1 text-[9px] font-bold text-white backdrop-blur-sm">{design.kind}</span></div><div className="rounded-2xl border border-white/70 bg-white/90 p-3 shadow-sm backdrop-blur-xl dark:border-slate-700/70 dark:bg-slate-900/90"><p className="line-clamp-3 break-words text-xs font-black leading-5 text-slate-800 dark:text-slate-100">{attachment.fileName}</p><div className="mt-2 flex items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${design.soft}`}>{Math.max(1, Math.round(attachment.size / 1024))} KB</span><span className="text-[9px] text-slate-400">{new Date(attachment.uploadedAt).toLocaleDateString('fa-IR')}</span></div></div><div className="flex items-center gap-2"><a href={`/api/meetings/${meeting.id}/attachments/${attachment.id}`} download={attachment.fileName} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-2 text-[10px] font-bold text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200" title="دانلود"><Download className="h-3.5 w-3.5" />دانلود</a>{canEdit && <button type="button" onClick={() => void handleDeleteAttachment(attachment.id)} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900" title="حذف"><Trash2 className="h-3.5 w-3.5" /></button>}</div></div></article>; })}</div> : <EmptyState compact icon={Paperclip} title="هنوز پیوستی ثبت نشده است" description="فایل‌های پشتیبان جلسه پس از بارگذاری در این بخش نمایش داده می‌شوند." />}
+          {isUploadingAttachment && <article className="attachment-uploading-card"><div className="attachment-uploading-format"><Upload className="h-4 w-4" /></div><div className="attachment-uploading-name">{uploadingAttachmentName || 'در حال بارگذاری فایل...'}</div><div className="attachment-uploading-indicator" aria-label="در حال بارگذاری" /></article>}
+
+          {attachmentError && <p className="rounded-xl border border-indigo-200 bg-indigo-50 p-2 text-xs text-indigo-700 dark:border-indigo-900/50 dark:bg-indigo-950/20 dark:text-indigo-300">{attachmentError}</p>}
+          {meeting.attachments?.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">{meeting.attachments.map((attachment) => { const design = getAttachmentDesign(attachment.fileName, attachment.mimeType); return <article key={attachment.id} className={`group relative aspect-[5/6] overflow-hidden rounded-[1.6rem] border border-slate-200/80 bg-white shadow-lg ${design.glow} transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-slate-800 dark:bg-slate-950`}><div className={`absolute inset-x-0 top-0 h-28 bg-gradient-to-br ${design.gradient}`} /><div className="absolute -right-10 -top-12 h-32 w-32 rounded-full border-[18px] border-white/10" /><div className="absolute -left-10 top-12 h-24 w-24 rounded-full bg-white/10 blur-2xl" /><div className="relative flex h-full flex-col justify-between p-3.5"><div className="flex items-start justify-between"><div className="flex h-14 w-14 rotate-[-4deg] items-center justify-center rounded-2xl bg-white/95 text-[11px] font-black tracking-tight text-slate-800 shadow-xl shadow-black/10 dark:bg-slate-900/95 dark:text-white">{design.label}</div><span className="rounded-full bg-black/15 px-2 py-1 text-[9px] font-bold text-white backdrop-blur-sm">{design.kind}</span></div><div className="rounded-2xl border border-white/70 bg-white/90 p-3 shadow-sm backdrop-blur-xl dark:border-slate-700/70 dark:bg-slate-900/90"><p className="line-clamp-3 break-words text-xs font-black leading-5 text-slate-800 dark:text-slate-100">{attachment.fileName}</p><div className="mt-2 flex items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${design.soft}`}>{Math.max(1, Math.round(attachment.size / 1024))} KB</span><span className="text-[9px] text-slate-400">{new Date(attachment.uploadedAt).toLocaleDateString('fa-IR')}</span></div></div><div className="flex items-center gap-2"><a href={`/api/meetings/${meeting.id}/attachments/${attachment.id}`} download={attachment.fileName} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-2 text-[10px] font-bold text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200" title="دانلود"><Download className="h-3.5 w-3.5" />دانلود</a>{canEdit && <button type="button" disabled={deletingAttachmentId === attachment.id} onClick={() => void handleDeleteAttachment(attachment.id)} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:text-rose-600 disabled:cursor-wait disabled:opacity-70 dark:border-slate-700 dark:bg-slate-900" title="حذف">{deletingAttachmentId === attachment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}</button>}</div></div></article>; })}</div> : <EmptyState compact icon={Paperclip} title="هنوز پیوستی ثبت نشده است" description="فایل‌های پشتیبان جلسه پس از بارگذاری در این بخش نمایش داده می‌شوند." />}
         </section>
       </div>
+
+      {/* New item modal */}
+      {(isAddingAgenda || isAddingDecision || isAddingAction) && (
+        <AnimatedModal
+          isOpen
+          onClose={() => {
+            setIsAddingAgenda(false);
+            setIsAddingDecision(false);
+            setIsAddingAction(false);
+          }}
+          contentClassName="meeting-add-modal-content w-full max-w-lg"
+        >
+          <div dir="rtl" className="w-full max-w-lg rounded-3xl border border-indigo-100 bg-white p-5 text-right shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  {isAddingAgenda ? 'افزودن بند دستور جلسه' : isAddingDecision ? 'افزودن مصوبه جدید' : 'افزودن اقدام جدید'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingAgenda(false);
+                  setIsAddingDecision(false);
+                  setIsAddingAction(false);
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                aria-label="بستن"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {isAddingAgenda && (
+              <form onSubmit={handleSaveNewAgenda} className="flex flex-col gap-4 text-xs">
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">متن بند</span>
+                  <textarea
+                    autoFocus
+                    required
+                    rows={3}
+                    value={newAgendaText}
+                    onChange={(e) => setNewAgendaText(e.target.value)}
+                    placeholder="متن بند یا چند بند شماره‌گذاری‌شده را وارد کنید..."
+                    className="resize-y rounded-2xl border border-indigo-200 bg-slate-50 p-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  />
+                </label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setIsAddingAgenda(false)} className="flex-1 rounded-xl border border-slate-200 py-2.5 font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">انصراف</button>
+                  <button type="submit" className="flex-1 rounded-xl bg-indigo-600 py-2.5 font-bold text-white shadow-lg shadow-indigo-600/20">افزودن بند</button>
+                </div>
+              </form>
+            )}
+
+            {isAddingDecision && (
+              <form onSubmit={handleSaveNewDecision} className="flex flex-col gap-4 text-xs">
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">متن مصوبه</span>
+                  <textarea
+                    autoFocus
+                    required
+                    rows={3}
+                    value={newDecisionText}
+                    onChange={(e) => setNewDecisionText(e.target.value)}
+                    placeholder="متن مصوبه یا چند مصوبه شماره‌گذاری‌شده را وارد کنید..."
+                    className="resize-y rounded-2xl border border-indigo-200 bg-slate-50 p-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  />
+                </label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setIsAddingDecision(false)} className="flex-1 rounded-xl border border-slate-200 py-2.5 font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">انصراف</button>
+                  <button type="submit" className="flex-1 rounded-xl bg-indigo-600 py-2.5 font-bold text-white shadow-lg shadow-indigo-600/20">افزودن مصوبه</button>
+                </div>
+              </form>
+            )}
+
+            {isAddingAction && (
+              <form onSubmit={handleSaveNewAction} className="flex flex-col gap-4 text-xs">
+                <label className="flex flex-col gap-1.5">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">شرح اقدام</span>
+                  <textarea
+                    autoFocus
+                    required
+                    rows={3}
+                    value={newTaskTitle}
+                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                    placeholder="شرح اقدام یا چند اقدام شماره‌گذاری‌شده را وارد کنید..."
+                    className="resize-y rounded-2xl border border-indigo-200 bg-slate-50 p-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  />
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="font-semibold text-slate-600 dark:text-slate-300">مسئول پیگیری</span>
+                    {meeting.participants.filter(Boolean).length === 0 ? (
+                      <div className="flex min-h-10 items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
+                        هنوز کسی به جلسه اضافه نشده است
+                      </div>
+                    ) : (
+                      <CustomSelect
+                        value={newTaskAssigneeId}
+                        onChange={setNewTaskAssigneeId}
+                        options={meeting.participants.filter(Boolean).map((p, index) => ({ value: p.id || `participant-${index}`, label: `${p.name} (${p.role})` }))}
+                      />
+                    )}
+                  </label>
+                  <label className="flex min-h-9 flex-col gap-1.5">
+                    <span className="font-semibold text-slate-600 dark:text-slate-300">مهلت انجام</span>
+                    <div className="flex min-h-9 items-center rounded-xl border border-indigo-200 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-950">
+                      <JalaliDatePicker value={newTaskDeadline} onChange={setNewTaskDeadline} />
+                    </div>
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setIsAddingAction(false)} className="flex-1 rounded-xl border border-slate-200 py-2.5 font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">انصراف</button>
+                  <button type="submit" className="flex-1 rounded-xl bg-indigo-600 py-2.5 font-bold text-white shadow-lg shadow-indigo-600/20">افزودن اقدام</button>
+                </div>
+              </form>
+            )}
+          </div>
+        </AnimatedModal>
+      )}
 
       {/* Insert Link Modal */}
       {isLinkModalOpen && (

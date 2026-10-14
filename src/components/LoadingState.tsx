@@ -73,7 +73,14 @@ export const TableRowsSkeleton: React.FC<{ columns: number; rows?: number }> = (
 );
 
 export const OrganizationCardsSkeleton: React.FC<{ count?: number }> = ({ count = 3 }) => (
-  <div className="flex flex-col gap-4" aria-label="Loading organizations">{Array.from({ length: count }, (_, index) => <div key={index} className="flex items-center gap-5 rounded-[1.75rem] border border-slate-200/80 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"><Skeleton className="h-16 w-16 shrink-0 rounded-[1.35rem]" /><div className="min-w-0 flex-1 space-y-3"><Skeleton className="h-5 w-1/2" /><Skeleton className="h-3 w-3/4" /><Skeleton className="h-6 w-40 rounded-lg" /></div><Skeleton className="h-10 w-32 rounded-xl" /></div>)}</div>
+  <div className="organizations-skeleton-list" aria-label="Loading organizations">{Array.from({ length: count }, (_, index) => <div key={index} className="organizations-card-skeleton">
+    <div className="organizations-card-skeleton-main">
+      <div className="organizations-card-skeleton-title"><Skeleton className="h-5 w-40" /><Skeleton className="h-6 w-16 rounded-full" /></div>
+      <Skeleton className="organizations-card-skeleton-description h-3 w-3/4" />
+      <div className="organizations-card-skeleton-meta"><div className="flex -space-x-2 rtl:space-x-reverse"><Skeleton className="h-7 w-7 rounded-full" /><Skeleton className="h-7 w-7 rounded-full" /><Skeleton className="h-7 w-7 rounded-full" /></div><div className="flex gap-2"><Skeleton className="h-9 w-9 rounded-xl" /><Skeleton className="h-9 w-9 rounded-xl" /></div></div>
+      <Skeleton className="organizations-card-skeleton-action h-11 w-40 rounded-xl" />
+    </div>
+  </div>)}</div>
 );
 
 export const GuestSigningSkeleton: React.FC = () => (

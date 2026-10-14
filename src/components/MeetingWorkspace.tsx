@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, FileCheck2, LockKeyhole, PenLine, Settings2, ShieldCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowRight, Check, FileCheck2, PenLine, Settings2, ShieldCheck } from 'lucide-react';
 import { LayoutGroup, motion } from 'motion/react';
 import { Meeting } from '../types';
 
@@ -41,11 +41,6 @@ export function getMeetingWorkspaceStage(meeting: Meeting): MeetingWorkspaceStag
 
 export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, stage, onBack, onStatusChange, onOpenReview, onOpenSign, canReview = true, canSign = true, hasUserSigned = false, canEdit = true, children }) => {
   const activeIndex = stageIndex(stage);
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const compactRef = useRef(false);
-  const lastScrollTopRef = useRef(0);
-  const [isCompact, setIsCompact] = useState(false);
-  const [isWideLayout, setIsWideLayout] = useState(false);
   const [stageNotice, setStageNotice] = useState('');
 
   const isInReviewOrLater = ['IN_REVIEW', 'READY_FOR_SIGNATURE', 'SIGNING', 'SEALED', 'ARCHIVED'].includes(meeting.status);
@@ -128,73 +123,25 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
     : primaryActionLabel;
   const canUsePrimaryAction = stage === 'review' ? canReview : stage === 'sign' ? canSign : canEdit;
 
-  useEffect(() => {
-    const scrollContainer = workspaceRef.current?.closest<HTMLElement>('.overflow-y-auto');
-    if (!scrollContainer) return;
-
-    // The header changes its own height while it is sticky. Browser scroll
-    // anchoring can interpret that resize as a user scroll and pull the
-    // container back toward the top, which makes the two modes oscillate.
-    const previousOverflowAnchor = scrollContainer.style.overflowAnchor;
-    scrollContainer.style.overflowAnchor = 'none';
-
-    const handleScroll = () => {
-      const scrollTop = Math.max(0, scrollContainer.scrollTop);
-      const previousScrollTop = lastScrollTopRef.current;
-      const isMovingDown = scrollTop >= previousScrollTop;
-      lastScrollTopRef.current = scrollTop;
-
-      // Use a wide dead zone so the header's own height animation cannot
-      // bounce the scroll position back across the mode boundary.
-      if (!compactRef.current && isMovingDown && scrollTop >= 84) {
-        compactRef.current = true;
-        setIsCompact(true);
-      } else if (compactRef.current && !isMovingDown && scrollTop <= 16) {
-        compactRef.current = false;
-        setIsCompact(false);
-      }
-    };
-    handleScroll();
-    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      scrollContainer.removeEventListener('scroll', handleScroll);
-      scrollContainer.style.overflowAnchor = previousOverflowAnchor;
-    };
-  }, []);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(min-width: 1280px)');
-    const updateLayout = () => setIsWideLayout(mediaQuery.matches);
-    updateLayout();
-    mediaQuery.addEventListener('change', updateLayout);
-    return () => mediaQuery.removeEventListener('change', updateLayout);
-  }, []);
-
-  const compactHeaderOffset = isWideLayout ? '21.5rem' : '0px';
-  const compactHeaderWidth = isWideLayout ? 'calc(100% - 21.5rem)' : '100%';
-
   return (
-    <div ref={workspaceRef} className="meeting-workspace mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6" dir="rtl" style={{ overflowAnchor: 'none' }}>
+    <div className="meeting-workspace mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6" dir="rtl">
       <motion.header
+        data-stage-index={activeIndex}
         initial={false}
-        layout
-        transition={{
-          layout: { type: 'spring', stiffness: 360, damping: 32, mass: 0.78 },
-        }}
-        className={`meeting-workspace-header sticky top-0 z-50 mx-auto w-full overflow-hidden border dark:border-slate-800/90 ${isCompact ? 'rounded-2xl border-white/70 bg-white/55 px-3 py-2 shadow-[0_16px_36px_-18px_rgba(15,23,42,0.5),0_3px_10px_-5px_rgba(99,102,241,0.18)] ring-1 ring-slate-900/[0.06] backdrop-blur-2xl backdrop-saturate-150 dark:bg-slate-950/75 dark:shadow-[0_16px_36px_-18px_rgba(0,0,0,0.7)] dark:ring-white/[0.06]' : 'rounded-[1.75rem] border-white/80 bg-white/90 p-4 shadow-lg shadow-slate-200/40 backdrop-blur-xl dark:bg-slate-950/85 dark:shadow-black/20 sm:p-5'}`}
+        className="meeting-workspace-header relative mx-auto w-full overflow-hidden rounded-[1.75rem] border border-white/80 bg-white/90 p-4 shadow-lg shadow-slate-200/40 backdrop-blur-xl dark:border-slate-800/90 dark:bg-slate-950/85 dark:shadow-black/20 sm:p-5"
         style={{
-          width: isCompact ? compactHeaderWidth : '100%',
-          maxWidth: isCompact ? 'none' : 1500,
-          marginRight: isCompact ? compactHeaderOffset : 'auto',
-          marginLeft: isCompact ? '0px' : 'auto',
+          width: '100%',
+          maxWidth: 1500,
+          marginRight: 'auto',
+          marginLeft: 'auto',
           overflowAnchor: 'none',
         }}
       >
         <motion.div
           initial={false}
-          animate={{ opacity: isCompact ? 1 : 0, height: isCompact ? 'auto' : 0, y: isCompact ? 0 : -10 }}
+          animate={{ opacity: 0, height: 0, y: -10 }}
           transition={{ type: 'spring', stiffness: 420, damping: 32, mass: 0.72 }}
-          style={{ pointerEvents: isCompact ? 'auto' : 'none' }}
+          style={{ pointerEvents: 'none', display: 'none' }}
           className="overflow-hidden"
         >
             <div className="flex flex-col gap-2">
@@ -205,16 +152,17 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
                   </button>
                   <div className="min-w-0">
                     <p className="truncate text-xs font-black text-slate-900 dark:text-white">{meeting.title}</p>
+                    <p className="mt-0.5 truncate text-[10px] text-slate-400">{meeting.persianDate} · {meeting.timeRange} · {meeting.location}</p>
                     <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-400">
                       <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-                      <span>{meeting.statusLabel}</span>
+                      <span>{meeting.status === 'ARCHIVED' ? 'بایگانی شده' : meeting.statusLabel}</span>
                       <span className="text-slate-300 dark:text-slate-600">·</span>
                       <span>مرحله {activeIndex + 1} از {stages.length}</span>
                     </div>
                   </div>
                 </div>
-                <div className="hidden shrink-0 items-center gap-1.5 text-[10px] text-slate-400 sm:flex">
-                  <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  <div className="hidden shrink-0 items-center gap-1.5 text-[10px] text-slate-400 sm:flex">
+                  <Check className="h-3.5 w-3.5 text-indigo-500" />
                   <span>ذخیره خودکار فعال است</span>
                 </div>
               </div>
@@ -226,10 +174,10 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
                     const isLocked = index > activeIndex;
                     const Icon = item.icon;
                     return (
-                      <motion.div key={item.id} className={`group relative flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl px-1.5 text-[10px] font-bold transition-colors sm:px-2.5 ${isActive ? 'text-white' : isLocked ? 'cursor-not-allowed text-slate-300 dark:text-slate-700' : isComplete ? 'text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'}`} aria-current={isActive ? 'step' : undefined} aria-disabled={isLocked || undefined} title={isLocked ? 'این مرحله هنوز در دسترس نیست' : item.label}>
-                        {isActive && <motion.span layoutId="meeting-workspace-compact-stage-background" className="absolute inset-0 rounded-xl bg-gradient-to-l from-indigo-600 via-violet-600 to-cyan-500 shadow-lg shadow-indigo-500/25 ring-1 ring-white/20 dark:shadow-indigo-950/50" transition={{ type: 'spring', stiffness: 440, damping: 30 }} />}
-                        <span className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isActive ? 'bg-white/20 text-white ring-1 ring-white/25' : isComplete ? 'bg-emerald-100 text-emerald-600 shadow-sm dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-white/80 text-slate-400 shadow-sm group-hover:bg-white group-hover:text-indigo-600 dark:bg-slate-800/80 dark:text-slate-500 dark:group-hover:bg-slate-800 dark:group-hover:text-indigo-300'}`}>
-                          {isLocked ? <LockKeyhole className="h-3 w-3" /> : isComplete ? <Check className="h-3 w-3" strokeWidth={2.75} /> : <Icon className="h-3 w-3" />}
+                      <motion.div key={item.id} className={`group relative flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl px-1.5 text-[10px] font-bold transition-colors sm:px-2.5 ${isActive ? 'text-white' : isLocked ? 'cursor-not-allowed text-slate-300 dark:text-slate-700' : isComplete ? 'text-indigo-700 hover:text-indigo-800 dark:text-indigo-300 dark:hover:text-indigo-200' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'}`} aria-current={isActive ? 'step' : undefined} aria-disabled={isLocked || undefined} title={isLocked ? 'این مرحله هنوز در دسترس نیست' : item.label}>
+                        {isActive && <motion.span layoutId="meeting-workspace-compact-stage-background" className="absolute inset-0 rounded-xl bg-indigo-600 shadow-lg shadow-indigo-500/25 ring-1 ring-white/20 dark:bg-indigo-500 dark:shadow-indigo-950/50" transition={{ type: 'spring', stiffness: 440, damping: 30 }} />}
+                        <span className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${isActive ? 'bg-white/20 text-white ring-1 ring-white/25' : isComplete ? 'bg-indigo-100 text-indigo-600 shadow-sm dark:bg-indigo-950/60 dark:text-indigo-300' : 'bg-white/80 text-slate-400 shadow-sm group-hover:bg-white group-hover:text-indigo-600 dark:bg-slate-800/80 dark:text-slate-500 dark:group-hover:bg-slate-800 dark:group-hover:text-indigo-300'}`}>
+                          <Icon className="h-3 w-3" />
                         </span>
                         <span className="relative z-10 hidden min-w-0 truncate sm:inline">{item.label}</span>
                       </motion.div>
@@ -237,10 +185,10 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
                   })}
                 </nav>
               </LayoutGroup>
-              {stageNotice && <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[10px] font-semibold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">{stageNotice}</p>}
+              {stageNotice && <p className="rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-3 py-2 text-[10px] font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300">{stageNotice}</p>}
             </div>
         </motion.div>
-        <motion.div layout animate={{ height: isCompact ? 0 : 'auto', opacity: isCompact ? 0 : 1, y: isCompact ? -12 : 0 }} transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.72 }} className="overflow-hidden">
+        <motion.div initial={false} animate={{ height: 'auto', opacity: 1, y: 0 }} className="overflow-visible">
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <button type="button" onClick={onBack} className="group inline-flex shrink-0 items-center gap-2 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white">
@@ -251,7 +199,7 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
               <span className="hidden text-[10px] font-medium text-slate-400 sm:inline">فضای کاری جلسه</span>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/50 dark:text-indigo-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-                {meeting.statusLabel}
+                {meeting.status === 'ARCHIVED' ? 'بایگانی شده' : meeting.statusLabel}
               </span>
             </div>
           </div>
@@ -262,7 +210,7 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
               <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{meeting.persianDate} · {meeting.timeRange} · {meeting.location}</p>
             </div>
             <div className="hidden shrink-0 items-center gap-1.5 text-[10px] text-slate-400 sm:flex">
-              <Check className="h-3.5 w-3.5 text-emerald-500" />
+              <Check className="h-3.5 w-3.5 text-indigo-500" />
               <span>ذخیره خودکار فعال است</span>
             </div>
           </div>
@@ -283,8 +231,8 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
                     title={isLocked ? 'این مرحله هنوز در دسترس نیست' : item.label}
                   >
                     {isActive && <motion.span layoutId="meeting-workspace-stage-background" className="absolute inset-0 rounded-xl bg-white shadow-sm dark:bg-slate-800" transition={{ type: 'spring', stiffness: 400, damping: 32 }} />}
-                    <span className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : isComplete ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-white/70 text-slate-400 dark:bg-slate-800/70'}`}>
-                      {isLocked ? <LockKeyhole className="h-3.5 w-3.5" /> : isComplete ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
+                    <span className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : isComplete ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300' : 'bg-white/70 text-slate-400 dark:bg-slate-800/70'}`}>
+                      <Icon className="h-3.5 w-3.5" />
                     </span>
                     <span className="relative z-10 min-w-0 text-right">
                       <span className="block truncate text-[11px] font-bold">{item.label}</span>
@@ -295,8 +243,8 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
               })}
             </nav>
           </LayoutGroup>
-          {stageNotice && <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[11px] font-semibold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">{stageNotice}</p>}
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-indigo-100/80 bg-gradient-to-l from-indigo-50/80 via-white to-cyan-50/70 px-3 py-2.5 dark:border-indigo-900/50 dark:from-indigo-950/30 dark:via-slate-950/50 dark:to-cyan-950/20">
+          {stageNotice && <p className="rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-3 py-2 text-[11px] font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300">{stageNotice}</p>}
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-indigo-100/80 bg-indigo-50/60 px-3 py-2.5 dark:border-indigo-900/50 dark:bg-indigo-950/30">
             <div className="min-w-0">
               <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{stageCompletion[stage] ? 'این مرحله تکمیل شده است' : 'گام بعدی پیشنهادی'}</p>
             <p className="mt-0.5 truncate text-xs font-bold text-slate-800 dark:text-slate-100">{effectivePrimaryActionLabel}</p>
@@ -307,7 +255,7 @@ export const MeetingWorkspace: React.FC<MeetingWorkspaceProps> = ({ meeting, sta
         </motion.div>
       </motion.header>
 
-      <div className="rounded-2xl border border-indigo-100/80 bg-gradient-to-l from-indigo-50/80 via-white to-cyan-50/60 px-4 py-3 dark:border-indigo-900/50 dark:from-indigo-950/35 dark:via-slate-950/60 dark:to-cyan-950/20">
+      <div className="rounded-2xl border border-indigo-100/80 bg-indigo-50/60 px-4 py-3 dark:border-indigo-900/50 dark:bg-indigo-950/30">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-500">{stages[activeIndex]?.label}</p>

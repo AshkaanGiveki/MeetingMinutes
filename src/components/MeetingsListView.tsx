@@ -5,6 +5,7 @@ import { Meeting } from '../types';
 import { staggerContainerVariants, staggerItemVariants } from './stagger';
 import { MeetingListSkeleton } from './LoadingState';
 import { UserAvatar } from './UserAvatar';
+import { PageHeader } from './PageHeader';
 
 interface MeetingsListViewProps {
   meetings: Meeting[];
@@ -74,8 +75,14 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
 
   return (
     <div className="responsive-page flex-1 max-w-5xl mx-auto flex flex-col gap-6 p-6">
+      <PageHeader
+        icon={Calendar}
+        title={'\u062c\u0644\u0633\u0647\u200c\u0647\u0627 \u0648 \u0635\u0648\u0631\u062a\u200c\u062c\u0644\u0633\u0647\u200c\u0647\u0627'}
+        description={'\u0645\u0634\u0627\u0647\u062f\u0647\u060c \u067e\u06cc\u06af\u06cc\u0631\u06cc \u0627\u0645\u0636\u0627 \u0648 \u0645\u062f\u06cc\u0631\u06cc\u062a \u062c\u0644\u0633\u0627\u062a \u0631\u0633\u0645\u06cc \u0633\u0627\u0632\u0645\u0627\u0646.'}
+        action={<button onClick={onOpenNewMeetingModal} className="w-fit shrink-0 flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700 active:scale-95"><Plus className="h-4 w-4" /><span>ایجاد جلسه جدید</span></button>}
+      />
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="hidden flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">
             جلسات و صورت‌جلسات
@@ -182,14 +189,15 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
         </LayoutGroup>
 
         {/* Search */}
-        <div className="relative w-full sm:w-64">
+        <div className="meetings-search relative w-full sm:w-64">
           <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="جستجو در جلسات..."
-            className="w-full pr-9 pl-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
+            aria-label="جست‌وجو در جلسات"
+            className="meetings-search-input w-full pr-9 pl-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
           />
         </div>
       </div>
@@ -251,7 +259,7 @@ export const MeetingsListView: React.FC<MeetingsListViewProps> = ({
                     <span>{meeting.status === 'ARCHIVED' ? 'بایگانی‌شده' : meeting.statusLabel}</span>
                   </div>
 
-                  <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
+                    <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1" style={{ fontFamily: 'IRANSansXFaNum, sans-serif' }}>
                     <Calendar className="w-3.5 h-3.5" />
                     <span>{meeting.persianDate}</span>
                   </span>

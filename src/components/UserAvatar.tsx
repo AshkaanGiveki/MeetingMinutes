@@ -16,12 +16,13 @@ interface UserAvatarProps {
 
 export const UserAvatar: React.FC<UserAvatarProps> = ({ name = 'کاربر', avatar, className = '', imageClassName = '' }) => {
   const [imageFailed, setImageFailed] = useState(false);
-  const showImage = Boolean(avatar && !imageFailed);
+  const normalizedAvatar = typeof avatar === 'string' ? avatar.trim() : '';
+  const showImage = Boolean(normalizedAvatar && !imageFailed);
 
   useEffect(() => setImageFailed(false), [avatar]);
 
   if (showImage) {
-    return <img src={avatar} alt={name} onError={() => setImageFailed(true)} referrerPolicy="no-referrer" className={imageClassName || className} />;
+    return <img src={normalizedAvatar} alt={name} onError={() => setImageFailed(true)} referrerPolicy="no-referrer" className={imageClassName || className} />;
   }
 
   return <span aria-label={name} title={name} className={`inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 ${className}`}>{getUserInitials(name)}</span>;

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useSnackbar } from './Snackbar';
 import { formatIranianPhoneInput } from '../utils/phone';
+import logoIcon from '../assets/icons/Logo.png';
 
 interface AuthViewProps {
   inviteToken?: string;
@@ -252,22 +253,22 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const signupStrength = getPasswordStrength(signupPassword);
 
   return (
-    <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[#f7f8fc] p-4 font-sans text-right select-none dark:bg-[#080d1d] sm:p-6 lg:p-8" dir="rtl">
+    <div className="relative flex h-[100dvh] max-h-[100dvh] w-full items-center justify-center overflow-hidden bg-[#f7f8fc] p-2 font-sans text-right select-none dark:bg-[#080d1d] sm:p-6 lg:p-8" dir="rtl">
       {/* Ambient background glows */}
       <div className="pointer-events-none absolute -right-32 -top-32 h-[28rem] w-[28rem] rounded-full bg-indigo-400/10 blur-3xl dark:bg-indigo-500/10" />
       <div className="pointer-events-none absolute -bottom-40 -left-32 h-[32rem] w-[32rem] rounded-full bg-violet-400/10 blur-3xl dark:bg-violet-500/10" />
 
-      <div className="relative z-10 w-full max-w-md">
+      <div className="relative z-10 flex max-h-full w-full max-w-md min-h-0 flex-col">
         {/* Authentication panel */}
-      <div className="flex w-full flex-col gap-6 rounded-[1.5rem] border border-slate-200/90 bg-white p-6 shadow-[0_20px_60px_-36px_rgba(30,41,99,0.35)] dark:border-slate-800 dark:bg-[#0f172a] sm:p-8">
+      <div className="flex max-h-full min-h-0 w-full flex-col gap-4 overflow-y-auto rounded-[1.5rem] border border-slate-200/90 bg-white p-4 shadow-[0_20px_60px_-36px_rgba(30,41,99,0.35)] [scrollbar-width:thin] dark:border-slate-800 dark:bg-[#0f172a] sm:gap-6 sm:p-8">
         
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 dark:bg-indigo-500">
-            <span className="text-lg font-black tracking-[-0.16em]">M</span>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl text-white ">
+            <img src={logoIcon} alt="Accord" className="h-10 w-10 object-contain" />
           </div>
           <h1 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            سامانه سازمانی متا‌میت
+            سامانه سازمانی اکورد
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             احراز هویت یکپارچه و ثبت امضای الکترونیک اسناد
@@ -366,7 +367,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowLoginPassword(!showLoginPassword)}
-                  className="absolute left-3.5 top-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-300 cursor-pointer"
+                  aria-label="نمایش یا پï¿½†هاï¿½† کردï¿½† رï¿½…ز عبï¿½Ë†ر"
                 >
                   {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -438,7 +440,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowSignupPassword(!showSignupPassword)}
-                  className="absolute left-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-300 cursor-pointer"
+                  aria-label="نمایش یا پï¿½†هاï¿½† کردï¿½† رï¿½…ز عبï¿½Ë†ر"
                 >
                   {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -624,7 +627,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         <div className="flex items-center justify-between" dir="ltr">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white dark:bg-indigo-500">
-              <span className="text-base font-black tracking-[-0.16em]">M</span>
+              <img src={logoIcon} alt="Accord" className="h-8 w-8 object-contain" />
             </div>
             <div className="text-left">
               <div className="text-sm font-black tracking-tight">Accord</div>

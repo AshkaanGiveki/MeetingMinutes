@@ -11,6 +11,7 @@ import {
   ,RotateCcw, Camera, Trash2
 } from 'lucide-react';
 import { UserAvatar } from './UserAvatar';
+import { PageHeader } from './PageHeader';
 import { useSnackbar } from './Snackbar';
 import { formatIranianPhoneInput } from '../utils/phone';
 
@@ -267,8 +268,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
 
   return (
     <div className="responsive-page flex-1 max-w-4xl mx-auto flex flex-col gap-6 p-6">
+      <PageHeader
+        icon={Settings}
+        title={'\u062a\u0646\u0638\u06cc\u0645\u0627\u062a \u062d\u0633\u0627\u0628 \u06a9\u0627\u0631\u0628\u0631\u06cc'}
+        description={'\u0634\u062e\u0635\u06cc\u200c\u0633\u0627\u0632\u06cc \u067e\u0631\u0648\u0641\u0627\u06cc\u0644\u060c \u062a\u0646\u0638\u06cc\u0645\u0627\u062a \u0627\u0645\u0636\u0627\u06cc \u0627\u0644\u06a9\u062a\u0631\u0648\u0646\u06cc\u06a9\u06cc \u0648 \u0633\u06cc\u0627\u0633\u062a\u200c\u0647\u0627\u06cc \u0627\u0645\u0646\u06cc\u062a\u06cc.'}
+      />
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="hidden flex items-center gap-3">
         <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
           <Settings className="w-5 h-5" />
         </div>
@@ -319,7 +325,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="font-semibold text-slate-700 dark:text-slate-300">Phone number:</label>
+              <label className="font-semibold text-slate-700 dark:text-slate-300">{'\u0634\u0645\u0627\u0631\u0647 \u062a\u0644\u0641\u0646:'}</label>
               <input
                 type="tel"
                 value={phoneNumber}
@@ -399,8 +405,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
           </div>
         </div>
 
-        <div className="rounded-3xl border border-sky-100 bg-white/90 p-6 shadow-sm dark:border-sky-900/60 dark:bg-slate-900/90">
-          <div className="flex items-center justify-between gap-4">
+        <div className="settings-telegram-card rounded-3xl border border-sky-100 bg-white/90 p-6 shadow-sm dark:border-sky-900/60 dark:bg-slate-900/90">
+          <div className="settings-telegram-heading flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-bold text-slate-900 dark:text-white">اتصال به تلگرام</p>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">درخواست‌های امضای صورت‌جلسه را مستقیم در گفت‌وگوی تلگرام دریافت کنید.</p>
@@ -429,7 +435,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
               </span>
               <SettingsToggle
                 checked={emailNotification}
-                label="Ø§Ø±Ø³Ø§Ù„ Ø§ÛŒÙ…ÛŒÙ„ Ø§Ø·Ù„Ø§Ø¹â€ŒØ±Ø³Ø§Ù†ÛŒ"
+                label="ارساï¿½„ ایï¿½…یï¿½„ اطï¿½„اعï¿½€ï¿½رساï¿½†ی"
                 onChange={setEmailNotification}
               />
             </div>
@@ -440,7 +446,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
               </span>
               <SettingsToggle
                 checked={autoSeal}
-                label="Ù…Ù‡Ø± Ùˆ Ù…ÙˆÙ… Ø®ÙˆØ¯Ú©Ø§Ø± Ø³Ù†Ø¯"
+                label="مهر و موم خودکار سند"
                 onChange={setAutoSeal}
               />
             </div>

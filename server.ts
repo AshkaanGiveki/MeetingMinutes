@@ -889,11 +889,14 @@ app.get('/api/members', async (req, res) => {
   if (!auth.organizationId) return res.status(400).json({ error: 'An active organization is required.' });
   const db = getDb();
   if (!db) return res.status(503).json({ error: 'Database connection is temporarily unavailable.' });
-  const [members, invitations] = await Promise.all([
-    authService.listUsers(auth.organizationId),
+  const offset = Math.max(0, Number.parseInt(String(req.query.offset || '0'), 10) || 0);
+  const limit = Math.min(500, Math.max(1, Number.parseInt(String(req.query.limit || '10'), 10) || 10));
+  const search = typeof req.query.search === 'string' ? req.query.search : '';
+  const [memberPage, invitations] = await Promise.all([
+    authService.listUsersPage(auth.organizationId, offset, limit, search),
     db.collection('organization_invitations').find({ organizationId: auth.organizationId, status: 'pending', expiresAt: { $gt: Date.now() } }).project({ _id: 0, token: 1, phoneNumber: 1, name: 1, role: 1, createdAt: 1, expiresAt: 1 }).sort({ createdAt: -1 }).toArray(),
   ]);
-  return res.json({ success: true, members, invitations });
+  return res.json({ success: true, ...memberPage, invitations });
 });
 
 app.delete('/api/members/:id', requirePermission('members.manage'), async (req, res) => {

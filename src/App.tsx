@@ -6,6 +6,7 @@ import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
 import { MeetingHero } from './components/MeetingHero';
 import { LeftSidebar } from './components/LeftSidebar';
+import { MeetingParticipantsCard } from './components/MeetingParticipantsCard';
 import { SignatureModal } from './components/SignatureModal';
 import { SealingModal } from './components/SealingModal';
 import { ShareModal } from './components/ShareModal';
@@ -78,6 +79,7 @@ export default function App() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isMeetingsLoading, setIsMeetingsLoading] = useState(true);
   const [activeMeeting, setActiveMeeting] = useState<Meeting>(null as unknown as Meeting);
+  const meetingsLoadSequenceRef = useRef(0);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
 
@@ -185,6 +187,7 @@ export default function App() {
   };
 
   const loadMeetings = async () => {
+    const requestSequence = ++meetingsLoadSequenceRef.current;
     setIsMeetingsLoading(true);
     try {
       // MongoDB Atlas can take several seconds to wake from an idle connection.
@@ -193,19 +196,23 @@ export default function App() {
       const response = await fetchWithTimeout('/api/meetings', {}, 30000);
       if (!response.ok) throw new Error('Unable to load meetings');
       const data = await response.json();
-      if (data?.meetings) {
+      if (requestSequence !== meetingsLoadSequenceRef.current) return;
+      if (Array.isArray(data?.meetings)) {
         setMeetings(data.meetings);
         if (data.meetings.length > 0) {
           setActiveMeeting((current) => data.meetings.find((m: Meeting) => m.id === current?.id) || data.meetings[0]);
+        } else {
+          setActiveMeeting(null as unknown as Meeting);
         }
       }
     } catch (error) {
+      if (requestSequence !== meetingsLoadSequenceRef.current) return;
       showSnackbar({
         type: 'error',
         message: error instanceof Error ? error.message : 'بارگذاری صورت‌جلسه‌های سازمان انجام نشد.',
       });
     } finally {
-      setIsMeetingsLoading(false);
+      if (requestSequence === meetingsLoadSequenceRef.current) setIsMeetingsLoading(false);
     }
   };
 
@@ -834,7 +841,7 @@ export default function App() {
   }
   if (!isAuthenticated && (currentTab === 'auth' || currentTab === 'invitation')) {
     return (
-      <main className={`min-h-screen flex items-center justify-center px-4 py-10 ${isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'}`}>
+      <main className={`h-[100dvh] max-h-[100dvh] overflow-hidden flex items-center justify-center p-0 ${isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'}`}>
         <AuthView
           inviteToken={inviteToken}
           onLoginSuccess={(user) => {
@@ -915,6 +922,7 @@ export default function App() {
             onOpenNotifications={() => setIsNotificationsOpen(true)}
             unreadCount={unreadNotificationCount}
             onOpenRoughNotes={isAuthenticated && canCreateMeeting ? () => setIsRoughNotesModalOpen(true) : undefined}
+            onLogout={isAuthenticated ? handleLogout : undefined}
           />
         </div>
 
@@ -1023,12 +1031,16 @@ export default function App() {
               hasUserSigned={hasUserSigned}
               canEdit={canEditActiveMeeting}
             >
-            <div className="flex flex-col items-stretch gap-6 pt-4 xl:flex-row xl:items-start">
+            <MeetingParticipantsCard
+              meeting={activeMeeting}
+              onOpenAddParticipant={() => setIsAddParticipantModalOpen(true)}
+              canManageMeeting={canManageActiveMeeting}
+            />
+            <div className="meeting-main-meeting-layout flex flex-col items-stretch gap-6 pt-4 xl:flex-row xl:items-start">
               {/* Right context rail: workflow, participants, notes and signing */}
               <div className="no-print order-2 w-full shrink-0 xl:order-1 xl:w-[20rem]">
                 <LeftSidebar
                   meeting={activeMeeting}
-                  onOpenShareModal={() => setIsShareModalOpen(true)}
                   onOpenAddParticipant={() => setIsAddParticipantModalOpen(true)}
                   onAddComment={handleAddComment}
                   onOpenReviewModal={() => setIsReviewModalOpen(true)}

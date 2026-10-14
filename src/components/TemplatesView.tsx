@@ -17,6 +17,7 @@ import { EmptyState } from './EmptyState';
 import { TemplateCardsSkeleton } from './LoadingState';
 import { CustomSelect } from './CustomSelect';
 import { AnimatedModal } from './AnimatedModal';
+import { PageHeader } from './PageHeader';
 
 const templateGridVariants = {
   hidden: {},
@@ -124,8 +125,14 @@ export const TemplatesView: React.FC<TemplatesViewProps> = ({ isAuthenticated = 
 
   return (
     <div className="responsive-page flex-1 max-w-5xl mx-auto flex flex-col gap-6 p-6">
+      <PageHeader
+        icon={Layers}
+        title={'\u0642\u0627\u0644\u0628\u200c\u0647\u0627\u06cc \u0635\u0648\u0631\u062a\u200c\u062c\u0644\u0633\u0647'}
+        description={'\u0642\u0627\u0644\u0628\u200c\u0647\u0627\u06cc \u0622\u0645\u0627\u062f\u0647 \u0628\u0631\u0627\u06cc \u0627\u06cc\u062c\u0627\u062f \u0633\u0631\u06cc\u0639\u200c\u062a\u0631 \u0648 \u0645\u0646\u0638\u0645\u200c\u062a\u0631 \u0635\u0648\u0631\u062a\u200c\u062c\u0644\u0633\u0647\u200c\u0647\u0627.'}
+        action={<button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700 active:scale-95"><Plus className="h-4 w-4" /><span>ایجاد قالب جدید</span></button>}
+      />
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="hidden flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
             <Layers className="w-5 h-5" />

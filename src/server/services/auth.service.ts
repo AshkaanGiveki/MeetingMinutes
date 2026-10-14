@@ -297,6 +297,10 @@ export class AuthService {
     return organizationService.listMembers(organizationId);
   }
 
+  async listUsersPage(organizationId: string, offset = 0, limit = 10, search = '') {
+    return organizationService.listMembersPage(organizationId, offset, limit, search);
+  }
+
   async removeUser(userId: string, organizationId = 'org_main', actorId?: string): Promise<boolean> {
     if (actorId) {
       const result = await organizationService.removeMember(actorId, organizationId, userId);

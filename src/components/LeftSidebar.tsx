@@ -19,7 +19,6 @@ import { MeetingRoleIcon } from './MeetingRoleIcon';
 
 interface LeftSidebarProps {
   meeting: Meeting;
-  onOpenShareModal: () => void;
   onOpenAddParticipant: () => void;
   onAddComment: (comment: CommentItem) => void;
   onStatusChange?: (status: Meeting['status']) => void;
@@ -37,7 +36,6 @@ interface LeftSidebarProps {
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   meeting,
-  onOpenShareModal,
   onOpenAddParticipant,
   onAddComment,
   onStatusChange,
@@ -110,15 +108,26 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   const isSigningStage = meeting.status === 'READY_FOR_SIGNATURE' || meeting.status === 'SIGNING';
   const isSealed = meeting.status === 'SEALED';
   const hasRole = (participant: Participant, role: string) => (participant.roles || [participant.role]).includes(role as any);
-  const participantRoles = (participant: Participant) => Array.from(new Set([...(participant.roles || []), participant.role])).map((role) => role === 'Participant' ? 'Viewer' : role);
+  const participantRoles = (participant: Participant) => {
+    const allowedRoles = new Set(['Editor', 'Reviewer', 'Signer', 'Viewer']);
+    const roles = Array.from(new Set([...(participant.roles || []), participant.role]))
+      .map((role) => String(role || '').trim())
+      .map((role) => role.toLowerCase() === 'viewer' ? 'Viewer' : role)
+      .filter((role): role is string => allowedRoles.has(role));
+    return roles.includes('Viewer') ? ['Viewer'] : roles;
+  };
   const totalSignatures = meeting.totalSignaturesRequired || meeting.participants.filter((participant) => hasRole(participant, 'Signer')).length || 0;
   const signedParticipantIds = new Set((meeting.signatures || []).map((signature) => signature.signerId));
   const hasSignatureRecords = Array.isArray(meeting.signatures);
   const signedCount = hasSignatureRecords
     ? signedParticipantIds.size
-    : (meeting.signatureCount || meeting.participants.filter((participant) => participant.hasSigned).length);
+    : (meeting.signatureCount || meeting.participants.filter((participant) => participant.id !== meeting.organizer.id && participant.hasSigned).length);
+  const isParticipantSigned = (participant: Participant) => participant.id !== meeting.organizer.id
+    && (signedParticipantIds.has(participant.id) || (!hasSignatureRecords && Boolean(participant.hasSigned)));
   const allSignaturesCollected = totalSignatures > 0 && signedCount >= totalSignatures;
-  const participants = meeting.participants.filter(Boolean);
+  const participants = [meeting.organizer, ...meeting.participants]
+    .filter(Boolean)
+    .filter((participant, index, all) => all.findIndex((item) => item.id === participant.id) === index);
   const visibleParticipants = participants.slice(0, 4);
   const remainingParticipants = Math.max(0, participants.length - visibleParticipants.length);
   const roleLabels: Record<string, string> = { Editor: 'ویرایشگر', Reviewer: 'بازبین', Signer: 'امضاکننده' };
@@ -149,7 +158,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </div>
       )}
       {/* 1. Top Card: In Progress / Share / Participants */}
-      <div className="rounded-[1.5rem] p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/70 dark:border-slate-800/80 shadow-lg shadow-slate-200/30 dark:shadow-black/10 flex flex-col gap-4">
+      <div className="meeting-participants-card rounded-[1.5rem] p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/70 dark:border-slate-800/80 shadow-lg shadow-slate-200/30 dark:shadow-black/10 flex flex-col gap-4">
         {/* Top header row */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
@@ -182,8 +191,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         {remainingParticipants > 0 && <div className="-mt-2 text-center text-[10px] font-semibold text-slate-400 dark:text-slate-500">+{remainingParticipants} نفر دیگر</div>}
 
         {/* Share Button (Vibrant purple gradient matching screenshot) */}
-        {canManageMeeting && <button
-          onClick={onOpenShareModal}
+        {false && canManageMeeting && <button
+          onClick={() => undefined}
           className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-purple-500 via-indigo-600 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white font-medium text-xs shadow-md shadow-indigo-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 active:scale-98"
         >
           <Share2 className="w-4 h-4" />
@@ -191,7 +200,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </button>}
 
         {/* Participants Header */}
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="meeting-participants-header pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-100">
             <UserPlus className="w-4 h-4 text-slate-500" />
             <span>شرکت‌کنندگان</span>
@@ -206,8 +215,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </div>
 
         {/* Participants list */}
-        <motion.div className="flex flex-col gap-2.5 max-h-56 overflow-y-auto pr-0.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
-          {meeting.participants.filter(Boolean).map((p, index) => (
+        <motion.div className="meeting-participants-list flex flex-col gap-2.5 max-h-56 overflow-y-auto pr-0.5" initial="hidden" animate="show" variants={staggerContainerVariants}>
+          {participants.map((p, index) => (
             <motion.div
               key={p.id || `participant-${index}`}
               variants={staggerItemVariants}
@@ -225,7 +234,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                 </div>
               </div>
 
-              {(hasSignatureRecords ? signedParticipantIds.has(p.id) : Boolean(p.hasSigned)) ? (
+              {isParticipantSigned(p) ? (
                 <span className="w-2 h-2 rounded-full bg-emerald-500" title="امضا کرده" />
               ) : (
                 <span className="w-2 h-2 rounded-full bg-amber-400/80" title="در انتظار امضا" />
@@ -428,18 +437,18 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         </motion.div>
 
         {/* Add comment input */}
-        <form onSubmit={handleSendComment} className="relative mt-1">
+        <form onSubmit={handleSendComment} className="meeting-comment-composer relative mt-1">
           <input
             type="text"
             value={newCommentText}
             onChange={(e) => setNewCommentText(e.target.value)}
             placeholder="افزودن نظر..."
-            className="w-full h-9 pr-3 pl-9 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-transparent focus:border-indigo-400 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition-all"
+            className="w-full h-10 pr-3 pl-10 rounded-xl bg-transparent border-0 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition-all"
           />
           <button
             type="submit"
             disabled={!newCommentText.trim()}
-            className="absolute left-1 top-1 w-7 h-7 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white flex items-center justify-center transition-colors cursor-pointer"
+            className="meeting-comment-submit absolute left-0 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg bg-indigo-600 text-white transition-colors hover:bg-indigo-700 disabled:opacity-40 cursor-pointer"
           >
             <Send className="w-3.5 h-3.5 rotate-180" />
           </button>

@@ -46,6 +46,12 @@ export interface OrganizationContext {
   membership: OrganizationMembership;
 }
 
+export interface OrganizationMemberPreview {
+  id: string;
+  name: string;
+  avatar?: string;
+}
+
 function requireDb() {
   const db = getDb();
   if (!db) throw new Error('Persistent MongoDB connection is required.');
@@ -127,19 +133,24 @@ export class OrganizationService {
     };
   }
 
-  async listForUser(userId: string): Promise<Array<OrganizationContext & { memberCount: number }>> {
+  async listForUser(userId: string): Promise<Array<OrganizationContext & { memberCount: number; memberPreviews: OrganizationMemberPreview[] }>> {
     const db = requireDb();
     const memberships = await db.collection<OrganizationMembership>('organization_memberships').find({ userId, status: 'active' }).toArray();
     if (memberships.length === 0) return [];
 
     const organizationIds = memberships.map((membership) => membership.organizationId);
-    const [organizations, memberCounts] = await Promise.all([
+    const [organizations, memberCounts, memberMemberships] = await Promise.all([
       db.collection<OrganizationRecord>('organizations').find({ id: { $in: organizationIds } }).toArray(),
       db.collection<OrganizationMembership>('organization_memberships').aggregate<{ _id: string; count: number }>([
         { $match: { organizationId: { $in: organizationIds }, status: 'active' } },
         { $group: { _id: '$organizationId', count: { $sum: 1 } } },
       ]).toArray(),
+      db.collection<OrganizationMembership>('organization_memberships').find({ organizationId: { $in: organizationIds }, status: 'active' }, { projection: { organizationId: 1, userId: 1 } }).toArray(),
     ]);
+
+    const memberIds = Array.from(new Set(memberMemberships.map((membership) => membership.userId)));
+    const users = await db.collection<{ id: string; name?: string; avatar?: string }>('users').find({ id: { $in: memberIds } }, { projection: { id: 1, name: 1, avatar: 1 } }).toArray();
+    const userById = new Map(users.map((user) => [user.id, user]));
 
     const organizationById = new Map(organizations.map((organization) => [organization.id, organization]));
     const memberCountByOrganization = new Map(memberCounts.map((entry) => [entry._id, entry.count]));
@@ -155,6 +166,14 @@ export class OrganizationService {
           permissions: RolePermissionsMap[normalizeOrganizationRole(membership.role)],
         },
         memberCount: memberCountByOrganization.get(organization.id) || 0,
+        memberPreviews: memberMemberships
+          .filter((member) => member.organizationId === organization.id)
+          .slice(0, 5)
+          .map((member) => ({
+            id: member.userId,
+            name: userById.get(member.userId)?.name || 'کاربر سازمان',
+            avatar: userById.get(member.userId)?.avatar,
+          })),
       }];
     });
   }
@@ -284,6 +303,36 @@ export class OrganizationService {
       if (user) members.push({ ...user, membership: { ...membership, role: normalizeOrganizationRole(membership.role), permissions: RolePermissionsMap[normalizeOrganizationRole(membership.role)] } });
     }
     return members;
+  }
+
+  async listMembersPage(organizationId: string, offset = 0, limit = 10, search = '') {
+    const db = requireDb();
+    const safeOffset = Math.max(0, Math.floor(offset));
+    const safeLimit = Math.min(500, Math.max(1, Math.floor(limit)));
+    const normalizedSearch = search.trim();
+    const matchSearch = normalizedSearch ? [{ $match: { $or: [
+      { 'user.name': { $regex: normalizedSearch, $options: 'i' } },
+      { 'user.email': { $regex: normalizedSearch, $options: 'i' } },
+    ] } }] : [];
+    const [result] = await db.collection<OrganizationMembership>('organization_memberships').aggregate<any>([
+      { $match: { organizationId, status: 'active' } },
+      { $lookup: { from: 'users', localField: 'userId', foreignField: 'id', as: 'user' } },
+      { $unwind: '$user' },
+      ...matchSearch,
+      { $sort: { joinedAt: 1, userId: 1 } },
+      { $facet: {
+        data: [{ $skip: safeOffset }, { $limit: safeLimit }, { $project: { _id: 0, membership: '$$ROOT' } }],
+        total: [{ $count: 'count' }],
+      } },
+    ]).toArray();
+    const members = (result?.data || []).map((entry: { membership: OrganizationMembership & { user: Record<string, unknown> } }) => {
+      const { user, ...membership } = entry.membership;
+      const { passwordHash: _passwordHash, ...safeUser } = user as Record<string, unknown> & { passwordHash?: string };
+      const normalizedRole = normalizeOrganizationRole(String(membership.role));
+      return { ...safeUser, membership: { ...membership, role: normalizedRole, permissions: RolePermissionsMap[normalizedRole] } };
+    });
+    const total = Number(result?.total?.[0]?.count || 0);
+    return { members, total, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + members.length < total, nextOffset: safeOffset + members.length };
   }
 
   async updateMembership(organizationId: string, userId: string, role: OrganizationRole, permissions?: Permission[]) {

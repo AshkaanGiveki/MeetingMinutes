@@ -6,11 +6,13 @@ import { EmptyState } from './EmptyState';
 import { OrganizationCardsSkeleton } from './LoadingState';
 import { useSnackbar } from './Snackbar';
 import { formatIranianPhoneInput } from '../utils/phone';
+import { PageHeader } from './PageHeader';
 
 interface OrganizationContext {
   organization: { id: string; name: string; visibility: string };
   membership: { role: string; permissions: string[] };
   memberCount: number;
+  memberPreviews?: Array<{ id: string; name: string; avatar?: string }>;
 }
 
 interface Invitation {
@@ -164,15 +166,19 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
   };
 
   return (
-    <div className="responsive-page mx-auto max-w-4xl space-y-5 py-6" dir="rtl">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-xl font-bold text-slate-900 dark:text-white">سازمان‌های من</h1><p className="mt-1 text-sm text-slate-500">عضویت‌ها، دعوت‌نامه‌ها و دسترسی‌های سازمانی خود را مدیریت کنید.</p></div>
+    <div className="organizations-page responsive-page mx-auto max-w-6xl space-y-5 py-6" dir="rtl">
+      <PageHeader
+        icon={Building2}
+        title="سازمان‌های من"
+        description="عضویت‌ها، دعوت‌نامه‌ها و دسترسی‌های سازمانی خود را مدیریت کنید."
+        action={<button type="button" onClick={() => setIsCreateModalOpen(true)} className="flex w-fit items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700"><Plus className="h-4 w-4" />ایجاد سازمان</button>}
+      >
         <motion.button
           type="button"
           onClick={() => void load()}
           whileHover={{ y: -2, scale: 1.03 }}
           whileTap={{ scale: 0.94 }}
-          className="org-refresh-button group"
+          className="org-refresh-button group w-fit"
           title="تازه‌سازی سازمان‌ها"
           aria-label="تازه‌سازی سازمان‌ها"
         >
@@ -185,10 +191,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
           </motion.span>
           <span className="org-refresh-label">تازه‌سازی</span>
         </motion.button>
-      </div>
-      <div className="flex justify-end">
-        <button type="button" onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700"><Plus className="h-4 w-4" />ایجاد سازمان</button>
-      </div>
+      </PageHeader>
       {loadError && <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300"><span>{loadError}</span><button type="button" onClick={() => void load()} className="font-bold underline">تلاش دوباره</button></div>}
       {isLoading && <OrganizationCardsSkeleton />}
       {!isLoading && <motion.div className="flex flex-col gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.15 } } }}>
@@ -201,7 +204,11 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-lg font-bold tracking-tight text-slate-900 dark:text-white">{item.organization.name}</h2>{isActive ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />فعال فعلی</span> : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">سازمان</span>}</div>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">فضای کاری سازمانی برای مدیریت جلسات و همکاری تیمی</p>
-                <div className="mt-4 flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><Users className="h-3.5 w-3.5 text-slate-400" />{item.memberCount} عضو</span><span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><ShieldCheck className="h-3.5 w-3.5 text-slate-400" />نقش شما: {item.membership.role}</span>{canManageMembers && <span className="rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1.5 text-[10px] font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300">مدیریت اعضا</span>}</div>
+                <div className="mt-4 flex flex-wrap items-center gap-2"><span className="org-member-avatars inline-flex items-center" title={`${item.memberCount} عضو`}>
+                  {(item.memberPreviews || []).slice(0, 4).map((member, memberIndex) => member.avatar ? <img key={member.id} src={member.avatar} alt={member.name} className="org-member-avatar h-7 w-7 rounded-full border-2 border-white object-cover dark:border-slate-900" style={{ marginInlineStart: memberIndex ? '-0.45rem' : 0 }} /> : <span key={member.id} className="org-member-avatar flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-indigo-100 text-[9px] font-bold text-indigo-700 dark:border-slate-900 dark:bg-indigo-950 dark:text-indigo-200" style={{ marginInlineStart: memberIndex ? '-0.45rem' : 0 }}>{member.name.slice(0, 1)}</span>)}
+                  {item.memberCount > 4 && <span className="org-member-avatar flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-[9px] font-bold text-slate-600 dark:border-slate-900 dark:bg-slate-800 dark:text-slate-300" style={{ marginInlineStart: '-0.45rem' }}>+{item.memberCount - 4}</span>}
+                  <span className="sr-only">{item.memberCount} عضو</span>
+                </span><span className="org-card-badges"><span className="org-role-badge inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" title={`نقش شما: ${item.membership.role}`} aria-label={`نقش شما: ${item.membership.role}`}><ShieldCheck className="h-3.5 w-3.5 text-slate-400" /><span className="sr-only">نقش شما: {item.membership.role}</span></span>{canManageMembers && <span className="org-manage-members inline-flex items-center gap-1.5 rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1.5 text-[10px] font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300" title="مدیریت اعضا" aria-label="مدیریت اعضا"><Users className="h-3.5 w-3.5" /><span>مدیریت اعضا</span></span>}</span></div>
               </div>
               <div className="flex w-full flex-col gap-2 lg:w-40">
                 {isActive ? <div className="org-card-action org-active-status flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold"><Check className="h-4 w-4" />فضای فعال شما</div> : <button disabled={isBusy} onClick={() => void switchOrganization(item.organization.id)} className="org-card-action org-activate-button flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold disabled:opacity-60"><span>فعال‌سازی</span><ArrowLeft className="h-4 w-4" /></button>}
