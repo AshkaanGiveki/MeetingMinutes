@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { AnimatedModal } from './AnimatedModal';
-import { X, Sparkles, Wand2, FileText, ArrowLeft, Loader2 } from 'lucide-react';
+import { X, Sparkles, Wand2, FileText, ArrowLeft, Loader2, Mic, Square, RotateCcw } from 'lucide-react';
 import { Meeting, Participant } from '../types';
 
 interface RoughNotesModalProps {
@@ -24,21 +24,75 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
   );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedAudio, setRecordedAudio] = useState<{ blob: Blob; url: string } | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const startRecording = async () => {
+    setError(null);
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setError('Voice recording is not supported by this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredMimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) || '';
+      const recorder = new MediaRecorder(stream, preferredMimeType ? { mimeType: preferredMimeType } : undefined);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        setRecordedAudio((previous) => { if (previous) URL.revokeObjectURL(previous.url); return { blob, url: URL.createObjectURL(blob) }; });
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+    } catch (recordingError) {
+      setError(recordingError instanceof Error ? recordingError.message : 'Microphone permission was not granted.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
+    mediaRecorderRef.current.stop();
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+  };
+
+  const clearRecording = () => {
+    if (recordedAudio) URL.revokeObjectURL(recordedAudio.url);
+    setRecordedAudio(null);
+  };
+
+  const blobToBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Unable to read the recording.'));
+    reader.readAsDataURL(blob);
+  });
 
   const handleConvert = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!roughText.trim()) return;
+    if (inputMode === 'text' && !roughText.trim()) return;
+    if (inputMode === 'voice' && !recordedAudio) {
+      setError('Record a voice note before converting it.');
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
 
     try {
+      const requestBody = inputMode === 'voice'
+        ? { action: 'convert_voice_notes', audioData: await blobToBase64(recordedAudio!.blob), audioMimeType: recordedAudio!.blob.type, meetingTitle: 'Raw meeting notes' }
+        : { action: 'convert_rough_notes', text: roughText, meetingTitle: 'Raw meeting notes' };
       const response = await fetch('/api/ai/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'convert_rough_notes',
-          text: roughText,
+        body: JSON.stringify({ ...requestBody,
           meetingTitle: 'جلسه هماهنگی تیم محصول',
         }),
       });
@@ -112,6 +166,8 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
       onMeetingCreated(newMeeting);
       onClose();
     } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'AI conversion failed. Check the configured provider and try again.');
+      return;
       setError('خطا در ارتباط با هوش مصنوعی. لطفاً دوباره تلاش نمایید.');
     } finally {
       setIsLoading(false);
@@ -145,6 +201,10 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         </div>
 
         <form onSubmit={handleConvert} className="flex flex-col gap-3 text-xs">
+          <div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+            <button type="button" onClick={() => setInputMode('text')} className={`flex-1 rounded-lg px-3 py-2 font-semibold ${inputMode === 'text' ? 'bg-white text-indigo-700 shadow-sm dark:bg-slate-700 dark:text-indigo-300' : 'text-slate-500'}`}>Text notes</button>
+            <button type="button" onClick={() => setInputMode('voice')} className={`flex-1 rounded-lg px-3 py-2 font-semibold ${inputMode === 'voice' ? 'bg-white text-indigo-700 shadow-sm dark:bg-slate-700 dark:text-indigo-300' : 'text-slate-500'}`}>Voice note</button>
+          </div>
           <div className="flex flex-col gap-1">
             <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
               <span>متن خام یا پیش‌نویس جلسه:</span>
@@ -157,10 +217,20 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
               required
               value={roughText}
               onChange={(e) => setRoughText(e.target.value)}
+              disabled={inputMode === 'voice'}
               placeholder="نکات مطرح شده، مصوبات شفاهی یا گفتگوهای ضبط شده را اینجا وارد کنید..."
               className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-purple-500 font-sans leading-relaxed resize-none"
             />
           </div>
+
+          {inputMode === 'voice' && <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
+            <div className="flex items-center gap-2">
+              {!isRecording ? <button type="button" onClick={() => { void startRecording(); }} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 font-bold text-white"><Mic className="h-4 w-4" />Start recording</button> : <button type="button" onClick={stopRecording} className="flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 font-bold text-white"><Square className="h-3.5 w-3.5 fill-current" />Stop recording</button>}
+              {recordedAudio && <button type="button" onClick={clearRecording} className="flex items-center gap-2 rounded-xl border border-indigo-200 px-3 py-2 font-semibold text-indigo-700 dark:border-indigo-800 dark:text-indigo-300"><RotateCcw className="h-4 w-4" />Record again</button>}
+            </div>
+            {recordedAudio && <audio className="mt-3 w-full" controls src={recordedAudio.url} />}
+            <p className="mt-2 text-[11px] leading-5 text-indigo-700/80 dark:text-indigo-300/80">Speak naturally. The recording will first be transcribed, then analyzed into the same formal meeting structure as text notes.</p>
+          </div>}
 
           {error && <p className="text-xs text-rose-500 font-medium">{error}</p>}
 

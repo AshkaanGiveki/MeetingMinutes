@@ -15,6 +15,11 @@ export interface AiMinutesInput {
   meetingTitle?: string;
 }
 
+export interface AiAudioInput {
+  audioData: string;
+  mimeType: string;
+}
+
 const ParticipantSuggestionSchema = z.object({
   name: z.string().trim().min(1).max(300),
   memberId: z.string().trim().optional(),
@@ -179,6 +184,45 @@ const requestJson = async (provider: string, model: string, prompt: string): Pro
   }
   throw new Error('No AI provider is configured. Set AI_PROVIDER and the corresponding API key.');
 };
+
+export async function transcribeAudio(input: AiAudioInput): Promise<{ transcript: string; provider: string; model: string }> {
+  const requested = providerName();
+  const candidates = requested === 'anthropic'
+    ? ['gemini', 'openai']
+    : [requested];
+  const provider = candidates.find((candidate) => candidate === 'gemini' ? Boolean(process.env.GEMINI_API_KEY) : Boolean(process.env.OPENAI_API_KEY));
+  if (!provider) throw new Error('Voice transcription requires a Gemini or OpenAI API key. Anthropic does not provide audio transcription in this integration.');
+  const model = provider === 'gemini'
+    ? modelFor('gemini')
+    : (process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe');
+  const signal = AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 45_000));
+  const prompt = 'Transcribe this meeting recording accurately. Preserve the spoken language, names, dates, numbers, decisions, assignments, and uncertainty. Do not summarize, rewrite, or invent anything. Return only the verbatim transcript.';
+
+  if (provider === 'gemini') {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY || '')}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: input.mimeType, data: input.audioData } }] }], generationConfig: { temperature: 0.1 } }),
+    });
+    const data = await response.json() as any;
+    if (!response.ok) throw new Error(data?.error?.message || `Gemini transcription failed (${response.status}).`);
+    const transcript = data?.candidates?.[0]?.content?.parts?.map((part: any) => part.text || '').join('').trim();
+    if (!transcript) throw new Error('Gemini returned an empty transcript.');
+    return { transcript, provider, model };
+  }
+
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from(input.audioData, 'base64')], { type: input.mimeType }), `meeting-recording.${input.mimeType.split('/')[1] || 'webm'}`);
+  form.append('model', model);
+  form.append('response_format', 'json');
+  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY || ''}` }, body: form, signal,
+  });
+  const data = await response.json() as any;
+  if (!response.ok) throw new Error(data?.error?.message || `OpenAI transcription failed (${response.status}).`);
+  const transcript = String(data?.text || '').trim();
+  if (!transcript) throw new Error('OpenAI returned an empty transcript.');
+  return { transcript, provider, model };
+}
 
 const deterministicDraft = (input: AiMinutesInput): AiMinutesDraft => {
   const lines = uniqueStrings(input.rawText.split(/\r?\n|[.!؟]+/).map((line) => line.replace(/^\s*[-*•\d.)]+\s*/, '').trim()).filter((line) => line.length >= 4));

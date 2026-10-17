@@ -106,6 +106,8 @@ export const AiSuggestSchema = z.object({
   text: z.string().max(100_000).optional().default(''),
   meetingTitle: z.string().max(500).optional(),
   agenda: z.unknown().optional(),
+  audioData: z.string().max(25_000_000).optional(),
+  audioMimeType: z.string().max(100).optional(),
 });
 
 export const AiSuggestionResponseSchema = z.object({

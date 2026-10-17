@@ -25,7 +25,7 @@ import { documentExists, getMeetingPdfPath, generateMeetingPdf } from './src/ser
 import { generateHtmlMeetingPdf } from './src/server/services/html-pdf.service';
 import { templateRepository } from './src/server/repositories/template.repository';
 import { organizationService } from './src/server/services/organization.service';
-import { generateAiMinutes } from './src/server/services/ai-minutes.service';
+import { generateAiMinutes, transcribeAudio } from './src/server/services/ai-minutes.service';
 import { ASSIGNABLE_MEETING_ROLES, canTransitionMeeting, getMeetingParticipantRoles, getMissingRequiredMeetingRoles, hasMeetingRole, hasPermission, MeetingRole, OrganizationRole, Permission, requiredMeetingRoleForPermission, RolePermissionsMap } from './src/server/policies/rbac';
 import {
   SignDocumentSchema,
@@ -69,7 +69,9 @@ function canonicalize(value: unknown): string {
   return JSON.stringify(value);
 }
 
-app.use(express.json({ limit: '15mb' }));
+// Voice recordings are sent as base64 JSON when the browser has no multipart
+// upload adapter. Keep the limit bounded while allowing short meeting clips.
+app.use(express.json({ limit: '32mb' }));
 app.use(cookieParser());
 // API screens must always receive a JSON body. Browser revalidation can turn
 // these responses into 304s with no body, which makes list/table components
@@ -2596,7 +2598,7 @@ app.post('/api/ai/suggest', requirePermission('meeting.read'), async (req, res) 
   try {
     const parseResult = AiSuggestSchema.safeParse(req.body);
     if (!parseResult.success) return res.status(400).json({ error: parseResult.error.format() });
-    const { action, text, meetingTitle, agenda, meetingId } = parseResult.data;
+    const { action, text, meetingTitle, agenda, meetingId, audioData, audioMimeType } = parseResult.data;
     const auth = (req as RequestWithAuth).auth!;
     if (meetingId) {
       const meeting = await meetingRepository.getById(meetingId);
@@ -2611,10 +2613,27 @@ app.post('/api/ai/suggest', requirePermission('meeting.read'), async (req, res) 
       if (db && meetingId) await db.collection('ai_suggestions').insertOne({ meetingId, userId: auth.userId, action, data, createdAt: new Date().toISOString() });
     };
 
+    let conversionText = text || '';
+    let voiceMetadata: { provider: string; model: string; transcript: string } | undefined;
+
+    // Voice notes use the transcription capability of Gemini/OpenAI and then
+    // enter the exact same structured minutes pipeline as typed notes.
+    if (action === 'convert_voice_notes') {
+      const voiceRateLimit = await redisService.checkRateLimit(req.ip || 'ip', 'ai-voice-notes', 10, 60);
+      if (!voiceRateLimit.allowed) return res.status(429).json({ error: 'Voice conversion requests are temporarily rate limited.' });
+      if (!audioData || !audioMimeType) return res.status(400).json({ error: 'Audio data and its MIME type are required.' });
+      try {
+        voiceMetadata = await transcribeAudio({ audioData, mimeType: audioMimeType });
+        conversionText = voiceMetadata.transcript;
+      } catch (error) {
+        return res.status(503).json({ success: false, code: 'AI_TRANSCRIPTION_FAILED', error: error instanceof Error ? error.message : 'Voice transcription failed.' });
+      }
+    }
+
     // Rough notes conversion uses a provider-neutral structured extraction
     // pipeline. It is intentionally handled before the legacy suggestion path:
     // this flow creates a complete editable minute, not just a summary.
-    if (action === 'convert_rough_notes') {
+    if (action === 'convert_rough_notes' || action === 'convert_voice_notes') {
       const roughRateLimit = await redisService.checkRateLimit(req.ip || 'ip', 'ai-rough-notes', 10, 60);
       if (!roughRateLimit.allowed) return res.status(429).json({ error: 'درخواست‌های تبدیل یادداشت خام بیش از حد مجاز است. لطفاً کمی بعد دوباره تلاش کنید.' });
       const db = getDb();
@@ -2629,17 +2648,29 @@ app.post('/api/ai/suggest', requirePermission('meeting.read'), async (req, res) 
         ? await db.collection<any>('users').find({ id: { $in: memberIds } }).project({ _id: 0, id: 1, name: 1, email: 1, avatar: 1, title: 1 }).toArray()
         : [{ id: auth.userId, name: auth.name, email: auth.email }];
       const result = await generateAiMinutes({
-        rawText: text || '',
+        rawText: conversionText,
         organizationMembers: members.map((member) => ({ id: member.id, name: member.name, email: member.email, avatar: member.avatar, title: member.title })),
         organizer: { id: auth.userId, name: auth.name, email: auth.email },
         meetingTitle,
       });
+      if (result.fallback) {
+        return res.status(503).json({
+          success: false,
+          code: result.provider ? 'AI_PROVIDER_UNAVAILABLE' : 'AI_PROVIDER_NOT_CONFIGURED',
+          error: result.provider
+            ? `The ${result.provider} minutes provider could not produce a structured result. Check its API key, model, network access, and server logs, then try again.`
+            : 'No AI minutes provider is configured. Configure Gemini, OpenAI, or Anthropic before converting raw notes.',
+          provider: result.provider || null,
+          model: result.model || null,
+        });
+      }
       const data = {
         ...result.draft,
-        metadata: { provider: result.provider || 'deterministic', model: result.model || null, fallback: result.fallback },
+        metadata: { provider: result.provider || 'deterministic', model: result.model || null, fallback: result.fallback, inputMode: voiceMetadata ? 'voice' : 'text', transcriptionProvider: voiceMetadata?.provider || null, transcriptionModel: voiceMetadata?.model || null },
       };
+      logger.info('Structured AI meeting minutes generated.', { metadata: { provider: result.provider, model: result.model, meetingId: meetingId || null } });
       await persistAiSuggestion(data);
-      return res.json({ success: true, data });
+      return res.json({ success: true, data, transcript: voiceMetadata?.transcript || null });
     }
 
     // Rate Limit AI requests
