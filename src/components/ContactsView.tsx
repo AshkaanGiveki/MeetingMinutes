@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Users, Plus, CheckCircle2, UserCheck, X, Trash2, LoaderCircle, Mail, Clock3, Search } from 'lucide-react';
+import { Users, Plus, CheckCircle2, UserCheck, X, Trash2, LoaderCircle, Mail, Clock3, Search, ChevronDown, MoreVertical } from 'lucide-react';
 import { Participant } from '../types';
 import { EmptyState } from './EmptyState';
-import { TableRowsSkeleton } from './LoadingState';
 import { UserAvatar } from './UserAvatar';
 import { PageHeader } from './PageHeader';
 import { CustomSelect } from './CustomSelect';
@@ -41,6 +40,8 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
   const [isRemovingMember, setIsRemovingMember] = useState(false);
   const [memberSearchInput, setMemberSearchInput] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
+  const [openMemberMenuId, setOpenMemberMenuId] = useState<string | null>(null);
   const [hasMoreMembers, setHasMoreMembers] = useState(false);
   const [isLoadingMoreMembers, setIsLoadingMoreMembers] = useState(false);
   const memberOffsetRef = useRef(0);
@@ -213,94 +214,60 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
         {memberSearchInput && <button type="button" onClick={() => { setMemberSearchInput(''); setMemberSearch(''); }} aria-label="پاک کردن جست‌وجو"><X className="h-4 w-4" /></button>}
       </label>
 
-      {/* Members Table */}
-      <div className="contacts-members-table rounded-3xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-white/80 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-right">
-            <thead>
-              <tr className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-400 text-[11px] font-medium border-b border-slate-100 dark:border-slate-800">
-                <th className="py-3 px-4">کاربر</th>
-                <th className="py-3 px-4">نقش سازمانی</th>
-                <th className="py-3 px-4 text-center">عملیات</th>
-                <th className="py-3 px-4">وضعیت گواهی امضا</th>
-                <th className="py-3 px-4 text-center">عملیات</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {isLoading ? (
-                <TableRowsSkeleton columns={5} />
-              ) : filteredMembers.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-4">
-                    <EmptyState compact icon={Users} title="عضوی پیدا نشد" description="هنوز عضوی به این سازمان اضافه نشده است." action={canManageMembers ? <button onClick={() => setIsInviteModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">دعوت عضو جدید</button> : undefined} />
-                  </td>
-                </tr>
-              ) : <AnimatePresence initial={false} mode="popLayout">{filteredMembers.map((m, index) => (
-                <motion.tr
-                  key={m.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: index * 0.1, ease: 'easeOut' }}
-                  exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
-                  layout
-                  className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
-                >
-                  <td className="py-3.5 px-4 font-semibold text-slate-800 dark:text-slate-100">
-                    <div className="flex items-center gap-2.5">
-                      <UserAvatar name={m.name} avatar={m.avatar} className="h-8 w-8 text-[10px] ring-1 ring-slate-200 dark:ring-slate-700" imageClassName="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" />
-                      <span>{m.name}</span>
-                    </div>
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
-                    <span className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[11px] font-medium">
-                      {m.role}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 font-mono text-slate-500 dark:text-slate-400 dir-ltr text-left">
-                    {m.email}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium text-[11px]">
-                      <UserCheck className="w-3.5 h-3.5" />
-                      <span>احراز هویت شده</span>
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 text-center">
-                    {canManageMembers && <button
-                      onClick={() => setMemberPendingRemoval(m)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                      title="حذف عضو"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>}
-                  </td>
-                </motion.tr>
-              ))}</AnimatePresence>}
-            </tbody>
-          </table>
+      {/* Members list */}
+      <section className="rounded-3xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/90" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white">اعضای سازمان</h2>
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">اطلاعات اصلی اعضا و وضعیت احراز هویت</p>
+          </div>
+          <span className="rounded-xl bg-slate-100 px-2.5 py-1.5 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{filteredMembers.length} عضو</span>
         </div>
-      </div>
 
-      <section className="contacts-members-mobile" dir="rtl">
-        <label className="contacts-member-search">
-          <Search className="h-4 w-4 shrink-0 text-indigo-500" />
-          <input value={memberSearchInput} onChange={(event) => setMemberSearchInput(event.target.value)} placeholder="جست‌وجوی نام یا ایمیل عضو" aria-label="جست‌وجوی نام یا ایمیل عضو" />
-          {memberSearchInput && <button type="button" onClick={() => { setMemberSearchInput(''); setMemberSearch(''); }} aria-label="پاک کردن جست‌وجو"><X className="h-4 w-4" /></button>}
-        </label>
-        <div className="mb-3 flex items-center justify-between px-1">
-          <div><h2 className="text-sm font-black text-slate-900 dark:text-white">اعضای سازمان</h2><p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">برای مشاهده اطلاعات اعضا ورق بزنید</p></div>
-          <span className="rounded-xl bg-indigo-50 px-2.5 py-1.5 text-[10px] font-bold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">{filteredMembers.length} عضو</span>
-        </div>
-        {isLoading ? <div className="contacts-members-mobile-rail contacts-members-skeleton-rail" aria-label="در حال بارگذاری اعضا"><div className="contacts-member-card contacts-member-card-skeleton"><span className="skeleton-cover" /><span className="skeleton-meta" /><span className="skeleton-avatar" /><span className="skeleton-title" /><span className="skeleton-role" /><span className="skeleton-footer" /></div><div className="contacts-member-card contacts-member-card-skeleton"><span className="skeleton-cover" /><span className="skeleton-meta" /><span className="skeleton-avatar" /><span className="skeleton-title" /><span className="skeleton-role" /><span className="skeleton-footer" /></div><div className="contacts-member-card contacts-member-card-skeleton"><span className="skeleton-cover" /><span className="skeleton-meta" /><span className="skeleton-avatar" /><span className="skeleton-title" /><span className="skeleton-role" /><span className="skeleton-footer" /></div></div> : filteredMembers.length === 0 ? <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"><EmptyState compact icon={Search} title={memberSearch ? 'عضوی با این جست‌وجو پیدا نشد' : 'عضوی پیدا نشد'} description={memberSearch ? 'نام یا ایمیل دیگری را جست‌وجو کنید.' : 'هنوز عضوی به این سازمان اضافه نشده است.'} action={!memberSearch && canManageMembers ? <button onClick={() => setIsInviteModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">دعوت عضو جدید</button> : undefined} /></div> : <div className="contacts-members-mobile-rail" onScroll={handleMembersScroll}>
-          {filteredMembers.map((member, index) => <motion.article key={member.id} initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.06 }} className="contacts-member-card">
-            <div className="contacts-member-card-cover"><span className="contacts-member-card-index">{String(index + 1).padStart(2, '۰')}</span>{canManageMembers && <button type="button" onClick={() => setMemberPendingRemoval(member)} className="contacts-member-card-delete" title="حذف عضو" aria-label="حذف عضو"><Trash2 className="h-4 w-4" /></button>}</div>
-            <div className="contacts-member-card-meta"><span>عضو سازمان</span><span className="contacts-member-card-online"><span /></span></div>
-            <div className="contacts-member-card-profile"><UserAvatar name={member.name} avatar={member.avatar} className="contacts-member-card-avatar h-16 w-16 shrink-0 text-lg" imageClassName="h-16 w-16 rounded-full object-cover" /></div>
-            <div className="contacts-member-card-details"><h3 className="truncate text-base font-black text-slate-900 dark:text-white">{member.name}</h3>{member.role?.trim() && <span className="contacts-member-card-role">{member.role}</span>}</div>
-            <div className="contacts-member-card-footer"><div className="contacts-member-card-footer-item"><UserCheck className="h-3.5 w-3.5 text-emerald-500" /><span>احراز هویت شده</span></div><p className="contacts-member-card-email truncate" dir="ltr" title={member.email}>{member.email || 'ایمیل ثبت نشده'}</p></div>
-          </motion.article>)}
-          {isLoadingMoreMembers && <div className="contacts-members-loading-more">در حال دریافت اعضای بیشتر…</div>}
-        </div>}
+        {isLoading ? (
+          <div className="space-y-2 p-3 sm:p-4" aria-label="در حال بارگذاری اعضا">
+            {[1, 2, 3].map((item) => <div key={item} className="h-[4.75rem] animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />)}
+          </div>
+        ) : filteredMembers.length === 0 ? (
+          <div className="p-4"><EmptyState compact icon={Search} title={memberSearch ? 'عضوی با این جست‌وجو پیدا نشد' : 'عضوی پیدا نشد'} description={memberSearch ? 'نام یا ایمیل دیگری را جست‌وجو کنید.' : 'هنوز عضوی به این سازمان اضافه نشده است.'} action={!memberSearch && canManageMembers ? <button onClick={() => setIsInviteModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">دعوت عضو جدید</button> : undefined} /></div>
+        ) : (
+          <div className="max-h-[calc(100vh-18rem)] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800" onScroll={handleMembersScroll}>
+            <AnimatePresence initial={false} mode="popLayout">
+              {filteredMembers.map((member, index) => {
+                const isExpanded = expandedMemberId === member.id;
+                const isMenuOpen = openMemberMenuId === member.id;
+                return (
+                  <motion.article key={member.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 18 }} transition={{ duration: 0.25, delay: index * 0.04 }} className="relative px-3 py-3.5 transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/35 sm:px-5">
+                    <div className="flex items-center gap-3">
+                      <UserAvatar name={member.name} avatar={member.avatar} className="h-10 w-10 shrink-0 text-xs ring-1 ring-slate-200 dark:ring-slate-700" imageClassName="h-10 w-10 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700" />
+                      <button type="button" onClick={() => setExpandedMemberId(isExpanded ? null : member.id)} className="min-w-0 flex-1 text-right">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">{member.name}</h3>
+                          {member.role?.trim() && <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{member.role}</span>}
+                        </div>
+                        <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400" dir="ltr">{member.email || 'ایمیل ثبت نشده'}</p>
+                      </button>
+                      <span className="hidden items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 sm:flex"><UserCheck className="h-3.5 w-3.5" />احراز هویت شده</span>
+                      <button type="button" onClick={() => setExpandedMemberId(isExpanded ? null : member.id)} aria-label={isExpanded ? 'بستن جزئیات عضو' : 'نمایش جزئیات عضو'} className={`rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 ${isExpanded ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' : ''}`}><ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} /></button>
+                      <div className="relative shrink-0">
+                        <button type="button" onClick={() => setOpenMemberMenuId(isMenuOpen ? null : member.id)} aria-label="عملیات عضو" className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"><MoreVertical className="h-4 w-4" /></button>
+                        {isMenuOpen && <div className="absolute left-0 top-10 z-20 min-w-36 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                          {canManageMembers && <button type="button" onClick={() => { setOpenMemberMenuId(null); setMemberPendingRemoval(member); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-right text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"><Trash2 className="h-3.5 w-3.5" />حذف عضو</button>}
+                        </div>}
+                      </div>
+                    </div>
+                    {isExpanded && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mr-[3.25rem] mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600 dark:border-slate-800 dark:text-slate-300 sm:grid-cols-3">
+                      <div><span className="block text-[10px] text-slate-400">ایمیل</span><span className="mt-1 block truncate" dir="ltr">{member.email || 'ثبت نشده'}</span></div>
+                      <div><span className="block text-[10px] text-slate-400">وضعیت گواهی امضا</span><span className="mt-1 flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400"><UserCheck className="h-3.5 w-3.5" />احراز هویت شده</span></div>
+                      <div><span className="block text-[10px] text-slate-400">نقش سازمانی</span><span className="mt-1 block font-medium">{member.role || 'ثبت نشده'}</span></div>
+                    </motion.div>}
+                  </motion.article>
+                );
+              })}
+            </AnimatePresence>
+            {isLoadingMoreMembers && <div className="px-4 py-3 text-center text-xs text-slate-500">در حال دریافت اعضای بیشتر…</div>}
+          </div>
+        )}
       </section>
 
       {/* Invite Modal */}
