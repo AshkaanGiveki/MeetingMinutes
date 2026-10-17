@@ -131,7 +131,10 @@ const signatureFor = (meeting: Meeting, participant: Participant): SignatureReco
   meeting.signatures?.find((signature) => signature.signerId === participant.id);
 
 export const ArchivedMinuteDocument: React.FC<ArchivedMinuteDocumentProps> = ({ meeting, onClose, onPrintPdf }) => {
-  const participants = meeting.participants || [];
+  // The organizer is stored separately, but is still a participant in the
+  // official attendance and signature sections.
+  const participants = [meeting.organizer, ...(meeting.participants || [])]
+    .filter((person, index, all) => Boolean(person) && all.findIndex((candidate) => candidate?.id === person.id) === index);
   // Invitation state is not attendance state: pending members are not automatically absent.
   // Until an explicit attendance field exists, registered participants are shown as present.
   const absent = participants.filter((person) => /غایب|absent/i.test(person.statusText || ''));
