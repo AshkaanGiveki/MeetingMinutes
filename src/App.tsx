@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
+import { ArrowLeft, AudioLines, FileText, Plus, Sparkles } from 'lucide-react';
 import { Meeting, CommentItem, Participant, Template, OrganizationRole, MeetingRole } from './types';
 import { RightSidebar } from './components/RightSidebar';
 import { TopBar } from './components/TopBar';
@@ -1021,12 +1022,65 @@ export default function App() {
           ) : isMeetingsLoading ? (
             meetingDetailId ? <MeetingWorkspaceSkeleton /> : <MeetingListSkeleton />
           ) : meetings.length === 0 ? (
-            <div className="min-h-[60vh] flex items-center justify-center text-center">
-              <div className="max-w-md rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-8 shadow-sm">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">هنوز صورت‌جلسه‌ای ثبت نشده است</h2>
-                <p className="mt-2 text-sm text-slate-500">برای شروع، یک جلسه جدید ایجاد کنید یا یادداشت‌های خام را به صورت‌جلسه تبدیل کنید.</p>
-                {isAuthenticated && canCreateMeeting && <button onClick={() => setIsNewMeetingModalOpen(true)} className="mt-5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">ایجاد جلسه جدید</button>}
-              </div>
+            <div className="flex min-h-[60vh] items-center justify-center px-1 py-8" dir="rtl">
+              <motion.section
+                initial={{ opacity: 0, y: 18, scale: 0.985 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+                className="relative isolate w-full max-w-2xl overflow-hidden rounded-[2rem] border border-indigo-100/90 bg-white/90 p-6 text-center shadow-[0_22px_70px_rgba(79,70,229,0.10)] backdrop-blur-xl dark:border-indigo-950/80 dark:bg-slate-900/90 dark:shadow-[0_22px_70px_rgba(15,23,42,0.35)] sm:p-10"
+              >
+                <div className="pointer-events-none absolute -right-24 -top-28 -z-10 h-64 w-64 rounded-full bg-indigo-200/45 blur-3xl dark:bg-indigo-900/35" />
+                <div className="pointer-events-none absolute -bottom-32 -left-20 -z-10 h-64 w-64 rounded-full bg-violet-200/35 blur-3xl dark:bg-violet-950/35" />
+
+                <div className="mx-auto flex w-fit items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50/80 px-3 py-1.5 text-[11px] font-bold text-indigo-700 dark:border-indigo-900/80 dark:bg-indigo-950/50 dark:text-indigo-300">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>فضای ثبت و مدیریت جلسات</span>
+                </div>
+
+                <div className="relative mx-auto mt-7 flex h-20 w-20 items-center justify-center rounded-[1.65rem] bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 text-white shadow-lg shadow-indigo-500/25">
+                  <div className="absolute inset-2 rounded-[1.15rem] border border-white/25" />
+                  <FileText className="relative h-9 w-9" strokeWidth={1.6} />
+                  <Sparkles className="absolute -left-2 -top-2 h-5 w-5 rounded-full bg-white p-1 text-indigo-600 shadow-sm dark:bg-slate-900 dark:text-indigo-300" />
+                </div>
+
+                <h2 className="mt-6 text-xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-2xl">هنوز صورت‌جلسه‌ای ثبت نشده است</h2>
+                <p className="mx-auto mt-3 max-w-lg text-sm leading-7 text-slate-500 dark:text-slate-400">
+                  اولین جلسه خود را ثبت کنید یا یادداشت‌های خام را به کمک هوش مصنوعی به یک صورت‌جلسه رسمی و منظم تبدیل کنید.
+                </p>
+
+                {isAuthenticated && canCreateMeeting ? (
+                  <div className="mt-7 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+                    <button
+                      onClick={() => setIsNewMeetingModalOpen(true)}
+                      className="group inline-flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 py-3 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700 active:translate-y-0"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>ایجاد جلسه جدید</span>
+                      <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+                    </button>
+                    <button
+                      onClick={() => setIsRoughNotesModalOpen(true)}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50/70 px-5 py-3 text-xs font-bold text-indigo-700 transition hover:-translate-y-0.5 hover:bg-indigo-100 active:translate-y-0 dark:border-indigo-900/80 dark:bg-indigo-950/45 dark:text-indigo-300 dark:hover:bg-indigo-950/70"
+                    >
+                      <AudioLines className="h-4 w-4" />
+                      <span>تبدیل یادداشت خام</span>
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="mx-auto mt-8 grid max-w-lg grid-cols-3 gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
+                  {[
+                    ['۰۱', 'ثبت جلسه'],
+                    ['۰۲', 'ساختاردهی محتوا'],
+                    ['۰۳', 'پیگیری و امضا'],
+                  ].map(([number, label]) => (
+                    <div key={number} className="rounded-2xl bg-slate-50/80 px-2 py-2.5 dark:bg-slate-800/60">
+                      <span className="block text-[10px] font-bold text-indigo-500 dark:text-indigo-400">{number}</span>
+                      <span className="mt-1 block text-[10px] font-semibold text-slate-500 dark:text-slate-400">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              </motion.section>
             </div>
           ) : viewMode === 'list' || !activeMeeting ? (
             <MeetingsListView
