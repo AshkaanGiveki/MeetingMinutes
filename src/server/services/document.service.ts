@@ -102,12 +102,9 @@ export async function generateMeetingPdf(meeting: Meeting, template?: Pick<Print
     document.fillColor(colors.muted).fontSize(8).font(persianFont).text('عضو و نقش', margin + 18, tableY + 10, { width: 220, ...rtl });
     document.text('وضعیت امضا', margin + 280, tableY + 10, { width: 100, ...rtl });
     document.text('مسئولیت', margin + 398, tableY + 10, { width: 110, ...rtl });
-    const hasAuthoritativeSignatureRecords = Array.isArray(meeting.signatures);
     participants.forEach((person, index) => {
       const y = tableY + 34 + index * rowHeight;
-      const signed = hasAuthoritativeSignatureRecords
-        ? Boolean(signatureByPerson.get(person.id))
-        : Boolean(signatureByPerson.get(person.id) || person.hasSigned);
+      const signed = Boolean(signatureByPerson.get(person.id));
       document.strokeColor('#edf1f5').lineWidth(0.6).moveTo(margin + 14, y - 5).lineTo(pageWidth - margin - 14, y - 5).stroke();
       document.fillColor(colors.ink).fontSize(9.5).font(persianFont).text(person.name, margin + 18, y + 1, { width: 220, ...rtl });
       document.fillColor(colors.muted).fontSize(7.8).font(persianFont).text(rolesOf(person).join('  |  '), margin + 18, y + 15, { width: 220, ...rtl });

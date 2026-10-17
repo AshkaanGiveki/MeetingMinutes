@@ -12,8 +12,16 @@ export interface TelegramUserData {
 
 export class TelegramService {
   private botToken: string;
+  private apiBaseUrl: string;
 
-  constructor(botToken?: string) { this.botToken = botToken || process.env.TELEGRAM_BOT_TOKEN || ''; }
+  constructor(botToken?: string) {
+    this.botToken = botToken || process.env.TELEGRAM_BOT_TOKEN || '';
+    this.apiBaseUrl = (process.env.TELEGRAM_API_BASE_URL || 'https://api.telegram.org').replace(/\/$/, '');
+  }
+
+  private apiUrl(method: string): string {
+    return `${this.apiBaseUrl}/bot${this.botToken}/${method}`;
+  }
 
   getBotUsername(): string {
     return String(process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
@@ -23,7 +31,7 @@ export class TelegramService {
     const configured = this.getBotUsername();
     if (configured || !this.botToken) return configured;
     try {
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/getMe`);
+      const response = await fetch(this.apiUrl('getMe'));
       const data = await response.json() as { ok?: boolean; result?: { username?: string } };
       return data.ok && data.result?.username ? data.result.username : '';
     } catch (err) {
@@ -35,7 +43,7 @@ export class TelegramService {
   async ensureWebhook(webhookUrl: string, secretToken?: string): Promise<boolean> {
     if (!this.botToken || !webhookUrl) return false;
     try {
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/setWebhook`, {
+      const response = await fetch(this.apiUrl('setWebhook'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: webhookUrl, ...(secretToken ? { secret_token: secretToken } : {}) }),
@@ -81,12 +89,12 @@ export class TelegramService {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM PM] To: ${chatId} | Meeting: ${meetingTitle} | PDF attached: ${Boolean(pdfPath)} | Rich Persian action buttons prepared`); return true; }
     try {
       if (pdfPath) {
-        const richSent = await this.sendRichSignRequestDocument(chatId, pdfPath, meetingTitle, organizerName, actionToken, viewUrl);
-        if (richSent) return true;
-        logger.warn('Rich Telegram sign-request failed; falling back to a standard document message.');
+        // Telegram's public Bot API supports sendDocument with inline buttons.
+        // Keep the delivery on the standard endpoint; sendRichMessage is not a
+        // public Bot API method and caused avoidable failures before fallback.
         return this.sendDocument(chatId, pdfPath, text.replace(/<[^>]+>/g, ''), replyMarkup);
       }
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }), signal: AbortSignal.timeout(15000) });
+      const response = await fetch(this.apiUrl('sendMessage'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }), signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
       if (!data.ok) logger.error('Telegram rejected sign-request message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
@@ -127,7 +135,7 @@ export class TelegramService {
       // The InputMediaDocument uses attach://meeting_pdf, so the multipart
       // field must use the exact same attachment name.
       form.append('meeting_pdf', new Blob([bytes], { type: 'application/pdf' }), 'meeting-minute.pdf');
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendRichMessage`, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
+      const response = await fetch(this.apiUrl('sendRichMessage'), { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
       if (!data.ok) logger.error('Telegram rejected rich sign-request message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
@@ -159,7 +167,7 @@ export class TelegramService {
       return true;
     }
     try {
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendRichMessage`, {
+      const response = await fetch(this.apiUrl('sendRichMessage'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -200,7 +208,7 @@ export class TelegramService {
       ],
     };
     try {
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/editMessageText`, {
+      const response = await fetch(this.apiUrl('editMessageText'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, message_id: messageId, rich_message: richMessage }),
@@ -211,7 +219,7 @@ export class TelegramService {
 
       // Standard-message fallback: remove its inline keyboard even if the rich
       // content itself cannot be edited by the current Telegram client.
-      const markupResponse = await fetch(`https://api.telegram.org/bot${this.botToken}/editMessageReplyMarkup`, {
+      const markupResponse = await fetch(this.apiUrl('editMessageReplyMarkup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }),
@@ -229,7 +237,7 @@ export class TelegramService {
   async answerCallbackQuery(callbackQueryId: string, text: string): Promise<boolean> {
     if (!this.botToken) return true;
     try {
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/answerCallbackQuery`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: false }) });
+      const response = await fetch(this.apiUrl('answerCallbackQuery'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: false }) });
       const data = await response.json() as { ok?: boolean };
       return !!data.ok;
     } catch (err) { logger.error('Failed to acknowledge Telegram callback', { metadata: { error: String(err) } }); return false; }
@@ -238,7 +246,7 @@ export class TelegramService {
   async sendNotification(chatId: string | number, message: string): Promise<boolean> {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM] message to ${chatId}: ${message}`); return true; }
     try {
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }), signal: AbortSignal.timeout(15000) });
+      const response = await fetch(this.apiUrl('sendMessage'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }), signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
       if (!data.ok) logger.error('Telegram rejected notification message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
@@ -254,11 +262,15 @@ export class TelegramService {
       form.append('caption', caption);
       if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
       form.append('document', new Blob([bytes], { type: 'application/pdf' }), 'صورت-جلسه.pdf');
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendDocument`, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
+      const response = await fetch(this.apiUrl('sendDocument'), { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string };
       if (!data.ok) logger.error('Telegram rejected PDF document.', { metadata: { status: response.status, description: data.description } });
       return !!data.ok;
-    } catch (err) { logger.error('Failed to dispatch PDF to Telegram', { metadata: { error: String(err) } }); return false; }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to dispatch PDF to Telegram', { metadata: { error: error.message, name: error.name, cause: String((error as Error & { cause?: unknown }).cause || '') } });
+      return false;
+    }
   }
 }
 

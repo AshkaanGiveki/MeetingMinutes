@@ -41,9 +41,7 @@ export const MeetingParticipantsCard: React.FC<MeetingParticipantsCardProps> = (
     return roles.includes('Viewer') ? ['Viewer'] : roles;
   };
   const signatureIds = new Set((meeting.signatures || []).map((signature) => signature.signerId));
-  const hasSignatureRecords = Array.isArray(meeting.signatures);
-  const isSigned = (participant: Participant) => participant.id !== meeting.organizer.id
-    && (signatureIds.has(participant.id) || (!hasSignatureRecords && Boolean(participant.hasSigned)));
+  const isSigned = (participant: Participant) => signatureIds.has(participant.id);
   const participants = [meeting.organizer, ...meeting.participants]
     .filter(Boolean)
     .filter((participant, index, all) => all.findIndex((item) => item.id === participant.id) === index);

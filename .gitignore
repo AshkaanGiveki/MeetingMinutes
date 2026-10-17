@@ -6,5 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+.atlas-backup/
 .vercel
 api/server.mjs

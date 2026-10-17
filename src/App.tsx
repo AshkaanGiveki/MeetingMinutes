@@ -36,6 +36,14 @@ import { SigningRejectionDecisionModal } from './components/SigningRejectionDeci
 import { ArchivedMinuteDocument } from './components/ArchivedMinuteDocument';
 
 const hasMeetingRole = (participant: Participant, role: string) => (participant.roles || [participant.role]).includes(role as any);
+const meetingPeople = (meeting: Meeting): Participant[] => [meeting.organizer, ...(meeting.participants || [])]
+  .filter(Boolean)
+  .reduce<Participant[]>((merged, participant) => {
+    const current = merged.find((item) => item.id === participant.id);
+    if (!current) merged.push({ ...participant, roles: Array.from(new Set([...(participant.roles || []), participant.role as MeetingRole])) });
+    else current.roles = Array.from(new Set([...(current.roles || []), ...(participant.roles || []), participant.role as MeetingRole]));
+    return merged;
+  }, []);
 const meetingRoleLabels: Record<string, string> = { Editor: 'ویرایشگر', Reviewer: 'بازبین', Signer: 'امضاکننده' };
 
 export default function App() {
@@ -171,10 +179,10 @@ export default function App() {
   const canCreateMeeting = ['Owner', 'Admin', 'User'].includes(activeUser.role);
   const canManageActiveMeeting = Boolean(activeMeeting && (['Owner', 'Admin'].includes(activeUser.role) || activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && (hasMeetingRole(participant, 'Organizer') || hasMeetingRole(participant, 'Editor')))));
   const canEditActiveMeeting = Boolean(activeMeeting && activeMeeting.status === 'DRAFT' && activeMeeting.signatureRejection?.status !== 'pending' && (activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))));
-  const canReviewActiveMeeting = Boolean(activeMeeting && activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Reviewer')));
+  const canReviewActiveMeeting = Boolean(activeMeeting && meetingPeople(activeMeeting).some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Reviewer')));
   const canSignActiveMeeting = Boolean(activeMeeting && activeUser.signatureData && !(
     activeMeeting.signatureRejection?.status === 'pending' && activeMeeting.signatureRejection.signerId === activeUser.userId
-  ) && activeMeeting.participants.some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false && !participant.hasSigned));
+  ) && meetingPeople(activeMeeting).some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false && !(activeMeeting.signatures || []).some((signature) => signature.signerId === participant.id)));
 
   const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 10000) => {
     const controller = new AbortController();
@@ -238,14 +246,15 @@ export default function App() {
     const signedByRecord = activeMeeting.signatures?.some((signature) =>
       signature.signerId === activeUser.userId || signature.signerName === activeUser.name,
     );
-    const signedByParticipant = activeMeeting.participants.some((participant) =>
-      (participant.id === activeUser.userId || participant.email === activeUser.email) && participant.hasSigned,
+    const signedByParticipant = meetingPeople(activeMeeting).some((participant) =>
+      (participant.id === activeUser.userId || participant.email === activeUser.email)
+      && (activeMeeting.signatures || []).some((signature) => signature.signerId === participant.id),
     );
     setHasUserSigned(Boolean(signedByRecord || signedByParticipant));
   }, [activeMeeting, activeUser.userId, activeUser.name, activeUser.email]);
 
   useEffect(() => {
-    if (activeMeeting?.signatureRejection?.status === 'pending' && activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))) {
+    if (activeMeeting?.signatureRejection?.status === 'pending' && meetingPeople(activeMeeting).some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))) {
       setIsSigningDecisionModalOpen(true);
     }
   }, [activeMeeting?.signatureRejection?.id, activeMeeting?.signatureRejection?.status, activeUser.userId]);
@@ -364,13 +373,6 @@ export default function App() {
       showSnackbar({ type: 'warning', message: 'برای ارسال جلسه به بازبینی، ابتدا متن جلسه را ثبت کنید.' });
       return;
     }
-    if (newStatus === 'IN_REVIEW') {
-      const missingRoles = (['Editor', 'Reviewer', 'Signer'] as const).filter((role) => !activeMeeting.participants.some((participant) => hasMeetingRole(participant, role)));
-      if (missingRoles.length > 0) {
-        showSnackbar({ type: 'warning', message: `برای ارسال صورت‌جلسه به بازبینی، حداقل یک ${missingRoles.map((role) => meetingRoleLabels[role]).join('، ')} تعیین کنید.` });
-        return;
-      }
-    }
     void handleUpdateMeeting({
       status: newStatus,
       statusLabel:
@@ -399,8 +401,20 @@ export default function App() {
       return;
     }
     const participants = [...activeMeeting.participants, p];
-    const totalSignaturesRequired = participants.filter((participant) => hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false).length;
+    const totalSignaturesRequired = meetingPeople({ ...activeMeeting, participants }).filter((participant) => hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false).length;
     const updated = { ...activeMeeting, participants, totalSignaturesRequired };
+    setActiveMeeting(updated);
+    setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
+  };
+
+  const handleRemoveParticipant = (userId: string) => {
+    if (!activeMeeting) return;
+    const participants = activeMeeting.participants.filter((participant) => participant.id !== userId);
+    const updated = {
+      ...activeMeeting,
+      participants,
+      totalSignaturesRequired: meetingPeople({ ...activeMeeting, participants }).filter((participant) => hasMeetingRole(participant, 'Signer') && participant.requiresSignature !== false).length,
+    };
     setActiveMeeting(updated);
     setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
   };
@@ -413,7 +427,12 @@ export default function App() {
         role: 'Organizer',
         roles: (participant.roles?.includes('Organizer') ? participant.roles : ['Organizer', ...(participant.roles || [])]) as MeetingRole[],
       };
-      const updated = { ...activeMeeting, organizer: updatedOrganizer };
+      const updated = {
+        ...activeMeeting,
+        organizer: updatedOrganizer,
+        totalSignaturesRequired: meetingPeople({ ...activeMeeting, organizer: updatedOrganizer })
+          .filter((item) => hasMeetingRole(item, 'Signer') && item.requiresSignature !== false).length,
+      };
       setActiveMeeting(updated);
       setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
       return;
@@ -422,7 +441,7 @@ export default function App() {
     const updated = {
       ...activeMeeting,
       participants,
-      totalSignaturesRequired: participants.filter((item) => hasMeetingRole(item, 'Signer') && item.requiresSignature !== false).length,
+      totalSignaturesRequired: meetingPeople({ ...activeMeeting, participants }).filter((item) => hasMeetingRole(item, 'Signer') && item.requiresSignature !== false).length,
     };
     setActiveMeeting(updated);
     setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
@@ -1143,6 +1162,7 @@ export default function App() {
         meetingId={activeMeeting?.id || ''}
         onAddParticipant={handleAddParticipant}
         onUpdateParticipant={handleUpdateParticipantRole}
+        onRemoveParticipant={handleRemoveParticipant}
         existingParticipants={activeMeeting?.participants || []}
         owner={activeMeeting?.organizer}
       />

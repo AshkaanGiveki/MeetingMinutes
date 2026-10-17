@@ -116,18 +116,14 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
       .filter((role): role is string => allowedRoles.has(role));
     return roles.includes('Viewer') ? ['Viewer'] : roles;
   };
-  const totalSignatures = meeting.totalSignaturesRequired || meeting.participants.filter((participant) => hasRole(participant, 'Signer')).length || 0;
-  const signedParticipantIds = new Set((meeting.signatures || []).map((signature) => signature.signerId));
-  const hasSignatureRecords = Array.isArray(meeting.signatures);
-  const signedCount = hasSignatureRecords
-    ? signedParticipantIds.size
-    : (meeting.signatureCount || meeting.participants.filter((participant) => participant.id !== meeting.organizer.id && participant.hasSigned).length);
-  const isParticipantSigned = (participant: Participant) => participant.id !== meeting.organizer.id
-    && (signedParticipantIds.has(participant.id) || (!hasSignatureRecords && Boolean(participant.hasSigned)));
-  const allSignaturesCollected = totalSignatures > 0 && signedCount >= totalSignatures;
   const participants = [meeting.organizer, ...meeting.participants]
     .filter(Boolean)
     .filter((participant, index, all) => all.findIndex((item) => item.id === participant.id) === index);
+  const totalSignatures = meeting.totalSignaturesRequired || participants.filter((participant) => hasRole(participant, 'Signer') && participant.requiresSignature !== false).length || 0;
+  const signedParticipantIds = new Set((meeting.signatures || []).map((signature) => signature.signerId));
+  const signedCount = signedParticipantIds.size;
+  const isParticipantSigned = (participant: Participant) => signedParticipantIds.has(participant.id);
+  const allSignaturesCollected = totalSignatures > 0 && signedCount >= totalSignatures;
   const visibleParticipants = participants.slice(0, 4);
   const remainingParticipants = Math.max(0, participants.length - visibleParticipants.length);
   const roleLabels: Record<string, string> = { Editor: 'ویرایشگر', Reviewer: 'بازبین', Signer: 'امضاکننده' };

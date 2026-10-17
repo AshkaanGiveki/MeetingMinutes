@@ -20,8 +20,8 @@ if (!configuredSeedPassword) throw new Error('Set SEED_DEFAULT_PASSWORD or BOOTS
 const seedPassword: string = configuredSeedPassword;
 
 const participants: Record<string, Participant> = {
-  maryam: { id: 'usr_maryam_rezaei', name: 'مریم رضایی', role: 'Owner', email: 'maryam.rezaei@metameet.ir', avatar: avatarUrls.maryam, initials: 'م‌ر', hasSigned: true },
-  sina: { id: 'usr_sina_ahmadi', name: 'سینا احمدی', role: 'Organizer', email: 'sina.ahmadi@metameet.ir', avatar: avatarUrls.sina, initials: 'س‌ا', hasSigned: true },
+  maryam: { id: 'usr_maryam_rezaei', name: 'مریم رضایی', role: 'Owner', email: 'maryam.rezaei@metameet.ir', avatar: avatarUrls.maryam, initials: 'م‌ر', hasSigned: false },
+  sina: { id: 'usr_sina_ahmadi', name: 'سینا احمدی', role: 'Organizer', email: 'sina.ahmadi@metameet.ir', avatar: avatarUrls.sina, initials: 'س‌ا', hasSigned: false },
   niloofar: { id: 'usr_niloofar_karimi', name: 'نیلوفر کریمی', role: 'Reviewer', email: 'niloofar.karimi@metameet.ir', avatar: avatarUrls.niloofar, initials: 'ن‌ک', hasSigned: false },
   pouya: { id: 'usr_pouya_mohammadi', name: 'پویا محمدی', role: 'Editor', email: 'pouya.mohammadi@metameet.ir', avatar: avatarUrls.pouya, initials: 'پ‌م', hasSigned: false },
 };

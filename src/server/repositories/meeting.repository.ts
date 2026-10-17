@@ -11,15 +11,18 @@ function requireDb() {
 
 function normalizeSignatureRequirement(meeting: Meeting): Meeting {
   const signerIds = new Set<string>();
-  for (const participant of meeting.participants || []) {
+  for (const participant of [meeting.organizer, ...(meeting.participants || [])]) {
     if (participant?.id && (participant.roles || [participant.role]).includes('Signer') && participant.requiresSignature !== false) signerIds.add(participant.id);
   }
   const totalSignaturesRequired = signerIds.size;
   const signatureRecords = Array.isArray(meeting.signatures) ? meeting.signatures : undefined;
   if (!signatureRecords) {
-    return meeting.totalSignaturesRequired === totalSignaturesRequired
-      ? meeting
-      : { ...meeting, totalSignaturesRequired };
+    return {
+      ...meeting,
+      organizer: meeting.organizer ? { ...meeting.organizer, hasSigned: false } : meeting.organizer,
+      participants: (meeting.participants || []).map((participant) => ({ ...participant, hasSigned: false })),
+      totalSignaturesRequired,
+    };
   }
 
   const signedIds = new Set(signatureRecords
@@ -35,6 +38,9 @@ function normalizeSignatureRequirement(meeting: Meeting): Meeting {
   });
   return {
     ...meeting,
+    organizer: meeting.organizer && signedIds.has(meeting.organizer.id)
+      ? { ...meeting.organizer, hasSigned: true, statusText: 'Ø§Ù…Ø¶Ø§ Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯' }
+      : meeting.organizer,
     participants,
     signatureCount: signedIds.size,
     totalSignaturesRequired,
