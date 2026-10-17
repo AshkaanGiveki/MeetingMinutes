@@ -7,7 +7,6 @@
   font-style: normal;
   font-display: swap;
 }
-
 @font-face {
   font-family: 'IRANSansXFaNum';
   src: url('./assets/fonts/IRANSansXFaNum-Bold.woff2') format('woff2');
@@ -3549,3 +3548,4 @@ body {
     display: block !important;
   }
 }
+
