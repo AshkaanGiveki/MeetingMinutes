@@ -231,7 +231,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
         ) : filteredMembers.length === 0 ? (
           <div className="p-4"><EmptyState compact icon={Search} title={memberSearch ? 'عضوی با این جست‌وجو پیدا نشد' : 'عضوی پیدا نشد'} description={memberSearch ? 'نام یا ایمیل دیگری را جست‌وجو کنید.' : 'هنوز عضوی به این سازمان اضافه نشده است.'} action={!memberSearch && canManageMembers ? <button onClick={() => setIsInviteModalOpen(true)} className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">دعوت عضو جدید</button> : undefined} /></div>
         ) : (
-          <div className="max-h-[calc(100vh-18rem)] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800" onScroll={handleMembersScroll}>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
             <AnimatePresence initial={false} mode="popLayout">
               {filteredMembers.map((member, index) => {
                 const isExpanded = expandedMemberId === member.id;
@@ -251,15 +251,25 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
                       <button type="button" onClick={() => setExpandedMemberId(isExpanded ? null : member.id)} aria-label={isExpanded ? 'بستن جزئیات عضو' : 'نمایش جزئیات عضو'} className={`rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 ${isExpanded ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' : ''}`}><ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} /></button>
                       <div className="relative shrink-0">
                         <button type="button" onClick={() => setOpenMemberMenuId(isMenuOpen ? null : member.id)} aria-label="عملیات عضو" className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"><MoreVertical className="h-4 w-4" /></button>
-                        {isMenuOpen && <div className="absolute left-0 top-10 z-20 min-w-36 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                        {isMenuOpen && <div className="absolute left-0 top-10 z-20 min-w-40 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                          <button type="button" onClick={() => { setExpandedMemberId(isExpanded ? null : member.id); setOpenMemberMenuId(null); }} className="w-full rounded-xl px-3 py-2 text-right text-xs text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">{isExpanded ? 'بستن جزئیات' : 'مشاهده جزئیات'}</button>
                           {canManageMembers && <button type="button" onClick={() => { setOpenMemberMenuId(null); setMemberPendingRemoval(member); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-right text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"><Trash2 className="h-3.5 w-3.5" />حذف عضو</button>}
                         </div>}
                       </div>
                     </div>
-                    {isExpanded && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mr-[3.25rem] mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600 dark:border-slate-800 dark:text-slate-300 sm:grid-cols-3">
-                      <div><span className="block text-[10px] text-slate-400">ایمیل</span><span className="mt-1 block truncate" dir="ltr">{member.email || 'ثبت نشده'}</span></div>
-                      <div><span className="block text-[10px] text-slate-400">وضعیت گواهی امضا</span><span className="mt-1 flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400"><UserCheck className="h-3.5 w-3.5" />احراز هویت شده</span></div>
-                      <div><span className="block text-[10px] text-slate-400">نقش سازمانی</span><span className="mt-1 block font-medium">{member.role || 'ثبت نشده'}</span></div>
+                    {isExpanded && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600 dark:border-slate-800 dark:text-slate-300 sm:grid-cols-3">
+                      <div className="min-w-0 rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-800/55">
+                        <span className="block text-[10px] font-medium text-slate-400">ایمیل</span>
+                        <span className="mt-1.5 block truncate font-medium" dir="ltr">{member.email || 'ثبت نشده'}</span>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-800/55">
+                        <span className="block text-[10px] font-medium text-slate-400">وضعیت گواهی امضا</span>
+                        <span className="mt-1.5 flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400"><UserCheck className="h-3.5 w-3.5" />احراز هویت شده</span>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-800/55">
+                        <span className="block text-[10px] font-medium text-slate-400">نقش سازمانی</span>
+                        <span className="mt-1.5 block font-semibold">{member.role || 'ثبت نشده'}</span>
+                      </div>
                     </motion.div>}
                   </motion.article>
                 );
