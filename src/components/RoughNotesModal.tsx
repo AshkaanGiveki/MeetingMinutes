@@ -48,6 +48,21 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         throw new Error(resData?.error || 'AI conversion failed.');
       }
       const aiData = resData.data;
+      const suggestedParticipants = (Array.isArray(aiData?.participants) ? aiData.participants : [])
+        .filter((person: any) => person?.memberId && person.memberId !== organizer?.id)
+        .map((person: any, idx: number) => {
+          const roles = Array.from(new Set([...(Array.isArray(person.roles) ? person.roles : []), person.role || 'Viewer'])) as any[];
+          const primaryRole = roles.includes('Reviewer') ? 'Reviewer' : roles.includes('Editor') ? 'Editor' : roles.includes('Signer') ? 'Signer' : 'Viewer';
+          return {
+            id: person.memberId,
+            name: person.name || `Participant ${idx + 1}`,
+            role: primaryRole,
+            roles,
+            email: person.email || '',
+            avatar: person.avatar,
+            requiresSignature: roles.includes('Signer'),
+          } as Participant;
+        });
 
       const newMeeting: Meeting = {
         id: `meet_${Date.now()}`,
@@ -58,7 +73,7 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
         status: 'DRAFT',
         statusLabel: 'پیش‌نویس',
         organizer: organizer || { id: 'unknown', name: 'کاربر فعلی', role: 'Participant', email: '', avatar: '' },
-        participants: organizer ? [organizer] : [],
+        participants: organizer ? [organizer, ...suggestedParticipants] : suggestedParticipants,
         agenda: (aiData?.agenda || ['بررسی معماری', 'تخصیص وظایف']).map((text: string, idx: number) => ({
           id: `ag_${idx + 1}`,
           order: idx + 1,
@@ -84,10 +99,14 @@ export const RoughNotesModal: React.FC<RoughNotesModalProps> = ({
           assigneeAvatar: organizer?.avatar,
           dueDate: t.deadline || '۱۰ روز آینده',
           completed: false,
-        })),
+        })).map((item: any, index: number) => {
+          const task = Array.isArray(aiData?.suggestedTasks) ? aiData.suggestedTasks[index] : undefined;
+          const assignee = suggestedParticipants.find((person: Participant) => person.id === task?.assigneeId || person.name === task?.assigneeName) || organizer;
+          return assignee ? { ...item, assignee, assigneeId: task?.assigneeId || assignee.id, assigneeName: task?.assigneeName || assignee.name, assigneeAvatar: assignee.avatar } : item;
+        }),
         comments: [],
         signatureCount: 0,
-        totalSignaturesRequired: organizer ? 1 : 0,
+        totalSignaturesRequired: [organizer, ...suggestedParticipants].filter((person: Participant | undefined) => person?.requiresSignature).length,
       };
 
       onMeetingCreated(newMeeting);

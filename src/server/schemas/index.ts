@@ -68,6 +68,12 @@ export const CreateMeetingSchema = z.object({
   contentTemplateId: z.string().optional(),
   printTemplateId: z.string().optional(),
   participantIds: z.array(z.string()).optional(),
+  participantAssignments: z.array(z.object({
+    id: z.string().min(1),
+    role: z.enum(['Editor', 'Reviewer', 'Signer', 'Viewer', 'Participant']).optional(),
+    roles: z.array(z.enum(['Editor', 'Reviewer', 'Signer', 'Viewer', 'Participant'])).max(5).optional(),
+    requiresSignature: z.boolean().optional(),
+  })).max(100).optional(),
   agenda: z.array(AgendaItemSchema).optional(),
   decisions: z.array(DecisionItemSchema).optional(),
   actionItems: z.array(ActionItemSchema).optional(),

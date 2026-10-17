@@ -25,6 +25,7 @@ import { documentExists, getMeetingPdfPath, generateMeetingPdf } from './src/ser
 import { generateHtmlMeetingPdf } from './src/server/services/html-pdf.service';
 import { templateRepository } from './src/server/repositories/template.repository';
 import { organizationService } from './src/server/services/organization.service';
+import { generateAiMinutes } from './src/server/services/ai-minutes.service';
 import { ASSIGNABLE_MEETING_ROLES, canTransitionMeeting, getMeetingParticipantRoles, getMissingRequiredMeetingRoles, hasMeetingRole, hasPermission, MeetingRole, OrganizationRole, Permission, requiredMeetingRoleForPermission, RolePermissionsMap } from './src/server/policies/rbac';
 import {
   SignDocumentSchema,
@@ -1165,21 +1166,31 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
     const organizationMinuteId = data.organizationMinuteId || Number(latestNumberedMeeting?.organizationMinuteId || 0) + 1;
     const duplicateMinute = await getDb()?.collection('meetings').findOne({ organizationId: auth.organizationId, organizationMinuteId });
     if (duplicateMinute) return res.status(409).json({ error: 'این شماره صورت‌جلسه قبلاً در سازمان استفاده شده است.', code: 'ORGANIZATION_MINUTE_ID_EXISTS' });
-    const participantIds = [...new Set((data.participantIds || []).filter((id) => id && id !== auth.userId))];
+    const assignmentById = new Map((data.participantAssignments || []).map((assignment) => [assignment.id, assignment]));
+    const participantIds = [...new Set([
+      ...(data.participantIds || []),
+      ...(data.participantAssignments || []).map((assignment) => assignment.id),
+    ].filter((id) => id && id !== auth.userId))];
     const db = getDb();
     const participantUsers = db && participantIds.length > 0
       ? await db.collection('users').find({ id: { $in: participantIds } }).project({ passwordHash: 0 }).toArray()
       : [];
-    const participants = participantUsers.map((participant) => ({
-      id: participant.id,
-      name: participant.name,
-      role: 'Viewer' as const,
-      email: participant.email,
-      avatar: participant.avatar,
-      initials: String(participant.name || '').slice(0, 2),
-      hasSigned: false,
-      requiresSignature: false,
-    }));
+    const participants = participantUsers.map((participant) => {
+      const assignment = assignmentById.get(participant.id);
+      const roles = Array.from(new Set([...(assignment?.roles || []), assignment?.role || 'Viewer'])) as MeetingRole[];
+      const primaryRole = (roles[0] || 'Viewer') as MeetingRole;
+      return {
+        id: participant.id,
+        name: participant.name,
+        role: primaryRole,
+        roles,
+        email: participant.email,
+        avatar: participant.avatar,
+        initials: String(participant.name || '').slice(0, 2),
+        hasSigned: false,
+        requiresSignature: assignment?.requiresSignature ?? roles.includes('Signer'),
+      };
+    });
     const newMeeting = {
     id: `meet_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     organizationMinuteId,
@@ -1219,7 +1230,7 @@ app.post('/api/meetings', requirePermission('meeting.create'), async (req, res) 
 
   const created = await meetingRepository.create(newMeeting as any);
   await upsertMeetingMember(created, auth.userId, 'Organizer', auth.userId, undefined, ['Organizer', 'Editor']);
-  for (const participant of participants) await upsertMeetingMember(created, participant.id, 'Viewer', auth.userId);
+  for (const participant of participants) await upsertMeetingMember(created, participant.id, participant.role, auth.userId, undefined, participant.roles);
   await meetingRepository.addAudit({
     id: `aud_${Date.now()}`,
     meetingId: created.id,
@@ -2599,6 +2610,37 @@ app.post('/api/ai/suggest', requirePermission('meeting.read'), async (req, res) 
       const db = getDb();
       if (db && meetingId) await db.collection('ai_suggestions').insertOne({ meetingId, userId: auth.userId, action, data, createdAt: new Date().toISOString() });
     };
+
+    // Rough notes conversion uses a provider-neutral structured extraction
+    // pipeline. It is intentionally handled before the legacy suggestion path:
+    // this flow creates a complete editable minute, not just a summary.
+    if (action === 'convert_rough_notes') {
+      const roughRateLimit = await redisService.checkRateLimit(req.ip || 'ip', 'ai-rough-notes', 10, 60);
+      if (!roughRateLimit.allowed) return res.status(429).json({ error: 'درخواست‌های تبدیل یادداشت خام بیش از حد مجاز است. لطفاً کمی بعد دوباره تلاش کنید.' });
+      const db = getDb();
+      const memberships = db
+        ? await db.collection<{ userId: string }>('organization_memberships')
+          .find({ organizationId: auth.organizationId, status: 'active' })
+          .project({ _id: 0, userId: 1 })
+          .toArray()
+        : [];
+      const memberIds = Array.from(new Set([auth.userId, ...memberships.map((membership) => membership.userId)]));
+      const members = db && memberIds.length
+        ? await db.collection<any>('users').find({ id: { $in: memberIds } }).project({ _id: 0, id: 1, name: 1, email: 1, avatar: 1, title: 1 }).toArray()
+        : [{ id: auth.userId, name: auth.name, email: auth.email }];
+      const result = await generateAiMinutes({
+        rawText: text || '',
+        organizationMembers: members.map((member) => ({ id: member.id, name: member.name, email: member.email, avatar: member.avatar, title: member.title })),
+        organizer: { id: auth.userId, name: auth.name, email: auth.email },
+        meetingTitle,
+      });
+      const data = {
+        ...result.draft,
+        metadata: { provider: result.provider || 'deterministic', model: result.model || null, fallback: result.fallback },
+      };
+      await persistAiSuggestion(data);
+      return res.json({ success: true, data });
+    }
 
     // Rate Limit AI requests
     const rateLimit = await redisService.checkRateLimit(req.ip || 'ip', 'ai', 20, 60);

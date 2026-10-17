@@ -692,6 +692,14 @@ export default function App() {
           location: newMeeting.location,
           description: newMeeting.discussion,
           participantIds: newMeeting.participants.map((participant) => participant.id).filter((id) => id !== newMeeting.organizer.id),
+          participantAssignments: newMeeting.participants
+            .filter((participant) => participant.id !== newMeeting.organizer.id)
+            .map((participant) => ({
+              id: participant.id,
+              role: participant.role === 'Participant' ? 'Viewer' : participant.role,
+              roles: (participant.roles || [participant.role]).filter((role) => role !== 'Participant'),
+              requiresSignature: participant.requiresSignature,
+            })),
           agenda: newMeeting.agenda,
           decisions: newMeeting.decisions,
           actionItems: newMeeting.actionItems.map((item: any) => ({
@@ -812,9 +820,10 @@ export default function App() {
     ? meetings.filter((m) => m.status === 'SEALED' || m.status === 'ARCHIVED').length
     : 0;
   const activeParticipant: Participant = {
-    id: 'current-user',
+    id: activeUser.userId || 'current-user',
     name: activeUser.name,
     role: 'Organizer',
+    roles: ['Organizer', 'Editor'],
     email: activeUser.email,
     avatar: activeUser.avatar,
   };
