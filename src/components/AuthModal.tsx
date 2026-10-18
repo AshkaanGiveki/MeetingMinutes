@@ -31,7 +31,7 @@ interface AuthModalProps {
   onRoleChange: (role: OrganizationRole) => void;
   currentUserName: string;
   currentUserEmail?: string;
-  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => void;
+  onLoginSuccess: (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => void;
   onLogout: () => void;
 }
 
@@ -122,6 +122,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (res.ok && data.user) {
         setStatusMessage({ type: 'success', text: `خوش آمدید ${data.user.name}` });
         onLoginSuccess({
+          userId: data.user.userId,
           name: data.user.name,
           avatar: data.user.avatar,
           phoneNumber: data.user.phoneNumber,
@@ -168,6 +169,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (res.ok && data.user) {
         setStatusMessage({ type: 'success', text: 'ثبت‌نام و ورود با موفقیت انجام شد.' });
         onLoginSuccess({
+          userId: data.user.userId,
           name: data.user.name,
           avatar: data.user.avatar,
           phoneNumber: data.user.phoneNumber,

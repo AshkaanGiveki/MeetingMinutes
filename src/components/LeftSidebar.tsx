@@ -8,7 +8,8 @@ import {
   UserPlus,
   PenTool,
   ShieldCheck,
-  LockKeyhole
+  LockKeyhole,
+  CheckCircle2
 } from 'lucide-react';
 import { Meeting, Participant, CommentItem } from '../types';
 import { motion } from 'motion/react';
@@ -21,6 +22,7 @@ interface LeftSidebarProps {
   meeting: Meeting;
   onOpenAddParticipant: () => void;
   onAddComment: (comment: CommentItem) => void;
+  onResolveCorrection?: (commentId: string) => Promise<void> | void;
   onStatusChange?: (status: Meeting['status']) => void;
   onOpenReviewModal?: () => void;
   onOpenSignModal?: () => void;
@@ -29,6 +31,7 @@ interface LeftSidebarProps {
   onRejectSigning?: () => void;
   onOpenSigningDecision?: () => void;
   canManageMeeting?: boolean;
+  canRespondToSignatureRejection?: boolean;
   canEditMeeting?: boolean;
   canReviewMeeting?: boolean;
   canSignMeeting?: boolean;
@@ -38,6 +41,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   meeting,
   onOpenAddParticipant,
   onAddComment,
+  onResolveCorrection,
   onStatusChange,
   onOpenReviewModal,
   onOpenSignModal,
@@ -46,6 +50,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onRejectSigning,
   onOpenSigningDecision,
   canManageMeeting = false,
+  canRespondToSignatureRejection = false,
   canEditMeeting = false,
   canReviewMeeting = false,
   canSignMeeting = false,
@@ -140,7 +145,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           {isSealed ? 'نهایی شده' : isSigningStage ? 'در انتظار امضا' : 'در جریان'}
         </span>
       </div>
-      {meeting.signatureRejection?.status === 'pending' && onOpenSigningDecision && canManageMeeting && (
+      {meeting.signatureRejection?.status === 'pending' && onOpenSigningDecision && canRespondToSignatureRejection && (
         <div className="rounded-[1.35rem] border border-rose-200 bg-rose-50/80 p-4 shadow-sm dark:border-rose-900/60 dark:bg-rose-950/25">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-300">!</div>
@@ -412,21 +417,29 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               layout
               exit={{ opacity: 0, x: 18, transition: { duration: 0.2 } }}
               variants={staggerItemVariants}
-              className="flex items-start gap-2.5 text-xs p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800"
+              className={`flex items-start gap-2.5 text-xs p-2 rounded-xl border ${comment.resolved === true ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20' : (comment.text.includes('درخواست اصلاح در') || comment.text.includes('Ø¯Ø±Ø®ÙˆØ§Ø³Øª Ø§ØµÙ„Ø§Ø­')) ? 'border-amber-200 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20' : 'border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-800/40'}`}
             >
               <UserAvatar name={comment.author?.name || 'کاربر'} avatar={comment.author?.avatar} className="mt-0.5 h-7 w-7 shrink-0 text-[9px]" imageClassName="mt-0.5 h-7 w-7 shrink-0 rounded-full object-cover" />
               <div className="flex-1 flex flex-col">
-                <div className="flex items-center justify-between mb-0.5">
+                <div className="flex items-center justify-between gap-2 mb-0.5">
                   <span className="font-semibold text-slate-800 dark:text-slate-200 text-[11px]">
                     {comment.author?.name || 'کاربر'}
                   </span>
                   <span className="text-[9px] text-slate-400 font-mono">
                     {comment.timestamp}
                   </span>
+                  {(comment.text.includes('درخواست اصلاح در') || comment.text.includes('Ø¯Ø±Ø®ÙˆØ§Ø³Øª Ø§ØµÙ„Ø§Ø­')) && <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold ${comment.resolved === true ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200'}`}>
+                    {comment.resolved === true ? <><CheckCircle2 className="h-3 w-3" />حل‌شده</> : 'در انتظار اصلاح'}
+                  </span>}
                 </div>
                 <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
                   {comment.text}
                 </p>
+                {(comment.text.includes('درخواست اصلاح در') || comment.text.includes('Ø¯Ø±Ø®ÙˆØ§Ø³Øª Ø§ØµÙ„Ø§Ø­')) && canEditMeeting && comment.resolved !== true && onResolveCorrection && (
+                  <button type="button" onClick={() => void onResolveCorrection(comment.id)} className="mt-2 self-start inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white transition hover:bg-emerald-700">
+                    <CheckCircle2 className="h-3 w-3" />علامت‌گذاری به‌عنوان حل‌شده
+                  </button>
+                )}
               </div>
             </motion.div>
           ))}

@@ -35,6 +35,7 @@ import { useSnackbar } from './components/Snackbar';
 import { SigningRejectionModal } from './components/SigningRejectionModal';
 import { SigningRejectionDecisionModal } from './components/SigningRejectionDecisionModal';
 import { ArchivedMinuteDocument } from './components/ArchivedMinuteDocument';
+import { repairMojibake } from './utils/text';
 
 const hasMeetingRole = (participant: Participant, role: string) => (participant.roles || [participant.role]).includes(role as any);
 const meetingPeople = (meeting: Meeting): Participant[] => [meeting.organizer, ...(meeting.participants || [])]
@@ -46,6 +47,15 @@ const meetingPeople = (meeting: Meeting): Participant[] => [meeting.organizer, .
     return merged;
   }, []);
 const meetingRoleLabels: Record<string, string> = { Editor: 'ویرایشگر', Reviewer: 'بازبین', Signer: 'امضاکننده' };
+const normalizeMeetingForClient = (meeting: Meeting): Meeting => ({
+  ...meeting,
+  statusLabel: repairMojibake(meeting.statusLabel) || meeting.statusLabel,
+  organizer: meeting.organizer ? { ...meeting.organizer, statusText: repairMojibake(meeting.organizer.statusText) } : meeting.organizer,
+  participants: (meeting.participants || []).map((participant) => ({
+    ...participant,
+    statusText: repairMojibake(participant.statusText),
+  })),
+});
 
 export default function App() {
   const location = useLocation();
@@ -145,6 +155,7 @@ export default function App() {
   const [isRoughNotesModalOpen, setIsRoughNotesModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isMeetingRefreshing, setIsMeetingRefreshing] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -178,8 +189,9 @@ export default function App() {
   };
   const meetingUpdateSequenceRef = useRef(0);
   const canCreateMeeting = ['Owner', 'Admin', 'User'].includes(activeUser.role);
-  const canManageActiveMeeting = Boolean(activeMeeting && (['Owner', 'Admin'].includes(activeUser.role) || activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && (hasMeetingRole(participant, 'Organizer') || hasMeetingRole(participant, 'Editor')))));
+  const canManageActiveMeeting = Boolean(activeMeeting && ['DRAFT', 'IN_REVIEW'].includes(activeMeeting.status) && activeMeeting.signatureRejection?.status !== 'pending' && activeMeeting.organizer.id === activeUser.userId);
   const canEditActiveMeeting = Boolean(activeMeeting && activeMeeting.status === 'DRAFT' && activeMeeting.signatureRejection?.status !== 'pending' && (activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))));
+  const canRespondToSignatureRejection = Boolean(activeMeeting && meetingPeople(activeMeeting).some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Editor')));
   const canReviewActiveMeeting = Boolean(activeMeeting && meetingPeople(activeMeeting).some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Reviewer')));
   const canSignActiveMeeting = Boolean(activeMeeting && activeUser.signatureData && !(
     activeMeeting.signatureRejection?.status === 'pending' && activeMeeting.signatureRejection.signerId === activeUser.userId
@@ -207,9 +219,16 @@ export default function App() {
       const data = await response.json();
       if (requestSequence !== meetingsLoadSequenceRef.current) return;
       if (Array.isArray(data?.meetings)) {
-        setMeetings(data.meetings);
-        if (data.meetings.length > 0) {
-          setActiveMeeting((current) => data.meetings.find((m: Meeting) => m.id === current?.id) || data.meetings[0]);
+        const normalizedMeetings = data.meetings.map(normalizeMeetingForClient);
+        setMeetings((current) => normalizedMeetings.map((meeting: Meeting) => {
+          const currentVersion = current.find((item) => item.id === meeting.id);
+          return meetingDetailId && meeting.id === meetingDetailId && currentVersion ? currentVersion : meeting;
+        }));
+        if (normalizedMeetings.length > 0) {
+          setActiveMeeting((current) => {
+            if (current?.id && meetingDetailId && current.id === meetingDetailId) return current;
+            return normalizedMeetings.find((m: Meeting) => m.id === current?.id) || normalizedMeetings[0];
+          });
         } else {
           setActiveMeeting(null as unknown as Meeting);
         }
@@ -226,10 +245,59 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!meetingDetailId || meetings.length === 0) return;
-    const routeMeeting = meetings.find((meeting) => meeting.id === meetingDetailId);
-    if (routeMeeting) setActiveMeeting(routeMeeting);
-  }, [meetingDetailId, meetings]);
+    if (!meetingDetailId || !isAuthenticated) return;
+    let cancelled = false;
+    const cachedMeeting = meetings.find((meeting) => meeting.id === meetingDetailId);
+    if (cachedMeeting) setActiveMeeting(cachedMeeting);
+
+    const refreshMeeting = async () => {
+      try {
+        const response = await fetchWithTimeout(`/api/meetings/${meetingDetailId}`, {}, 30000);
+        const data = await response.json();
+        if (!response.ok || !data?.meeting) throw new Error(data?.error || 'Unable to load the latest meeting.');
+        if (cancelled) return;
+        const latestMeeting = normalizeMeetingForClient(data.meeting as Meeting);
+        setActiveMeeting(latestMeeting);
+        setMeetings((current) => {
+          const exists = current.some((meeting) => meeting.id === latestMeeting.id);
+          return exists
+            ? current.map((meeting) => meeting.id === latestMeeting.id ? latestMeeting : meeting)
+            : [latestMeeting, ...current];
+        });
+      } catch (error) {
+        if (!cancelled) showSnackbar({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load the latest meeting.' });
+      }
+    };
+
+    void refreshMeeting();
+    return () => {
+      cancelled = true;
+    };
+  }, [meetingDetailId, isAuthenticated]);
+
+  const refreshActiveMeeting = async () => {
+    if (!meetingDetailId || isMeetingRefreshing) return;
+    const requestSequence = ++meetingUpdateSequenceRef.current;
+    setIsMeetingRefreshing(true);
+    try {
+      const response = await fetchWithTimeout(`/api/meetings/${meetingDetailId}`, {}, 30000);
+      const data = await response.json();
+      if (!response.ok || !data?.meeting) throw new Error(data?.error || 'Unable to refresh the meeting.');
+      if (requestSequence !== meetingUpdateSequenceRef.current) return;
+      const latestMeeting = normalizeMeetingForClient(data.meeting as Meeting);
+      setActiveMeeting(latestMeeting);
+      setMeetings((current) => current.some((meeting) => meeting.id === latestMeeting.id)
+        ? current.map((meeting) => meeting.id === latestMeeting.id ? latestMeeting : meeting)
+        : [latestMeeting, ...current]);
+      showSnackbar({ type: 'success', message: 'وضعیت و دسترسی‌های جلسه به‌روز شد.' });
+    } catch (error) {
+      if (requestSequence === meetingUpdateSequenceRef.current) {
+        showSnackbar({ type: 'error', message: error instanceof Error ? error.message : 'تازه‌سازی جلسه انجام نشد.' });
+      }
+    } finally {
+      if (requestSequence === meetingUpdateSequenceRef.current) setIsMeetingRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (!meetingDetailId || !activeUser.userId) return;
@@ -351,8 +419,9 @@ export default function App() {
       // A slower response from an older edit must never affect newer local state.
       if (updateSequence !== meetingUpdateSequenceRef.current) return;
       if (data?.meeting) {
-        setActiveMeeting(data.meeting);
-        setMeetings((prev) => prev.map((m) => (m.id === data.meeting.id ? data.meeting : m)));
+        const latestMeeting = normalizeMeetingForClient(data.meeting);
+        setActiveMeeting(latestMeeting);
+        setMeetings((prev) => prev.map((m) => (m.id === latestMeeting.id ? latestMeeting : m)));
       }
     } catch (error) {
       if (updateSequence !== meetingUpdateSequenceRef.current) return;
@@ -364,7 +433,11 @@ export default function App() {
   };
 
   const applyMeetingLocally = (updated: Partial<Meeting>) => {
-    const next = { ...activeMeeting, ...updated };
+    const next = {
+      ...activeMeeting,
+      ...updated,
+      statusLabel: repairMojibake(updated.statusLabel || activeMeeting.statusLabel) || activeMeeting.statusLabel,
+    };
     setActiveMeeting(next);
     setMeetings((prev) => prev.map((meeting) => meeting.id === next.id ? next : meeting));
   };
@@ -394,6 +467,21 @@ export default function App() {
     });
   };
 
+  const handleResolveCorrection = async (commentId: string) => {
+    try {
+      const res = await fetch(`/api/meetings/${activeMeeting.id}/corrections/${commentId}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Resolving correction failed.');
+      if (data.meeting) applyMeetingLocally(data.meeting);
+      showSnackbar({ type: 'success', message: 'نکته اصلاحی حل‌شده علامت‌گذاری شد.' });
+    } catch (err) {
+      showSnackbar({ type: 'error', message: err instanceof Error ? err.message : 'Resolving correction failed.' });
+    }
+  };
+
   // Add participant
   const handleAddParticipant = (p: Participant) => {
     if (activeMeeting.participants.some((participant) => participant.id === p.id || (p.email && participant.email && participant.email.toLowerCase() === p.email.toLowerCase()))) {
@@ -406,6 +494,7 @@ export default function App() {
     const updated = { ...activeMeeting, participants, totalSignaturesRequired };
     setActiveMeeting(updated);
     setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
+    void refreshActiveMeeting();
   };
 
   const handleRemoveParticipant = (userId: string) => {
@@ -418,6 +507,7 @@ export default function App() {
     };
     setActiveMeeting(updated);
     setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
+    void refreshActiveMeeting();
   };
 
   const handleUpdateParticipantRole = (participant: Participant) => {
@@ -436,6 +526,7 @@ export default function App() {
       };
       setActiveMeeting(updated);
       setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
+      void refreshActiveMeeting();
       return;
     }
     const participants = activeMeeting.participants.map((item) => item.id === participant.id ? participant : item);
@@ -446,13 +537,15 @@ export default function App() {
     };
     setActiveMeeting(updated);
     setMeetings((current) => current.map((meeting) => meeting.id === updated.id ? updated : meeting));
+    void refreshActiveMeeting();
   };
 
   // Formal Review workflow submission
   const handleReviewSubmit = async (
-    action: 'approve' | 'request_changes',
+    action: 'approve' | 'request_changes' | 'send_back' | 'update_change' | 'remove_change',
     notes?: string,
-    section?: string
+    section?: string,
+    commentId?: string,
   ) => {
     try {
       const res = await fetch(`/api/meetings/${activeMeeting.id}/review`, {
@@ -463,11 +556,25 @@ export default function App() {
           reviewerName: activeUser.name,
           notes,
           section,
+          commentId,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Review submission failed.');
       if (res.ok) {
+        if (action === 'update_change' || action === 'remove_change') {
+          if (data.meeting) applyMeetingLocally(data.meeting);
+          showSnackbar({ type: 'success', message: action === 'update_change' ? 'نکته اصلاحی به‌روزرسانی شد.' : 'نکته اصلاحی حذف شد.' });
+          return;
+        }
+        if (action === 'send_back') {
+          applyMeetingLocally(data.meeting || {
+            status: 'DRAFT',
+            statusLabel: 'نیازمند اصلاح',
+          });
+          showSnackbar({ type: 'success', message: 'نکات اصلاحی برای ویرایشگر ارسال شد.' });
+          return;
+        }
         if (action === 'approve') {
           applyMeetingLocally({
             status: 'READY_FOR_SIGNATURE',
@@ -670,7 +777,7 @@ export default function App() {
       const response = await fetch('/api/telegram/send-pm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meetingId: activeMeeting.id }) });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || data.message || 'ارسال PDF به تلگرام انجام نشد.');
-      setOperationError('فایل PDF با موفقیت در تلگرام ارسال شد.');
+      setOperationError(data.queued ? 'درخواست ارسال PDF برای تلگرام در صف قرار گرفت.' : 'فایل PDF با موفقیت در تلگرام ارسال شد.');
       setTimeout(() => setOperationError(''), 3500);
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : 'ارسال PDF به تلگرام انجام نشد.');
@@ -728,6 +835,7 @@ export default function App() {
       persistedMeeting = {
         ...newMeeting,
         ...serverMeeting,
+        statusLabel: repairMojibake(serverMeeting?.statusLabel || newMeeting.statusLabel) || newMeeting.statusLabel,
         id: serverMeeting?.id || newMeeting.id,
         // Keep the client shape safe even when an older API record omits nested assignee data.
         actionItems: (serverMeeting?.actionItems || newMeeting.actionItems).map((item: any) => ({
@@ -779,9 +887,10 @@ export default function App() {
     handleCreateNewMeeting(newMeeting);
   };
 
-  const handleLoginSuccess = (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => {
+  const handleLoginSuccess = (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => {
     const updated = {
       ...activeUser,
+      userId: user.userId || activeUser.userId,
       name: user.name,
       phoneNumber: user.phoneNumber || activeUser.phoneNumber,
       email: user.email || '',
@@ -1125,6 +1234,7 @@ export default function App() {
                   meeting={activeMeeting}
                   onOpenAddParticipant={() => setIsAddParticipantModalOpen(true)}
                   onAddComment={handleAddComment}
+                  onResolveCorrection={handleResolveCorrection}
                   onOpenReviewModal={() => setIsReviewModalOpen(true)}
                   onStatusChange={handleMeetingStatusChange}
                   onOpenSignModal={() => { if (['READY_FOR_SIGNATURE', 'SIGNING'].includes(activeMeeting.status)) setIsSignModalOpen(true); }}
@@ -1133,6 +1243,7 @@ export default function App() {
                   onRejectSigning={() => setIsSigningRejectionModalOpen(true)}
                   onOpenSigningDecision={() => setIsSigningDecisionModalOpen(true)}
                   canManageMeeting={canManageActiveMeeting}
+                  canRespondToSignatureRejection={canRespondToSignatureRejection}
                   canEditMeeting={canEditActiveMeeting}
                   canReviewMeeting={canReviewActiveMeeting}
                   canSignMeeting={canSignActiveMeeting}
@@ -1152,6 +1263,8 @@ export default function App() {
                   onPrintPdf={handlePrintPdf}
                   onDownloadPdf={handleDownloadPdf}
                   onSendTelegram={handleSendPdfToTelegram}
+                  onRefresh={refreshActiveMeeting}
+                  isRefreshing={isMeetingRefreshing}
                 />
               </div>
             </div>
@@ -1183,7 +1296,7 @@ export default function App() {
       />
 
       <SigningRejectionDecisionModal
-        isOpen={isSigningDecisionModalOpen && canManageActiveMeeting}
+        isOpen={isSigningDecisionModalOpen && canRespondToSignatureRejection}
         meeting={activeMeeting}
         onClose={() => setIsSigningDecisionModalOpen(false)}
         onSubmit={handleSigningRejectionResponse}
@@ -1220,7 +1333,7 @@ export default function App() {
       />
 
       <AddParticipantModal
-        isOpen={isAddParticipantModalOpen}
+        isOpen={isAddParticipantModalOpen && canManageActiveMeeting}
         onClose={() => setIsAddParticipantModalOpen(false)}
         meetingId={activeMeeting?.id || ''}
         onAddParticipant={handleAddParticipant}

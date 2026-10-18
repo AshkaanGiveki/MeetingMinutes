@@ -5,7 +5,11 @@ import { logger } from './services/logger';
 import { meetingRepository } from './repositories/meeting.repository';
 import { generateHtmlMeetingPdf } from './services/html-pdf.service';
 import { authService } from './services/auth.service';
+import { redisService } from './services/redis.service';
 import { Meeting } from '../types';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
 
 export function initializeWorker() {
   logger.info('Initializing Accord asynchronous background worker...');
@@ -59,31 +63,50 @@ export function initializeWorker() {
   queueManager.registerHandler<{
     chatId: string;
     meetingId: string;
+    participantId?: string;
     organizationId: string;
     meetingTitle: string;
     organizerName: string;
     actionToken: string;
     pdfPath?: string;
+    pdfBase64?: string;
   }>('metameet.telegram.sign_request', async (job) => {
     logger.info(`Worker sending Telegram sign-request for meeting ${job.payload.meetingId}`);
+    let tokenUserId = job.payload.participantId || '';
+    const tokenRecord = await redisService.get(`telegram-sign:${job.payload.actionToken}`);
+    if (tokenRecord) {
+      try { tokenUserId = (JSON.parse(tokenRecord) as { userId?: string }).userId || tokenUserId; } catch { /* ignore malformed legacy token */ }
+    }
+    if (tokenUserId && await redisService.get(`telegram-signature-completed:${job.payload.meetingId}:${tokenUserId}`)) {
+      logger.info('Skipping Telegram sign-request because the signer has already signed.', { metadata: { meetingId: job.payload.meetingId } });
+      return;
+    }
     const meeting = await meetingRepository.getById(job.payload.meetingId);
-    if (!meeting) throw new Error(`Meeting ${job.payload.meetingId} not found for Telegram delivery.`);
-    const organizationId = job.payload.organizationId || (meeting as Meeting & { organizationId?: string }).organizationId || '';
-    const sessionToken = await authService.createInternalSession(meeting.organizer.id, organizationId);
-    let pdfPath: string;
-    try {
-      pdfPath = await generateHtmlMeetingPdf(meeting, sessionToken);
-    } finally {
-      await authService.revokeSession(sessionToken);
+    if (!meeting && !job.payload.pdfBase64) throw new Error(`Meeting ${job.payload.meetingId} not found for Telegram delivery.`);
+    const organizationId = job.payload.organizationId || (meeting as (Meeting & { organizationId?: string }) | null)?.organizationId || '';
+    let pdfPath = job.payload.pdfPath;
+    let temporaryPdfPath: string | undefined;
+    if (job.payload.pdfBase64) {
+      temporaryPdfPath = path.join(os.tmpdir(), `accord-${job.payload.meetingId}-${job.id}.pdf`);
+      await fs.writeFile(temporaryPdfPath, Buffer.from(job.payload.pdfBase64, 'base64'));
+      pdfPath = temporaryPdfPath;
+    } else if (meeting) {
+      const sessionToken = await authService.createInternalSession(meeting.organizer.id, organizationId);
+      try {
+        pdfPath = await generateHtmlMeetingPdf(meeting, sessionToken);
+      } finally {
+        await authService.revokeSession(sessionToken);
+      }
     }
     const sent = await telegramService.sendSignRequestPM(
       job.payload.chatId,
       job.payload.meetingId,
-      job.payload.meetingTitle,
-      job.payload.organizerName,
+      job.payload.meetingTitle || meeting?.title || 'صورت‌جلسه',
+      job.payload.organizerName || meeting?.organizer.name || 'مدیر جلسه',
       job.payload.actionToken,
       pdfPath,
     );
+    if (temporaryPdfPath) await fs.unlink(temporaryPdfPath).catch(() => undefined);
     if (!sent) throw new Error('Telegram sign-request delivery failed.');
   });
 

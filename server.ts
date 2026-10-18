@@ -243,6 +243,72 @@ async function canAccessMeeting(req: express.Request, meetingId: string, permiss
   return meetingAssignmentAllows(meeting, auth.userId, permission);
 }
 
+async function canRespondToSignatureRejection(meeting: Meeting, userId: string): Promise<boolean> {
+  const db = getDb();
+  if (db) {
+    const assignment = await db.collection<{ roles?: MeetingRole[]; assignment?: MeetingRole }>('meeting_members')
+      .findOne({ meetingId: meeting.id, userId });
+    if (assignment) return (assignment.roles || [assignment.assignment]).includes('Editor');
+  }
+  return [meeting.organizer, ...(meeting.participants || [])]
+    .some((participant) => participant.id === userId && hasMeetingRole(participant, 'Editor'));
+}
+
+function canManageMeetingRoles(req: express.Request, meeting: Meeting): boolean {
+  const auth = (req as RequestWithAuth).auth;
+  return Boolean(
+    auth
+    && meeting.organizer?.id === auth.userId
+    && ['DRAFT', 'IN_REVIEW'].includes(meeting.status)
+    && meeting.signatureRejection?.status !== 'pending',
+  );
+}
+
+function getNewlyMissingRequiredMeetingRoles(
+  currentParticipants: Array<{ role?: string; roles?: string[] }>,
+  nextParticipants: Array<{ role?: string; roles?: string[] }>,
+) {
+  const currentlyMissing = new Set(getMissingRequiredMeetingRoles(currentParticipants));
+  return getMissingRequiredMeetingRoles(nextParticipants).filter((role) => !currentlyMissing.has(role));
+}
+
+function requiredRoleChangeError(missingRoles: string[]): string {
+  const labels: Record<string, string> = { Editor: 'ویرایشگر', Reviewer: 'بازبین', Signer: 'امضاکننده' };
+  return `این تغییر نقش مجاز نیست؛ نقش ضروری ${missingRoles.map((role) => labels[role] || role).join('، ')} بدون مسئول می‌ماند.`;
+}
+
+async function resetReviewAfterParticipantChange(meeting: Meeting, actorId: string, organizationId: string, reason: string): Promise<Meeting> {
+  if (meeting.status !== 'IN_REVIEW') return meeting;
+  let updated = await meetingRepository.update(meeting.id, {
+    status: 'DRAFT',
+    statusLabel: '\u0646\u06cc\u0627\u0632\u0645\u0646\u062f \u0627\u0635\u0644\u0627\u062d',
+  });
+  const current = updated || { ...meeting, status: 'DRAFT' as const, statusLabel: '\u0646\u06cc\u0627\u0632\u0645\u0646\u062f \u0627\u0635\u0644\u0627\u062d' };
+  const reviewerIds = Array.from(new Set([current.organizer, ...(current.participants || [])]
+    .filter((participant) => hasMeetingRole(participant, 'Reviewer'))
+    .map((participant) => participant.id)
+    .filter((userId): userId is string => Boolean(userId) && userId !== actorId)));
+  await Promise.allSettled(reviewerIds.map((userId) => notificationService.create({
+    userId,
+    organizationId,
+    type: 'review',
+    title: 'بازبینی دوباره لازم است',
+    message: `به‌دلیل تغییر شرکت‌کنندگان یا نقش‌ها در صورت‌جلسه «${current.title}»، بازبینی باید دوباره انجام شود.`,
+    meetingId: current.id,
+    actionPath: `/meetings/${current.id}`,
+  })));
+  await meetingRepository.addAudit({
+    id: `aud_${crypto.randomUUID()}`,
+    meetingId: current.id,
+    action: 'REVIEW_RESET_FOR_PARTICIPANT_CHANGE',
+    actor: actorId,
+    timestamp: new Date().toISOString(),
+    documentHash: current.documentHash || '',
+    metadata: { reason },
+  });
+  return current;
+}
+
 type MeetingMemberRecord = {
   id: string;
   meetingId: string;
@@ -1318,7 +1384,7 @@ app.get('/api/meetings/:id/participant-options', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
-  if (!(await canAccessMeeting(req, meeting.id, 'participant.invite'))) return res.status(403).json({ error: 'You do not have permission to manage this meeting.' });
+  if (!canManageMeetingRoles(req, meeting)) return res.status(403).json({ error: 'Only the meeting organizer can manage roles while the meeting is in draft or review.' });
   const db = getDb();
   if (!db) return res.status(503).json({ error: 'Database connection is temporarily unavailable.' });
   const members = await db.collection('organization_memberships').aggregate([
@@ -1336,7 +1402,7 @@ app.post('/api/meetings/:id/participants/invite', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
-  if (!(await canAccessMeeting(req, meeting.id, 'participant.invite'))) return res.status(403).json({ error: 'You do not have permission to manage this meeting.' });
+  if (!canManageMeetingRoles(req, meeting)) return res.status(403).json({ error: 'Only the meeting organizer can manage roles while the meeting is in draft or review.' });
   let phoneNumber: string;
   try { phoneNumber = normalizePhoneNumber(String(req.body?.phoneNumber || '')); } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'A valid phone number is required.' }); }
     const requestedRoles = Array.isArray(req.body?.roles) ? req.body.roles : [req.body?.assignment];
@@ -1388,7 +1454,7 @@ app.post('/api/meetings/:id/members', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
-  if (!(await canAccessMeeting(req, meeting.id, 'participant.invite'))) return res.status(403).json({ error: 'You do not have permission to manage this meeting.' });
+  if (!canManageMeetingRoles(req, meeting)) return res.status(403).json({ error: 'Only the meeting organizer can manage roles while the meeting is in draft or review.' });
   const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
   const requestedRoles = Array.isArray(req.body?.roles) ? req.body.roles : [req.body?.assignment];
   const roles = Array.from(new Set(requestedRoles.map((role: unknown) => role === 'Participant' ? 'Viewer' : role).filter((role: unknown) => ASSIGNABLE_MEETING_ROLES.includes(role as any)))) as MeetingRole[];
@@ -1399,7 +1465,7 @@ app.post('/api/meetings/:id/members', async (req, res) => {
   const db = getDb();
   const member = await db?.collection('organization_memberships').findOne({ organizationId: auth.organizationId, userId, status: 'active' });
   if (!member) return res.status(400).json({ error: 'The user must be an active member of this organization.' });
-  await upsertMeetingMember(meeting, userId, assignmentRole, auth.userId, Array.isArray(req.body?.permissions) ? req.body.permissions : undefined, roles);
+  let updatedMeeting = meeting;
   const participant = await db?.collection('users').findOne({ id: userId }, { projection: { passwordHash: 0 } });
   if (participant) {
     const participantProjection = {
@@ -1416,21 +1482,28 @@ app.post('/api/meetings/:id/members', async (req, res) => {
       membershipStatus: 'active',
     };
     const participants = [...(meeting.participants || []).filter((item) => item.id !== userId), participantProjection];
-    await meetingRepository.update(meeting.id, {
+    const newlyMissingRoles = getNewlyMissingRequiredMeetingRoles(
+      [meeting.organizer, ...(meeting.participants || [])],
+      [meeting.organizer, ...participants],
+    );
+    if (newlyMissingRoles.length > 0) return res.status(400).json({ error: requiredRoleChangeError(newlyMissingRoles) });
+    updatedMeeting = (await meetingRepository.update(meeting.id, {
       participants,
       totalSignaturesRequired: [meeting.organizer, ...participants]
         .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
         .filter((item) => hasMeetingRole(item, 'Signer') && item.requiresSignature !== false).length,
-    } as Partial<Meeting>);
+    } as Partial<Meeting>)) || meeting;
   }
-  return res.json({ success: true, member: { userId, assignment: assignmentRole, roles, permissions: Array.isArray(req.body?.permissions) ? req.body.permissions : Array.from(new Set(roles.flatMap((role) => RolePermissionsMap[role] || []))), user: participant } });
+  await upsertMeetingMember(meeting, userId, assignmentRole, auth.userId, Array.isArray(req.body?.permissions) ? req.body.permissions : undefined, roles);
+  updatedMeeting = await resetReviewAfterParticipantChange(updatedMeeting, auth.userId, auth.organizationId, 'participant role assignment');
+  return res.json({ success: true, meeting: updatedMeeting, member: { userId, assignment: assignmentRole, roles, permissions: Array.isArray(req.body?.permissions) ? req.body.permissions : Array.from(new Set(roles.flatMap((role) => RolePermissionsMap[role] || []))), user: participant } });
 });
 
 app.patch('/api/meetings/:id/members/:userId', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
-  if (!(await canAccessMeeting(req, meeting.id, 'participant.invite'))) return res.status(403).json({ error: 'You do not have permission to manage this meeting.' });
+  if (!canManageMeetingRoles(req, meeting)) return res.status(403).json({ error: 'Only the meeting organizer can manage roles while the meeting is in draft or review.' });
   if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') return res.status(403).json({ error: 'در صورت‌جلسه مهر و بایگانی‌شده امکان تغییر نقش وجود ندارد.' });
   const requestedRoles = Array.isArray(req.body?.roles) ? req.body.roles : [req.body?.assignment];
   const roles = Array.from(new Set(requestedRoles.map((role: unknown) => role === 'Participant' ? 'Viewer' : role).filter((role: unknown) => ASSIGNABLE_MEETING_ROLES.includes(role as any)))) as MeetingRole[];
@@ -1448,14 +1521,21 @@ app.patch('/api/meetings/:id/members/:userId', async (req, res) => {
     ? { ...item, title: typeof req.body?.title === 'string' ? req.body.title.trim() : item.title, role: assignment, roles, requiresSignature: roles.includes('Signer'), hasSigned: roles.includes('Signer') ? item.hasSigned : false }
     : item);
   const effectiveRoles = isOrganizer ? ['Organizer', ...roles.filter((role) => role !== 'Organizer')] as MeetingRole[] : roles;
+  const projectedOrganizer = isOrganizer ? { ...meeting.organizer, role: 'Organizer', roles: effectiveRoles } : meeting.organizer;
+  const newlyMissingRoles = getNewlyMissingRequiredMeetingRoles(
+    [meeting.organizer, ...(meeting.participants || [])],
+    [projectedOrganizer, ...updatedParticipants],
+  );
+  if (newlyMissingRoles.length > 0) return res.status(400).json({ error: requiredRoleChangeError(newlyMissingRoles) });
   await upsertMeetingMember(meeting, req.params.userId, isOrganizer ? 'Organizer' : assignment, auth.userId, undefined, effectiveRoles);
-  const updated = await meetingRepository.update(meeting.id, {
+  let updated = await meetingRepository.update(meeting.id, {
     organizer: isOrganizer ? { ...meeting.organizer, role: 'Organizer', roles: effectiveRoles } : meeting.organizer,
     participants: updatedParticipants,
     totalSignaturesRequired: [isOrganizer ? { ...meeting.organizer, roles: effectiveRoles, requiresSignature: roles.includes('Signer') } : meeting.organizer, ...updatedParticipants]
       .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
       .filter((item) => hasMeetingRole(item, 'Signer') && item.requiresSignature !== false).length,
   });
+  updated = await resetReviewAfterParticipantChange(updated || meeting, auth.userId, auth.organizationId, 'participant role change');
   return res.json({ success: true, meeting: updated, participant: isOrganizer ? updated?.organizer : updatedParticipants.find((item) => item.id === req.params.userId) });
 });
 
@@ -1463,11 +1543,29 @@ app.delete('/api/meetings/:id/members/:userId', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
   const meeting = await meetingRepository.getById(req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
-  if (!(await canAccessMeeting(req, meeting.id, 'participant.remove'))) return res.status(403).json({ error: 'You do not have permission to manage this meeting.' });
+  if (!canManageMeetingRoles(req, meeting)) return res.status(403).json({ error: 'Only the meeting organizer can manage roles while the meeting is in draft or review.' });
   if (req.params.userId === meeting.organizer.id) return res.status(400).json({ error: 'The meeting organizer cannot be removed.' });
+  const nextParticipants = (meeting.participants || []).filter((item) => item.id !== req.params.userId);
+  const newlyMissingRoles = getNewlyMissingRequiredMeetingRoles(
+    [meeting.organizer, ...(meeting.participants || [])],
+    [meeting.organizer, ...nextParticipants],
+  );
+  if (newlyMissingRoles.length > 0) return res.status(400).json({ error: requiredRoleChangeError(newlyMissingRoles) });
   const result = await getDb()!.collection<MeetingMemberRecord>('meeting_members').deleteOne({ meetingId: meeting.id, userId: req.params.userId, organizationId: auth.organizationId });
-  if (result.deletedCount) await meetingRepository.update(meeting.id, { participants: (meeting.participants || []).filter((item) => item.id !== req.params.userId) });
-  return result.deletedCount ? res.json({ success: true }) : res.status(404).json({ error: 'عضو موردنظر در این صورت‌جلسه پیدا نشد.' });
+  const updated = result.deletedCount
+    ? await resetReviewAfterParticipantChange(
+      (await meetingRepository.update(meeting.id, {
+        participants: nextParticipants,
+        totalSignaturesRequired: [meeting.organizer, ...nextParticipants]
+          .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
+          .filter((item) => hasMeetingRole(item, 'Signer') && item.requiresSignature !== false).length,
+      })) || meeting,
+      auth.userId,
+      auth.organizationId,
+      'participant removal',
+    )
+    : null;
+  return result.deletedCount ? res.json({ success: true, meeting: updated }) : res.status(404).json({ error: 'عضو موردنظر در این صورت‌جلسه پیدا نشد.' });
 });
 
 app.put('/api/meetings/:id', requireMeetingPermission('meeting.edit'), async (req, res) => {
@@ -1483,6 +1581,8 @@ app.put('/api/meetings/:id', requireMeetingPermission('meeting.edit'), async (re
       error: 'سند صورت‌جلسه مهر و موم شده و هرگونه ویرایش مستقیم در آن ممنوع می‌باشد.',
     });
   }
+
+  let reviewRecipientIds: string[] = [];
 
   // State Transition Check
   if (req.body.status && req.body.status !== existing.status) {
@@ -1510,6 +1610,12 @@ app.put('/api/meetings/:id', requireMeetingPermission('meeting.edit'), async (re
       else current.roles = Array.from(new Set([...getMeetingParticipantRoles(current), ...getMeetingParticipantRoles(participant)]));
       return merged;
     }, []);
+    reviewRecipientIds = Array.from(new Set(
+      meetingParticipants
+        .filter((participant) => getMeetingParticipantRoles(participant).includes('Reviewer'))
+        .map((participant) => participant.id)
+        .filter((userId): userId is string => Boolean(userId) && userId !== (req as RequestWithAuth).auth!.userId),
+    ));
     const missingRoles = getMissingRequiredMeetingRoles(meetingParticipants);
     if (missingRoles.length > 0) {
       const roleLabels: Record<string, string> = { Editor: 'ویرایشگر', Reviewer: 'بازبین', Signer: 'امضاکننده' };
@@ -1548,6 +1654,22 @@ app.put('/api/meetings/:id', requireMeetingPermission('meeting.edit'), async (re
   const updated = await meetingRepository.update(meetingId, updates, expectedVersion);
   if (!updated) return res.status(409).json({ error: 'Meeting changed on the server. Reload and retry.' });
   if (Array.isArray(updates.participants)) await syncMeetingMembers(updated, updates.participants, (req as RequestWithAuth).auth!.userId);
+
+  if (updates.status === 'IN_REVIEW' && existing.status === 'DRAFT') {
+    const auth = (req as RequestWithAuth).auth!;
+    const notificationResults = await Promise.allSettled(reviewRecipientIds.map((userId) => notificationService.create({
+      userId,
+      organizationId: auth.organizationId,
+      type: 'review',
+      title: 'Review required',
+      message: `The meeting "${existing.title}" is ready for your review.`,
+      meetingId,
+      actionPath: `/meetings/${meetingId}`,
+    })));
+    notificationResults
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .forEach((result) => logger.error('In-app review notification failed.', { metadata: { meetingId, error: String(result.reason) } }));
+  }
   return res.json({ success: true, meeting: updated });
 });
 
@@ -1714,9 +1836,132 @@ app.post('/api/meetings/:id/review', requireMeetingPermission('meeting.review'),
       message: 'درخواست اصلاحات به همراه یادداشت برای تنظیم‌کننده ثبت شد.',
       status: 'IN_REVIEW',
     });
+  } else if (action === 'update_change' || action === 'remove_change') {
+    const commentId = typeof req.body?.commentId === 'string' ? req.body.commentId.trim() : '';
+    const comment = (meeting.comments || []).find((item) => item.id === commentId && item.text.startsWith('[درخواست اصلاح در '));
+    if (!comment) return res.status(404).json({ error: 'نکته اصلاحی پیدا نشد.' });
+
+    let comments = meeting.comments || [];
+    if (action === 'remove_change') {
+      comments = comments.filter((item) => item.id !== commentId);
+    } else {
+      const updatedNotes = String(notes || '').trim();
+      if (!updatedNotes) return res.status(400).json({ error: 'توضیحات اصلاحی نمی‌تواند خالی باشد.' });
+      comments = comments.map((item) => item.id === commentId
+        ? { ...item, text: `[درخواست اصلاح در ${section || 'متن مذاکرات'}]: ${updatedNotes}` }
+        : item);
+    }
+
+    const updated = await meetingRepository.update(meetingId, { comments });
+    if (!updated) return res.status(409).json({ error: 'Meeting changed on the server. Reload and retry.' });
+    return res.json({ success: true, meeting: updated });
+  } else if (action === 'send_back') {
+    const auth = (req as RequestWithAuth).auth!;
+    const db = getDb();
+    const assignedMembers = db
+      ? await db.collection<MeetingMemberRecord>('meeting_members')
+        .find({ meetingId, organizationId: auth.organizationId })
+        .project({ _id: 0, userId: 1, assignment: 1, roles: 1 })
+        .toArray()
+      : [];
+    const editorIds = Array.from(new Set([
+      meeting.organizer,
+      ...(meeting.participants || []),
+      ...assignedMembers.map((member) => ({ id: member.userId, role: member.assignment, roles: member.roles })),
+    ]
+      .filter((participant) => participant && participant.id && (hasMeetingRole(participant, 'Editor') || hasMeetingRole(participant, 'Organizer')))
+      .map((participant) => participant.id)
+      .filter((userId): userId is string => Boolean(userId) && userId !== auth.userId)));
+
+    const finalNote = String(notes || '').trim();
+    const unresolvedCorrectionCount = (meeting.comments || []).filter((comment) =>
+      comment.text.startsWith('[درخواست اصلاح در ') && comment.resolved !== true,
+    ).length;
+    if (unresolvedCorrectionCount === 0) {
+      return res.status(400).json({ error: 'همه نکات اصلاحی حل شده‌اند و امکان ارسال دوباره برای اصلاح وجود ندارد.' });
+    }
+    const finalComment = finalNote ? {
+      id: `c_${Date.now()}`,
+      author: {
+        id: auth.userId,
+        name: reviewerName || auth.name || 'بازبین جلسه',
+        role: 'Reviewer',
+        email: auth.email,
+        avatar: auth.avatar,
+      },
+      text: `[درخواست اصلاح در ${section || 'متن مذاکرات'}]: ${finalNote}`,
+      timestamp: 'هم‌اکنون',
+      resolved: false,
+    } : null;
+    const updated = await meetingRepository.update(meetingId, {
+      ...(finalComment ? { comments: [finalComment, ...meeting.comments] } : {}),
+      status: 'DRAFT',
+      statusLabel: 'نیازمند اصلاح',
+    });
+    if (!updated) return res.status(409).json({ error: 'Meeting changed on the server. Reload and retry.' });
+
+    const notificationResults = await Promise.allSettled(editorIds.map((userId) => notificationService.create({
+      userId,
+      organizationId: auth.organizationId,
+      type: 'review',
+      title: 'صورت‌جلسه نیازمند اصلاح است',
+      message: `صورت‌جلسه «${meeting.title}» پس از بازبینی برای اصلاح به شما برگشت داده شد.`,
+      meetingId,
+      actionPath: `/meetings/${meetingId}`,
+    })));
+    notificationResults
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .forEach((result) => logger.error('In-app correction notification failed.', { metadata: { meetingId, error: String(result.reason) } }));
+
+    await meetingRepository.addAudit({
+      id: `aud_${Date.now()}`,
+      meetingId,
+      action: 'CHANGES_REQUESTED',
+      actor: reviewerName || 'بازبین جلسه',
+      timestamp: new Date().toISOString(),
+      documentHash: meeting.documentHash || '',
+      metadata: { notes: 'نکات اصلاحی برای ویرایشگر ارسال شد.' },
+    });
+
+    return res.json({
+      success: true,
+      message: 'نکات اصلاحی برای ویرایشگر ارسال شد.',
+      status: 'DRAFT',
+      meeting: updated,
+    });
   }
 
-  return res.status(400).json({ error: 'نوع اقدام نامعتبر است (approve یا request_changes).' });
+  return res.status(400).json({ error: 'نوع اقدام نامعتبر است.' });
+});
+
+app.post('/api/meetings/:id/corrections/:commentId/resolve', requireMeetingPermission('meeting.edit'), async (req, res) => {
+  const meetingId = req.params.id;
+  const commentId = req.params.commentId;
+  const meeting = await meetingRepository.getById(meetingId);
+  if (!meeting) return res.status(404).json({ error: 'صورت‌جلسه یافت نشد.' });
+  if (meeting.status !== 'DRAFT') return res.status(400).json({ error: 'تنها نکات اصلاحی صورت‌جلسه در مرحله ویرایش قابل حل‌کردن هستند.' });
+
+  const comment = (meeting.comments || []).find((item) => item.id === commentId && item.text.startsWith('[درخواست اصلاح در '));
+  if (!comment) return res.status(404).json({ error: 'نکته اصلاحی پیدا نشد.' });
+  if (comment.resolved === true) return res.json({ success: true, meeting });
+
+  const updated = await meetingRepository.update(meetingId, {
+    comments: (meeting.comments || []).map((item) => item.id === commentId
+      ? { ...item, resolved: true, resolvedAt: new Date().toISOString(), resolvedBy: (req as RequestWithAuth).auth!.userId }
+      : item),
+  });
+  if (!updated) return res.status(409).json({ error: 'Meeting changed on the server. Reload and retry.' });
+
+  await meetingRepository.addAudit({
+    id: `aud_${Date.now()}`,
+    meetingId,
+    action: 'CORRECTION_RESOLVED',
+    actor: (req as RequestWithAuth).auth!.name || 'ویرایشگر جلسه',
+    timestamp: new Date().toISOString(),
+    documentHash: meeting.documentHash || '',
+    metadata: { commentId },
+  });
+  return res.json({ success: true, meeting: updated });
 });
 
 // -------------------------------------------------------------
@@ -1748,7 +1993,8 @@ async function recordTelegramSignatureRejection(request: { meetingId: string; us
   await meetingRepository.update(meeting.id, { status: 'DRAFT', statusLabel: 'نیازمند اصلاح', signatureRejection: rejection });
   await meetingRepository.addAudit({ id: `aud_${crypto.randomUUID()}`, meetingId: meeting.id, action: 'SIGNATURE_REJECTED', actor: `${participant.name} (Telegram)`, timestamp: rejection.createdAt, documentHash: meeting.documentHash || '', metadata: { reason, chatId: request.chatId } });
   const organizationId = (meeting as Meeting & { organizationId?: string }).organizationId || request.organizationId;
-  const recipients = [meeting.organizer, ...(meeting.participants || []).filter((item) => ['Organizer', 'Editor'].includes(item.role))]
+  const recipients = [meeting.organizer, ...(meeting.participants || [])]
+    .filter((item) => hasMeetingRole(item, 'Editor'))
     .filter((item, index, all) => item.id !== request.userId && all.findIndex((candidate) => candidate.id === item.id) === index);
   await Promise.allSettled(recipients.map((recipient) => notificationService.create({ userId: recipient.id, organizationId, type: 'review', title: 'امضا رد شد و نیاز به بررسی دارد', message: `${participant.name} برای امضا نکردن صورت‌جلسه «${meeting.title}» این دلیل را ثبت کرد: ${reason}`, meetingId: meeting.id, actionPath: `/meetings/${meeting.id}` })));
   return { ok: true as const, meeting: await meetingRepository.getById(meeting.id) };
@@ -1775,7 +2021,8 @@ app.post('/api/meetings/:id/signature-rejection', async (req, res) => {
   await meetingRepository.addAudit({ id: `aud_${crypto.randomUUID()}`, meetingId: meeting.id, action: 'SIGNATURE_REJECTED', actor: auth.name, timestamp: rejection.createdAt, documentHash: meeting.documentHash || '', metadata: { reason } });
 
   const organizationId = (meeting as Meeting & { organizationId?: string }).organizationId || auth.organizationId;
-  const recipients = [meeting.organizer, ...(meeting.participants || []).filter((item) => ['Organizer', 'Editor'].includes(item.role))]
+  const recipients = [meeting.organizer, ...(meeting.participants || [])]
+    .filter((item) => hasMeetingRole(item, 'Editor'))
     .filter((item, index, all) => item.id !== auth.userId && all.findIndex((candidate) => candidate.id === item.id) === index);
   await Promise.allSettled(recipients.map((recipient) => notificationService.create({ userId: recipient.id, organizationId, type: 'review', title: 'امضا رد شد و نیاز به بررسی دارد', message: `${auth.name} برای امضا نکردن صورت‌جلسه «${meeting.title}» این دلیل را ثبت کرد: ${reason}`, meetingId: meeting.id, actionPath: `/meetings/${meeting.id}` })));
   return res.json({ success: true, meeting: await meetingRepository.getById(meeting.id) });
@@ -1785,7 +2032,7 @@ app.post('/api/meetings/:id/signature-rejection/respond', async (req, res) => {
   const meeting = await meetingRepository.getById(req.params.id);
   const auth = (req as RequestWithAuth).auth!;
   if (!meeting) return res.status(404).json({ error: 'Meeting not found.' });
-  if (!(await canAccessMeeting(req, meeting.id, 'meeting.edit'))) return res.status(403).json({ error: 'Only the meeting editor can respond to this request.' });
+  if (!(await canRespondToSignatureRejection(meeting, auth.userId))) return res.status(403).json({ error: 'Only users assigned the Editor role can respond to this request.' });
   if (meeting.status !== 'DRAFT' || meeting.signatureRejection?.status !== 'pending') return res.status(400).json({ error: 'There is no pending signing rejection to respond to.' });
   const action = req.body?.action === 'accept_change' || req.body?.action === 'reject_change' ? req.body.action : '';
   const responseNote = typeof req.body?.response === 'string' ? req.body.response.trim() : '';
@@ -1940,7 +2187,7 @@ app.post('/api/signature/sign', async (req, res) => {
 
   const persistedMeeting = await meetingRepository.update(meetingId, {
     organizer: meeting.organizer.id === authenticatedUser.userId
-      ? { ...meeting.organizer, hasSigned: true, statusText: 'Ø§Ù…Ø¶Ø§ Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯' }
+      ? { ...meeting.organizer, hasSigned: true, statusText: 'امضا دریافت شد' }
       : meeting.organizer,
     participants: (meeting.participants || []).map((participant) => participant.id === authenticatedUser.userId
       ? { ...participant, hasSigned: true, statusText: 'امضا دریافت شد' }
@@ -1954,6 +2201,7 @@ app.post('/api/signature/sign', async (req, res) => {
   if (!persistedMeeting) {
     return res.status(409).json({ error: 'این صورت‌جلسه هم‌زمان به‌روزرسانی شد. لطفاً اطلاعات را تازه‌سازی کرده و دوباره تلاش کنید.' });
   }
+  await redisService.set(`telegram-signature-completed:${meetingId}:${authenticatedUser.userId}`, '1', 7 * 24 * 3600);
   await meetingRepository.addAudit(auditEntry);
 
   let finalizedMeeting: Meeting | null = null;
@@ -2159,7 +2407,22 @@ async function notifyPendingSignersInApp(
 }
 
 async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Array<{ signerId: string }>, organizationId: string, actorName?: string, sessionToken?: string) {
+  await Promise.all(signatures.map((signature) => redisService.set(`telegram-signature-completed:${meeting.id}:${signature.signerId}`, '1', 7 * 24 * 3600)));
   const candidates = await getPendingMeetingSigners(meeting, signatures, organizationId);
+  let pdfBase64: string | undefined;
+  let generatedSessionToken: string | undefined;
+  try {
+    generatedSessionToken = sessionToken || await authService.createInternalSession(meeting.organizer.id, organizationId);
+    const pdfPath = await generateHtmlMeetingPdf(meeting, generatedSessionToken);
+    const pdfBytes = await fs.readFile(pdfPath);
+    // Keep the QStash JSON payload below the common 1 MB request limit.
+    if (pdfBytes.byteLength <= 750_000) pdfBase64 = pdfBytes.toString('base64');
+    else logger.warn('Generated Telegram PDF is too large to include in the QStash payload.', { metadata: { meetingId: meeting.id, bytes: pdfBytes.byteLength } });
+  } catch (error) {
+    logger.warn('Could not prepare the Telegram PDF before queueing.', { metadata: { meetingId: meeting.id, error: String(error) } });
+  } finally {
+    if (!sessionToken && generatedSessionToken) await authService.revokeSession(generatedSessionToken);
+  }
   await Promise.allSettled(candidates.map(async (participant) => {
     const user = await authService.findById(participant.id, organizationId);
     if (!user?.telegramChatId) return;
@@ -2173,20 +2436,23 @@ async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Arra
     const delivery = {
       chatId: String(user.telegramChatId),
       meetingId: meeting.id,
+      participantId: participant.id,
       organizationId,
       meetingTitle: meeting.title,
       organizerName: actorName || meeting.organizer.name,
       actionToken,
+      ...(pdfBase64 ? { pdfBase64 } : {}),
     };
     await queueManager.enqueue('metameet.telegram.sign_request', delivery);
-    logger.info('Queued Telegram sign-request.', { metadata: { meetingId: meeting.id, participantId: participant.id, externalBroker: queueManager.getDiagnostics().externalBroker } });
+    logger.info('Queued Telegram sign-request.', { metadata: { meetingId: meeting.id, participantId: participant.id, externalBroker: queueManager.getDiagnostics('metameet.telegram.sign_request').externalBroker } });
   }));
 }
 
 async function recordTelegramSignature(meetingId: string, userId: string, chatId: string, organizationId?: string) {
   const user = await authService.findById(userId);
   const meeting = await meetingRepository.getById(meetingId);
-  if (organizationId && meeting && (meeting as Meeting & { organizationId?: string }).organizationId !== organizationId) return { ok: false as const, status: 404, message: 'Invalid organization context.' };
+  const meetingOrganizationId = meeting && (meeting as Meeting & { organizationId?: string }).organizationId;
+  if (organizationId && meetingOrganizationId && meetingOrganizationId !== organizationId) return { ok: false as const, status: 404, message: 'Invalid organization context.' };
   if (!user || !meeting) return { ok: false as const, status: 404, message: 'جلسه یا کاربر یافت نشد.' };
   if (meeting.status === 'SEALED' || meeting.status === 'ARCHIVED') return { ok: false as const, status: 400, message: 'این صورت‌جلسه قبلاً نهایی شده است.' };
   if (!['READY_FOR_SIGNATURE', 'SIGNING'].includes(meeting.status)) return { ok: false as const, status: 400, message: 'این صورت‌جلسه هنوز آماده امضا نیست.' };
@@ -2208,12 +2474,13 @@ async function recordTelegramSignature(meetingId: string, userId: string, chatId
   await meetingRepository.update(meetingId, { signatureCount: updatedSignatures.length, status: isAllSigned ? 'READY_FOR_SIGNATURE' : 'SIGNING', statusLabel: isAllSigned ? 'آماده امضا' : 'در حال امضا', documentHash, signatures: updatedSignatures } as any);
   const persistedMeeting = await meetingRepository.update(meetingId, {
     organizer: meeting.organizer.id === user.id
-      ? { ...meeting.organizer, hasSigned: true, statusText: 'Ø§Ù…Ø¶Ø§ Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯' }
+      ? { ...meeting.organizer, hasSigned: true, statusText: 'امضا دریافت شد' }
       : meeting.organizer,
     participants: (meeting.participants || []).map((participant) => participant.id === user.id
       ? { ...participant, hasSigned: true, statusText: 'امضا دریافت شد' }
       : participant),
   } as any);
+  await redisService.set(`telegram-signature-completed:${meetingId}:${user.id}`, '1', 7 * 24 * 3600);
    const resolvedOrganizationId = organizationId || (meeting as Meeting & { organizationId?: string }).organizationId || '';
    if (isAllSigned) {
      await automaticallySealFullySignedMeeting(
@@ -2225,6 +2492,48 @@ async function recordTelegramSignature(meetingId: string, userId: string, chatId
      await notifyPendingSignersOnTelegram(meeting, updatedSignatures, resolvedOrganizationId, signerName);
    }
    return { ok: true as const, signatureId, documentHash, meetingTitle: meeting.title };
+}
+
+type TelegramSignatureAction = {
+  action: 'accept' | 'reject_reason';
+  token: string;
+  meetingId: string;
+  userId: string;
+  organizationId: string;
+  chatId: string;
+  telegramUserId: string;
+  messageId?: number;
+  reason?: string;
+};
+
+async function consumeLocalTelegramSignatureActions() {
+  if (process.env.NODE_ENV === 'production' || process.env.QSTASH_EXTERNAL_QUEUE !== 'true') return;
+  const action = await redisService.pop('telegram-signature-actions');
+  if (!action) return;
+  let request: TelegramSignatureAction;
+  try {
+    request = JSON.parse(action) as TelegramSignatureAction;
+  } catch {
+    logger.error('Ignoring malformed Telegram signature action.');
+    return;
+  }
+  if (request.action === 'reject_reason') {
+    const rejected = await recordTelegramSignatureRejection({ meetingId: request.meetingId, userId: request.userId, organizationId: request.organizationId, chatId: request.chatId }, request.reason || '');
+    logger.info('Processed local Telegram signature rejection.', { metadata: { meetingId: request.meetingId, userId: request.userId, success: rejected.ok } });
+    if (rejected.ok) await redisService.set(`telegram-sign:${request.token}`, JSON.stringify({ ...request, state: 'rejected', rejectionReason: request.reason }), 86400);
+    if (request.messageId) await telegramService.replaceSignRequestMessageV2(request.chatId, request.messageId, rejected.ok ? 'درخواست امضا رد شد' : 'عملیات انجام نشد', rejected.ok ? 'دلیل عدم امضا برای ویرایشگر ارسال شد.' : rejected.message, 'danger');
+    return;
+  }
+  const signed = await recordTelegramSignature(request.meetingId, request.userId, request.chatId, request.organizationId);
+  logger.info('Processed local Telegram signature action.', { metadata: { meetingId: request.meetingId, userId: request.userId, success: signed.ok, error: signed.ok ? undefined : signed.message } });
+  if (signed.ok) await redisService.set(`telegram-sign:${request.token}`, JSON.stringify({ ...request, state: 'accepted' }), 86400);
+  if (request.messageId) await telegramService.replaceSignRequestMessageV2(request.chatId, request.messageId, signed.ok ? 'امضا ثبت شد' : 'عملیات انجام نشد', signed.ok ? 'امضای شما با موفقیت ثبت شد.' : signed.message, signed.ok ? 'success' : 'danger');
+}
+
+function startLocalTelegramSignatureConsumer() {
+  if (process.env.NODE_ENV === 'production' || process.env.QSTASH_EXTERNAL_QUEUE !== 'true') return;
+  setInterval(() => consumeLocalTelegramSignatureActions().catch((error) => logger.error('Local Telegram signature action failed.', { metadata: { error: String(error) } })), 1000);
+  logger.info('Local Telegram signature action consumer started.');
 }
 
 app.post('/api/telegram/verify', (req, res) => {
@@ -2298,13 +2607,21 @@ app.post('/api/telegram/webhook', async (req, res) => {
     const telegramUserId = callback?.from?.id;
     const [, action, token] = callbackData.split(':');
     if (typeof callbackChatId === 'number' && typeof telegramUserId === 'number' && token && (action === 'accept' || action === 'reject')) {
-      if (callback?.id) await telegramService.answerCallbackQuery(String(callback.id), '');
       const stored = await redisService.get(`telegram-sign:${token}`);
       let resultText = 'درخواست نامعتبر یا منقضی شده است.';
       let actionSucceeded = false;
       if (stored) {
         const request = JSON.parse(stored) as { meetingId: string; userId: string; organizationId: string; chatId: string; state?: string };
-        if (String(callbackChatId) !== request.chatId || request.state) {
+        if (process.env.NODE_ENV === 'production') {
+          if (action === 'reject') {
+            await redisService.set(`telegram-sign-reject:${callbackChatId}`, JSON.stringify({ ...request, token, telegramUserId: String(telegramUserId), messageId: Number(callback.message?.message_id || 0) }), 600);
+            resultText = 'لطفاً دلیل عدم امضا را در پیام بعدی ارسال کنید (حداقل ۵ نویسه).';
+          } else {
+            await redisService.push('telegram-signature-actions', JSON.stringify({ ...request, action: 'accept', token, telegramUserId: String(telegramUserId), messageId: Number(callback.message?.message_id || 0) } satisfies TelegramSignatureAction));
+            resultText = 'درخواست ثبت امضا دریافت شد و در سامانه در حال پردازش است.';
+          }
+          actionSucceeded = true;
+        } else if (String(callbackChatId) !== request.chatId || request.state) {
           resultText = request.state ? 'این درخواست قبلاً پاسخ داده شده است.' : 'این درخواست برای حساب تلگرام دیگری است.';
         } else if (action === 'reject') {
           const linkedUser = await authService.findByTelegramChat(String(telegramUserId));
@@ -2328,7 +2645,7 @@ app.post('/api/telegram/webhook', async (req, res) => {
       }
       if (callback?.id) {
         if (callback.message?.message_id) {
-          await telegramService.replaceSignRequestMessage(
+          await telegramService.replaceSignRequestMessageV2(
             String(callbackChatId),
             Number(callback.message.message_id),
             actionSucceeded ? (action === 'accept' ? 'امضا ثبت شد' : 'دلیل لازم است') : 'عملیات انجام نشد',
@@ -2366,15 +2683,19 @@ app.post('/api/telegram/send-pm', async (req, res) => {
   if (!isSigner) return res.status(403).json({ error: 'شما امضاکننده این صورت‌جلسه نیستید.' });
   const actionToken = crypto.randomBytes(18).toString('base64url');
   await redisService.set(`telegram-sign:${actionToken}`, JSON.stringify({ meetingId: meeting.id, userId: auth.userId, organizationId: auth.organizationId, chatId: String(chatId) }), 48 * 60 * 60);
-  const printTemplate = [
-    { id: 'print_classic', pdfStyle: 'classic' as const },
-    { id: 'print_modern', pdfStyle: 'modern' as const },
-    { id: 'print_minimal', pdfStyle: 'minimal' as const },
-  ].find((template) => template.id === (meeting.printTemplateId || meeting.templateId));
-  const pdfPath = await generateMeetingPdf(meeting, printTemplate);
-  const success = await telegramService.sendSignRequestPM(chatId, meeting.id, meeting.title, meeting.organizer.name, actionToken, pdfPath);
+  const jobId = await queueManager.enqueue('metameet.telegram.sign_request', {
+    chatId: String(chatId),
+    meetingId: meeting.id,
+    organizationId: auth.organizationId,
+    meetingTitle: meeting.title,
+    organizerName: meeting.organizer.name,
+    actionToken,
+  });
+  logger.info('Queued Telegram sign-request from manual send action.', {
+    metadata: { meetingId: meeting.id, jobId, externalBroker: queueManager.getDiagnostics('metameet.telegram.sign_request').externalBroker },
+  });
 
-  return res.json({ success, message: 'پیام تایید و امضای مستقیم تلگرام ارسال گردید.' });
+  return res.status(202).json({ success: true, queued: true, jobId, message: 'پیام درخواست امضا برای ارسال به تلگرام در صف قرار گرفت.' });
 });
 
 app.post('/api/telegram/send-pdf', async (req, res) => {
@@ -2563,7 +2884,6 @@ app.post('/api/queues/:queue', async (req, res) => {
       await receiver.verify({
         signature,
         body: JSON.stringify(req.body),
-        url: `${process.env.APP_URL || ''}${req.originalUrl}`,
       });
     } catch {
       return res.status(401).json({ error: 'Invalid QStash signature.' });
@@ -2819,6 +3139,8 @@ app.use((error: unknown, req: express.Request, res: express.Response, _next: exp
 // -------------------------------------------------------------
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
+
+  startLocalTelegramSignatureConsumer();
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');

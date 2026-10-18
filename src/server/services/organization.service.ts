@@ -259,6 +259,7 @@ export class OrganizationService {
           $set: {
             participants,
             totalSignaturesRequired: participants.filter((item: any) => (item.roles || [item.role]).includes('Signer') && item.requiresSignature !== false).length,
+            ...(meeting.status === 'IN_REVIEW' ? { status: 'DRAFT', statusLabel: 'نیازمند اصلاح' } : {}),
             updatedAt: new Date().toISOString(),
           },
           $inc: { version: 1 },

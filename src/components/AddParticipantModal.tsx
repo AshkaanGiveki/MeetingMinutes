@@ -9,7 +9,7 @@ import { UserAvatar } from './UserAvatar';
 
 interface OrganizationMember { userId: string; name: string; phoneNumber?: string; email?: string; avatar?: string; role: string; }
 interface PendingInvitation { token: string; phoneNumber?: string; name?: string; role: string; roles?: MeetingRole[]; }
-interface AddParticipantModalProps { isOpen: boolean; onClose: () => void; meetingId: string; onAddParticipant: (participant: Participant) => void; onUpdateParticipant?: (participant: Participant) => void; onRemoveParticipant?: (userId: string) => void; existingParticipants: Participant[]; owner?: Participant; }
+interface AddParticipantModalProps { isOpen: boolean; onClose: () => void; meetingId: string; onAddParticipant: (participant: Participant) => void; onUpdateParticipant?: (participant: Participant) => void; onRemoveParticipant?: (userId: string) => void; onMeetingChanged?: () => void | Promise<void>; existingParticipants: Participant[]; owner?: Participant; }
 type AssignableRole = 'Editor' | 'Reviewer' | 'Signer' | 'Viewer';
 const roles: Array<{ value: AssignableRole; label: string; required?: boolean }> = [
   { value: 'Editor', label: 'ویرایشگر', required: true }, { value: 'Reviewer', label: 'بازبین', required: true }, { value: 'Signer', label: 'امضاکننده', required: true }, { value: 'Viewer', label: 'مشاهده‌گر' },
@@ -17,7 +17,7 @@ const roles: Array<{ value: AssignableRole; label: string; required?: boolean }>
 const roleLabel = (role: string) => roles.find((item) => item.value === role)?.label || 'مشاهده‌گر';
 const getRoles = (participant?: Participant): MeetingRole[] => Array.from(new Set([...(participant?.roles || []), ...(participant?.role ? [participant.role as MeetingRole] : [])])).map((role) => role === 'Participant' ? 'Viewer' : role) as MeetingRole[];
 
-export const AddParticipantModal: React.FC<AddParticipantModalProps> = ({ isOpen, onClose, meetingId, onAddParticipant, onUpdateParticipant, onRemoveParticipant, existingParticipants, owner }) => {
+export const AddParticipantModal: React.FC<AddParticipantModalProps> = ({ isOpen, onClose, meetingId, onAddParticipant, onUpdateParticipant, onRemoveParticipant, onMeetingChanged, existingParticipants, owner }) => {
   const { showSnackbar } = useSnackbar(); const [members, setMembers] = useState<OrganizationMember[]>([]); const [invitations, setInvitations] = useState<PendingInvitation[]>([]); const [search, setSearch] = useState(''); const [phoneNumber, setPhoneNumber] = useState(''); const [selectedUserId, setSelectedUserId] = useState(''); const [selectedRoles, setSelectedRoles] = useState<AssignableRole[]>(['Viewer']); const [participantTitle, setParticipantTitle] = useState(''); const [isLoading, setIsLoading] = useState(false); const [isBusy, setIsBusy] = useState(false);
   const assignedIds = useMemo(() => new Set([...existingParticipants.map((item) => item.id), ...(owner ? [owner.id] : [])]), [existingParticipants, owner]); const selectedMember = members.find((item) => item.userId === selectedUserId); const reviewerId = [...existingParticipants, ...(owner ? [owner] : [])].find((item) => getRoles(item).includes('Reviewer'))?.id;
   const filteredMembers = useMemo(() => { const query = search.trim().toLowerCase(); return query ? members.filter((item) => [item.name, item.phoneNumber, item.email].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))) : members; }, [members, search]);

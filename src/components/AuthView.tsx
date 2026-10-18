@@ -23,7 +23,7 @@ import logoIcon from '../assets/icons/Logo.png';
 
 interface AuthViewProps {
   inviteToken?: string;
-  onLoginSuccess: (user: { name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => void;
+  onLoginSuccess: (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => void;
   onBackToApp: () => void;
 }
 
@@ -100,6 +100,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setFeedback({ type: 'success', text: `ورود موفقیت‌آمیز. خوش آمدید ${data.user.name}` });
         setTimeout(() => {
           onLoginSuccess({
+            userId: data.user.userId,
             name: data.user.name,
             avatar: data.user.avatar,
             phoneNumber: data.user.phoneNumber,
@@ -152,6 +153,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         setFeedback({ type: 'success', text: 'حساب کاربری جدید با موفقیت ایجاد گردید.' });
         setTimeout(() => {
           onLoginSuccess({
+            userId: data.user.userId,
             name: data.user.name,
             avatar: data.user.avatar,
             phoneNumber: data.user.phoneNumber,

@@ -5,6 +5,8 @@ export interface CacheStore {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlSeconds?: number): Promise<void>;
   del(key: string): Promise<void>;
+  push?(key: string, value: string): Promise<void>;
+  pop?(key: string): Promise<string | null>;
 }
 
 export class MemoryCacheStore implements CacheStore {
@@ -27,6 +29,23 @@ export class MemoryCacheStore implements CacheStore {
 
   async del(key: string): Promise<void> {
     this.store.delete(key);
+  }
+
+  async push(key: string, value: string): Promise<void> {
+    const current = this.store.get(key);
+    const values = current ? JSON.parse(current.value) as string[] : [];
+    values.push(value);
+    this.store.set(key, { value: JSON.stringify(values) });
+  }
+
+  async pop(key: string): Promise<string | null> {
+    const current = this.store.get(key);
+    if (!current) return null;
+    const values = JSON.parse(current.value) as string[];
+    const value = values.shift() || null;
+    if (values.length) this.store.set(key, { value: JSON.stringify(values) });
+    else this.store.delete(key);
+    return value;
   }
 }
 
@@ -57,6 +76,14 @@ export class UpstashRedisStore implements CacheStore {
   async del(key: string): Promise<void> {
     await this.client.del(key);
   }
+
+  async push(key: string, value: string): Promise<void> {
+    await this.client.rpush(key, value);
+  }
+
+  async pop(key: string): Promise<string | null> {
+    return await this.client.lpop<string>(key);
+  }
 }
 
 export class RedisService {
@@ -85,6 +112,16 @@ export class RedisService {
 
   async del(key: string): Promise<void> {
     return this.cache.del(key);
+  }
+
+  async push(key: string, value: string): Promise<void> {
+    if (!this.cache.push) throw new Error('Redis list operations are unavailable.');
+    return this.cache.push(key, value);
+  }
+
+  async pop(key: string): Promise<string | null> {
+    if (!this.cache.pop) throw new Error('Redis list operations are unavailable.');
+    return this.cache.pop(key);
   }
 
   // Rate Limiting Sliding Window

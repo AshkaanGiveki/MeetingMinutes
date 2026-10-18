@@ -73,18 +73,27 @@ export class QueueManager {
     const useExternalBroker = Boolean(
       this.qstashClient
       && process.env.APP_URL
-      && (process.env.NODE_ENV === 'production' || process.env.QSTASH_EXTERNAL_QUEUE === 'true'),
+      && (process.env.NODE_ENV === 'production'
+        || process.env.QSTASH_EXTERNAL_QUEUE === 'true'
+        || queue === 'metameet.telegram.sign_request'),
     );
     const externalBroker = this.qstashClient;
     if (useExternalBroker && externalBroker) {
       try {
-        await externalBroker.publishJSON({
+        const published = await externalBroker.publishJSON({
           url: `${process.env.APP_URL}/api/queues/${queue}`,
           body: job,
+          // PDF generation plus Telegram's multipart rich-message upload can
+          // exceed QStash's short default delivery window.
+          ...(queue === 'metameet.telegram.sign_request' ? { timeout: 60 } : {}),
         });
-        logger.info(`Dispatched job ${jobId} to Upstash QStash.`);
+        logger.info(`Dispatched job ${jobId} to Upstash QStash.`, { metadata: { qstashMessageId: published.messageId, queue, callbackUrl: `${process.env.APP_URL}/api/queues/${queue}` } });
         return jobId;
       } catch (err) {
+        if (queue === 'metameet.telegram.sign_request') {
+          logger.error('Failed to publish Telegram sign-request to QStash.', { metadata: { error: String(err) } });
+          throw err;
+        }
         logger.warn('Failed to publish to QStash, handling with local worker:', { metadata: { error: String(err) } });
       }
     }
@@ -146,11 +155,11 @@ export class QueueManager {
     return true;
   }
 
-  getDiagnostics() {
+  getDiagnostics(queue?: QueueName) {
     const useExternalBroker = Boolean(
       this.qstashClient
       && process.env.APP_URL
-      && (process.env.NODE_ENV === 'production' || process.env.QSTASH_EXTERNAL_QUEUE === 'true'),
+      && (process.env.NODE_ENV === 'production' || process.env.QSTASH_EXTERNAL_QUEUE === 'true' || queue === 'metameet.telegram.sign_request'),
     );
     return {
       configuredQueues: [...QUEUE_NAMES],

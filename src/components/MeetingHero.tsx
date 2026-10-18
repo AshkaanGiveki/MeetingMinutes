@@ -38,7 +38,8 @@ import {
   Code,
   Eraser,
   X,
-  Lock
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import { CustomSelect } from './CustomSelect';
 import { Meeting, AgendaItem, DecisionItem, ActionItem, Participant, PrintTemplate } from '../types';
@@ -60,6 +61,8 @@ interface MeetingHeroProps {
   onPrintPdf: () => void;
   onDownloadPdf: () => void;
   onSendTelegram: () => void;
+  onRefresh: () => Promise<void>;
+  isRefreshing?: boolean;
   canEdit?: boolean;
 }
 
@@ -86,6 +89,8 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
   onPrintPdf,
   onDownloadPdf,
   onSendTelegram,
+  onRefresh,
+  isRefreshing = false,
   canEdit = true,
 }) => {
   // Title editing state
@@ -776,7 +781,7 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
     <main className="meeting-editor w-full min-w-0 flex-1 flex flex-col gap-3 sm:gap-6 pb-8 sm:pb-12 select-text font-persian" data-workspace-stage={workspaceStage}>
       {/* Central White / Dark Document Canvas */}
       <div className="relative rounded-2xl sm:rounded-3xl bg-white dark:bg-[#0f172a] border border-slate-200/90 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none p-4 sm:p-8 flex flex-col gap-4 sm:gap-6 transition-colors duration-200">
-        {!canEdit && <div className="no-print flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300"><Lock className="h-4 w-4 text-slate-400" /><span>این صورت‌جلسه در مرحله‌ای است که برای نقش شما فقط قابل مشاهده است.</span></div>}
+        {!canEdit && <div className="no-print flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300"><Lock className="h-4 w-4 text-slate-400" /><span>این صورت‌جلسه در مرحله فعلی قابل ویرایش نیست.</span></div>}
         
         {/* Redesigned document toolbar */}
         <div className="no-print relative z-10 flex flex-col gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
@@ -839,6 +844,17 @@ export const MeetingHero: React.FC<MeetingHeroProps> = ({
                 <Printer className="h-4 w-4" />
                 <span className="hidden sm:inline">پیش‌نمایش PDF</span>
                 <span className="sm:hidden">PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void onRefresh()}
+                disabled={isRefreshing}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-300"
+                title="تازه‌سازی وضعیت و دسترسی‌های جلسه"
+                aria-label="تازه‌سازی وضعیت و دسترسی‌های جلسه"
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">تازه‌سازی جلسه</span>
               </button>
               <div ref={exportMenuRef} className="relative z-10">
                 <button

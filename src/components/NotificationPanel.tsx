@@ -32,6 +32,18 @@ const getLocalizedNotification = (item: NotificationItem) => {
     return { ...item, title: 'نیاز به امضای شما', message: 'یک صورت‌جلسه در انتظار امضای شماست.' };
   }
 
+  if (item.type === 'review' && hasLatinText(item.title + item.message)) {
+    if (/returned for corrections/i.test(item.message)) {
+      const titleMatch = item.message.match(/^The meeting "(.+)" was returned for corrections after review\.$/i);
+      return {
+        ...item,
+        title: 'صورت‌جلسه نیازمند اصلاح است',
+        message: titleMatch ? `صورت‌جلسه «${titleMatch[1]}» پس از بازبینی برای اصلاح به شما برگشت داده شد.` : 'صورت‌جلسه پس از بازبینی برای اصلاح به شما برگشت داده شد.',
+      };
+    }
+    return { ...item, title: 'نیاز به بازبینی', message: 'یک صورت‌جلسه برای بازبینی شما آماده است.' };
+  }
+
   if (hasLatinText(item.title + item.message)) {
     return { ...item, title: 'اعلان جدید', message: 'یک رویداد جدید برای شما ثبت شده است.' };
   }

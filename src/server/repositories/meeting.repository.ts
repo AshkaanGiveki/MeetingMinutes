@@ -2,11 +2,25 @@ import { Meeting, AuditRecord } from '../../types';
 import { logger } from '../services/logger';
 import { getDb } from '../db/mongodb';
 import crypto from 'crypto';
+import { repairMojibake } from '../../utils/text';
 
 function requireDb() {
   const db = getDb();
   if (!db) throw new Error('Persistent MongoDB connection is required.');
   return db;
+}
+
+function normalizeLegacyMeetingText(meeting: Meeting): Meeting {
+  const statusLabel = repairMojibake(meeting.statusLabel) || meeting.statusLabel;
+  const organizerStatusText = repairMojibake(meeting.organizer?.statusText);
+  const organizer = meeting.organizer && organizerStatusText
+    ? { ...meeting.organizer, statusText: organizerStatusText }
+    : meeting.organizer;
+  const participants = (meeting.participants || []).map((participant) => {
+    const statusText = repairMojibake(participant.statusText);
+    return statusText ? { ...participant, statusText } : participant;
+  });
+  return { ...meeting, statusLabel, organizer, participants };
 }
 
 function normalizeSignatureRequirement(meeting: Meeting): Meeting {
@@ -17,12 +31,12 @@ function normalizeSignatureRequirement(meeting: Meeting): Meeting {
   const totalSignaturesRequired = signerIds.size;
   const signatureRecords = Array.isArray(meeting.signatures) ? meeting.signatures : undefined;
   if (!signatureRecords) {
-    return {
+    return normalizeLegacyMeetingText({
       ...meeting,
       organizer: meeting.organizer ? { ...meeting.organizer, hasSigned: false } : meeting.organizer,
       participants: (meeting.participants || []).map((participant) => ({ ...participant, hasSigned: false })),
       totalSignaturesRequired,
-    };
+    });
   }
 
   const signedIds = new Set(signatureRecords
@@ -36,15 +50,15 @@ function normalizeSignatureRequirement(meeting: Meeting): Meeting {
       statusText: hasSigned ? 'امضا دریافت شد' : participant.statusText === 'امضا دریافت شد' ? undefined : participant.statusText,
     };
   });
-  return {
+  return normalizeLegacyMeetingText({
     ...meeting,
     organizer: meeting.organizer && signedIds.has(meeting.organizer.id)
-      ? { ...meeting.organizer, hasSigned: true, statusText: 'Ø§Ù…Ø¶Ø§ Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯' }
+      ? { ...meeting.organizer, hasSigned: true, statusText: 'امضا دریافت شد' }
       : meeting.organizer,
     participants,
     signatureCount: signedIds.size,
     totalSignaturesRequired,
-  };
+  });
 }
 
 export class MeetingRepository {

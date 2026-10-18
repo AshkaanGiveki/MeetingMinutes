@@ -2,6 +2,12 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { logger } from './logger';
 
+const escapeTelegramHtml = (value: string): string => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
 export interface TelegramUserData {
   id: number;
   first_name: string;
@@ -89,10 +95,10 @@ export class TelegramService {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM PM] To: ${chatId} | Meeting: ${meetingTitle} | PDF attached: ${Boolean(pdfPath)} | Rich Persian action buttons prepared`); return true; }
     try {
       if (pdfPath) {
-        // Telegram's public Bot API supports sendDocument with inline buttons.
-        // Keep the delivery on the standard endpoint; sendRichMessage is not a
-        // public Bot API method and caused avoidable failures before fallback.
-        return this.sendDocument(chatId, pdfPath, text.replace(/<[^>]+>/g, ''), replyMarkup);
+        const richSent = await this.sendRichSignRequestDocumentV2(chatId, pdfPath, meetingTitle, organizerName, actionToken, viewUrl);
+        if (richSent) return true;
+        logger.warn('Rich Telegram sign-request failed; falling back to a standard PDF message.');
+        return this.sendDocument(chatId, pdfPath, text, replyMarkup);
       }
       const response = await fetch(this.apiUrl('sendMessage'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }), signal: AbortSignal.timeout(15000) });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
@@ -145,6 +151,41 @@ export class TelegramService {
     }
   }
 
+  private async sendRichSignRequestDocumentV2(chatId: string | number, filePath: string, meetingTitle: string, organizerName: string, actionToken: string, viewUrl: string): Promise<boolean> {
+    try {
+      const bytes = await fs.readFile(filePath);
+      const richMessage = {
+        html: [
+          '<h2>📋 درخواست امضای صورت‌جلسه</h2>',
+          `<p>جلسه: <b>${escapeTelegramHtml(meetingTitle)}</b></p>`,
+          `<p>برگزارکننده: ${escapeTelegramHtml(organizerName)}</p>`,
+          '<p>نسخه PDF پیوست‌شده، نسخه نهایی قبل از ثبت امضاهاست. با انتخاب «قبول و امضا»، امضای شما مستقیماً ثبت می‌شود.</p>',
+          '<hr/>',
+          '<tg-document src="tg://document?id=meeting_pdf"></tg-document>',
+          '<tg-button-row align="center">',
+          `<tg-button type="callback_data" style="success" data="mm:accept:${escapeTelegramHtml(actionToken)}">✅ قبول و امضا</tg-button>`,
+          `<tg-button type="callback_data" style="danger" data="mm:reject:${escapeTelegramHtml(actionToken)}">❌ رد درخواست</tg-button>`,
+          `<tg-button type="url" url="${escapeTelegramHtml(viewUrl)}">مشاهده در وب‌سایت</tg-button>`,
+          '</tg-button-row>',
+          '<footer>Accord · امضای امن و مستقیم از تلگرام</footer>',
+        ].join(''),
+        media: [{ id: 'meeting_pdf', media: { type: 'document', media: 'attach://meeting_pdf' } }],
+        is_rtl: true,
+      };
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      form.append('rich_message', JSON.stringify(richMessage));
+      form.append('meeting_pdf', new Blob([bytes], { type: 'application/pdf' }), 'meeting-minute.pdf');
+      const response = await fetch(this.apiUrl('sendRichMessage'), { method: 'POST', body: form, signal: AbortSignal.timeout(30000) });
+      const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
+      if (!data.ok) logger.error('Telegram rejected rich sign-request message.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
+      return !!data.ok;
+    } catch (err) {
+      logger.error('Failed to dispatch rich Telegram sign request:', { metadata: { error: String(err) } });
+      return false;
+    }
+  }
+
   /** Send a private confirmation for a button interaction without cluttering the chat. */
   async sendEphemeralActionResult(
     chatId: string | number,
@@ -154,18 +195,14 @@ export class TelegramService {
     message: string,
     tone: 'success' | 'danger' = 'success',
   ): Promise<boolean> {
-    const richMessage = {
-      is_rtl: true,
-      blocks: [
-        { type: 'heading', size: 3, text: `${tone === 'success' ? '✅' : '❌'} ${title}` },
-        { type: 'paragraph', text: message },
-        { type: 'footer', text: 'Accord · این پیام فقط برای شما نمایش داده می‌شود' },
-      ],
-    };
     if (!this.botToken) {
       logger.info(`[MOCK TELEGRAM EPHEMERAL] To: ${chatId} | ${title}: ${message}`);
       return true;
     }
+    const richMessage = {
+      html: `<h3>${escapeTelegramHtml(title)}</h3><p>${escapeTelegramHtml(message)}</p><footer>Accord · این پیام فقط برای شما نمایش داده می‌شود</footer>`,
+      is_rtl: true,
+    };
     try {
       const response = await fetch(this.apiUrl('sendRichMessage'), {
         method: 'POST',
@@ -182,10 +219,10 @@ export class TelegramService {
         signal: AbortSignal.timeout(15000),
       });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
-      if (!data.ok) logger.warn('Telegram rejected ephemeral action confirmation.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
+      if (!data.ok) logger.error('Telegram rejected ephemeral rich response.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
       return !!data.ok;
     } catch (err) {
-      logger.warn('Failed to dispatch ephemeral Telegram action confirmation.', { metadata: { error: String(err) } });
+      logger.error('Failed to dispatch ephemeral Telegram response.', { metadata: { error: String(err) } });
       return false;
     }
   }
@@ -199,19 +236,12 @@ export class TelegramService {
     tone: 'success' | 'danger' = 'success',
   ): Promise<boolean> {
     if (!this.botToken) return true;
-    const richMessage = {
-      is_rtl: true,
-      blocks: [
-        { type: 'heading', size: 3, text: `${tone === 'success' ? '✅' : '❌'} ${title}` },
-        { type: 'paragraph', text: message },
-        { type: 'footer', text: 'Accord · این درخواست دیگر قابل تغییر نیست' },
-      ],
-    };
+    const caption = `<b>${tone === 'success' ? '✅' : '❌'} ${escapeTelegramHtml(title)}</b>\n\n${escapeTelegramHtml(message)}\n\n<i>Accord · این درخواست دیگر قابل تغییر نیست</i>`;
     try {
-      const response = await fetch(this.apiUrl('editMessageText'), {
+      const response = await fetch(this.apiUrl('editMessageCaption'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, message_id: messageId, rich_message: richMessage }),
+        body: JSON.stringify({ chat_id: chatId, message_id: messageId, caption, parse_mode: 'HTML', reply_markup: { inline_keyboard: [] } }),
         signal: AbortSignal.timeout(15000),
       });
       const data = await response.json() as { ok?: boolean; description?: string };
@@ -243,6 +273,34 @@ export class TelegramService {
     } catch (err) { logger.error('Failed to acknowledge Telegram callback', { metadata: { error: String(err) } }); return false; }
   }
 
+  async replaceSignRequestMessageV2(
+    chatId: string | number,
+    messageId: number,
+    title: string,
+    message: string,
+    tone: 'success' | 'danger' = 'success',
+  ): Promise<boolean> {
+    if (!this.botToken) return true;
+    const richMessage = {
+      html: `<h3>${tone === 'success' ? '✅' : '❌'} ${escapeTelegramHtml(title)}</h3><p>${escapeTelegramHtml(message)}</p><footer>Accord · این درخواست دیگر قابل تغییر نیست</footer>`,
+      is_rtl: true,
+    };
+    try {
+      const response = await fetch(this.apiUrl('editMessageText'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, message_id: messageId, rich_message: richMessage, reply_markup: { inline_keyboard: [] } }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await response.json() as { ok?: boolean; description?: string };
+      if (!data.ok) logger.warn('Telegram could not replace rich sign-request message.', { metadata: { status: response.status, description: data.description } });
+      return !!data.ok;
+    } catch (err) {
+      logger.warn('Failed to replace rich Telegram sign-request message.', { metadata: { error: String(err) } });
+      return false;
+    }
+  }
+
   async sendNotification(chatId: string | number, message: string): Promise<boolean> {
     if (!this.botToken) { logger.info(`[MOCK TELEGRAM] message to ${chatId}: ${message}`); return true; }
     try {
@@ -260,6 +318,7 @@ export class TelegramService {
       const form = new FormData();
       form.append('chat_id', String(chatId));
       form.append('caption', caption);
+      form.append('parse_mode', 'HTML');
       if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
       form.append('document', new Blob([bytes], { type: 'application/pdf' }), 'صورت-جلسه.pdf');
       const response = await fetch(this.apiUrl('sendDocument'), { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });

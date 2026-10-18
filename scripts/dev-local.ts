@@ -9,7 +9,9 @@ for (const [key, value] of Object.entries(inheritedEnv)) {
   if (value !== undefined) process.env[key] = value;
 }
 
-process.env.NODE_ENV ||= 'development';
+// This entry point is explicitly for local development. Do not let a
+// production value from .env turn the local QStash callback into a 503.
+process.env.NODE_ENV = 'development';
 process.env.PORT ||= '3000';
 process.env.APP_URL ||= `http://localhost:${process.env.PORT}`;
 
