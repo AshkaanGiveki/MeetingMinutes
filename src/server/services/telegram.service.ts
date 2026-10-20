@@ -213,18 +213,19 @@ export class TelegramService {
           ephemeral_message_parameters: {
             receiver_user_id: receiverUserId,
             callback_query_id: callbackQueryId,
-            replace_callback_query_message: true,
+            // The webhook already edits the original sign-request message.
+            replace_callback_query_message: false,
           },
         }),
         signal: AbortSignal.timeout(15000),
       });
       const data = await response.json() as { ok?: boolean; description?: string; error_code?: number };
-      if (!data.ok) logger.error('Telegram rejected ephemeral rich response.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
-      return !!data.ok;
+      if (data.ok) return true;
+      logger.warn('Telegram rejected ephemeral rich response; falling back to callback notification.', { metadata: { status: response.status, errorCode: data.error_code, description: data.description } });
     } catch (err) {
-      logger.error('Failed to dispatch ephemeral Telegram response.', { metadata: { error: String(err) } });
-      return false;
+      logger.warn('Failed to dispatch ephemeral Telegram response; falling back to callback notification.', { metadata: { error: String(err) } });
     }
+    return this.answerCallbackQuery(callbackQueryId, Array.from(`${title}\n${message}`).slice(0, 200).join(''));
   }
 
   /** Replace the actionable sign-request message so its buttons become single-use. */
