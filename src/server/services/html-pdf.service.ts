@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import type { Meeting } from '../../types';
 
 import { getDocumentDirectory } from './document-storage';
+import { getPdfBrowserOptions } from './pdf-browser';
 
 const documentDirectory = getDocumentDirectory();
 
@@ -33,10 +34,7 @@ export async function generateHtmlMeetingPdf(meeting: Meeting, sessionToken: str
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 
   try {
-    browser = await chromium.launch({
-      headless: true,
-      executablePath: process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    });
+    browser = await chromium.launch(await getPdfBrowserOptions());
     const context = await browser.newContext();
     await context.addCookies([{ name: process.env.SESSION_COOKIE_NAME || 'metameet_session', value: sessionToken, url: appOrigin }]);
     const page = await context.newPage();
