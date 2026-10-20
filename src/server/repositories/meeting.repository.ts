@@ -95,7 +95,9 @@ export class MeetingRepository {
     const currentVersion = Number((existing as Meeting & { version?: number }).version || 0);
     if (expectedVersion !== undefined && expectedVersion !== currentVersion) return null;
     const updated = { ...existing, ...updates, version: currentVersion + 1 };
-    const filter = expectedVersion === undefined ? { id } : { id, version: currentVersion };
+    const filter = expectedVersion === undefined ? { id } : currentVersion === 0
+      ? { id, $or: [{ version: 0 }, { version: { $exists: false } }] }
+      : { id, version: currentVersion };
     const result = await db.collection('meetings').updateOne(filter, { $set: { ...updates, version: currentVersion + 1 } });
     if (!result.matchedCount) return null;
     return updated;
