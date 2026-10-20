@@ -2201,7 +2201,6 @@ app.post('/api/signature/sign', async (req, res) => {
   if (!persistedMeeting) {
     return res.status(409).json({ error: 'این صورت‌جلسه هم‌زمان به‌روزرسانی شد. لطفاً اطلاعات را تازه‌سازی کرده و دوباره تلاش کنید.' });
   }
-  await redisService.set(`telegram-signature-completed:${meetingId}:${authenticatedUser.userId}`, '1', 7 * 24 * 3600);
   await meetingRepository.addAudit(auditEntry);
 
   let finalizedMeeting: Meeting | null = null;
@@ -2407,7 +2406,6 @@ async function notifyPendingSignersInApp(
 }
 
 async function notifyPendingSignersOnTelegram(meeting: Meeting, signatures: Array<{ signerId: string }>, organizationId: string, actorName?: string, sessionToken?: string) {
-  await Promise.all(signatures.map((signature) => redisService.set(`telegram-signature-completed:${meeting.id}:${signature.signerId}`, '1', 7 * 24 * 3600)));
   const candidates = await getPendingMeetingSigners(meeting, signatures, organizationId);
   let pdfBase64: string | undefined;
   let generatedSessionToken: string | undefined;
@@ -2491,7 +2489,6 @@ async function recordTelegramSignature(meetingId: string, userId: string, chatId
   // A delivery failure must not turn a persisted signature into a failed action.
   try {
     await meetingRepository.addAudit({ id: `aud_${crypto.randomUUID()}`, meetingId, action: 'SIGNATURE_COMPLETED', actor: `${signerName} (Telegram)`, timestamp: new Date().toISOString(), documentHash, metadata: { authMethod: 'Telegram Persian bot', chatId } });
-    await redisService.set(`telegram-signature-completed:${meetingId}:${user.id}`, '1', 7 * 24 * 3600);
     const resolvedOrganizationId = organizationId || (meeting as Meeting & { organizationId?: string }).organizationId || '';
     if (isAllSigned) {
       await automaticallySealFullySignedMeeting(persistedMeeting, updatedSignatures, resolvedOrganizationId);

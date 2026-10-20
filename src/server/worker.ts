@@ -77,12 +77,14 @@ export function initializeWorker() {
     if (tokenRecord) {
       try { tokenUserId = (JSON.parse(tokenRecord) as { userId?: string }).userId || tokenUserId; } catch { /* ignore malformed legacy token */ }
     }
-    if (tokenUserId && await redisService.get(`telegram-signature-completed:${job.payload.meetingId}:${tokenUserId}`)) {
-      logger.info('Skipping Telegram sign-request because the signer has already signed.', { metadata: { meetingId: job.payload.meetingId } });
+    // Completion markers can outlive signatures cancelled during revision.
+    // Only the current persisted signature records determine whether to skip.
+    const meeting = await meetingRepository.getById(job.payload.meetingId);
+    if (!meeting) throw new Error(`Meeting ${job.payload.meetingId} not found for Telegram delivery.`);
+    if (tokenUserId && meeting.signatures?.some((signature) => signature.signerId === tokenUserId)) {
+      logger.info('Skipping Telegram sign-request because the signer has an active signature.', { metadata: { meetingId: job.payload.meetingId, participantId: tokenUserId } });
       return;
     }
-    const meeting = await meetingRepository.getById(job.payload.meetingId);
-    if (!meeting && !job.payload.pdfBase64) throw new Error(`Meeting ${job.payload.meetingId} not found for Telegram delivery.`);
     const organizationId = job.payload.organizationId || (meeting as (Meeting & { organizationId?: string }) | null)?.organizationId || '';
     let pdfPath = job.payload.pdfPath;
     let temporaryPdfPath: string | undefined;
