@@ -2525,6 +2525,11 @@ app.post('/api/telegram/webhook', async (req, res, next) => {
   const update = req.body;
   const messageText = update?.message?.text;
   const chatId = update?.message?.chat?.id;
+  if (typeof messageText === 'string' && typeof chatId === 'number' && /^\/cancel(?:@\w+)?$/.test(messageText.trim())) {
+    await redisService.del(`telegram-sign-reject:${chatId}`);
+    await telegramService.sendNotification(chatId, 'درخواست نوشتن دلیل لغو شد؛ هیچ رد امضایی ثبت نشده است. می‌توانید از دکمه‌های پیام اصلی برای امضا یا رد دوباره استفاده کنید.');
+    return res.json({ ok: true });
+  }
   if (typeof messageText === 'string' && typeof chatId === 'number' && (messageText === '/start' || messageText === '/help')) {
     await telegramService.sendNotification(chatId, 'Telegram is connected and receiving Accord messages. Create a new link from Accord Settings to link this account.');
   }
@@ -2550,7 +2555,16 @@ app.post('/api/telegram/webhook', async (req, res, next) => {
   if (typeof messageText === 'string' && typeof chatId === 'number' && !messageText.startsWith('/')) {
     const pendingReason = await redisService.get(`telegram-sign-reject:${chatId}`);
     if (pendingReason) {
-      const request = JSON.parse(pendingReason) as { token: string; meetingId: string; userId: string; organizationId: string; chatId: string };
+      const request = JSON.parse(pendingReason) as { token: string; meetingId: string; userId: string; organizationId: string; chatId: string; expiresAt?: number; messageId?: number };
+      const linkedUser = await authService.findByTelegramChat(String(update?.message?.from?.id));
+      if (!linkedUser || linkedUser.id !== request.userId) return res.json({ ok: true });
+      const tokenRecord = await redisService.get(`telegram-sign:${request.token}`);
+      const activeToken = tokenRecord ? JSON.parse(tokenRecord) as { state?: string } : null;
+      if (!request.expiresAt || request.expiresAt <= Date.now() || !activeToken || activeToken.state) {
+        await redisService.del(`telegram-sign-reject:${chatId}`);
+        await telegramService.sendNotification(chatId, 'مهلت ارسال دلیل تمام شده یا درخواست قبلاً پاسخ داده شده است. این پیام به‌عنوان دلیل رد ثبت نشد. برای ادامه از دکمه‌های پیام اصلی استفاده کنید.');
+        return res.json({ ok: true });
+      }
       const reason = messageText.trim();
       if (reason.length < 5) {
         await telegramService.sendNotification(chatId, 'لطفاً دلیل واضح‌تری بنویسید (حداقل ۵ نویسه).');
@@ -2559,6 +2573,7 @@ app.post('/api/telegram/webhook', async (req, res, next) => {
         if (rejected.ok) {
           await redisService.del(`telegram-sign-reject:${chatId}`);
           await redisService.set(`telegram-sign:${request.token}`, JSON.stringify({ ...request, state: 'rejected', rejectionReason: reason }), 86400);
+          if (request.messageId) await telegramService.replaceSignRequestMessageV2(String(chatId), request.messageId, 'درخواست امضا رد شد', reason, 'danger');
           await telegramService.sendNotification(chatId, '❌ درخواست امضا رد شد و دلیل شما برای ویرایشگر ارسال شد.');
         } else {
           await telegramService.sendNotification(chatId, rejected.message);
@@ -2585,8 +2600,10 @@ app.post('/api/telegram/webhook', async (req, res, next) => {
           if (!linkedUser || linkedUser.id !== request.userId) {
             resultText = 'حساب تلگرام شما به این کاربر متصل نیست.';
           } else {
-            await redisService.set(`telegram-sign-reject:${callbackChatId}`, JSON.stringify({ ...request, token }), 600);
-            resultText = 'لطفاً دلیل عدم امضا را در پیام بعدی ارسال کنید (حداقل ۵ نویسه).';
+            // Retain the expired context so a late reply is explicitly rejected.
+            await redisService.set(`telegram-sign-reject:${callbackChatId}`, JSON.stringify({ ...request, token, messageId: callback.message?.message_id, expiresAt: Date.now() + 10 * 60 * 1000 }), 86400);
+            resultText = 'هنوز رد امضا ثبت نشده است. دلیل را تا ۱۰ دقیقه در پیام بعدی بنویسید (حداقل ۵ نویسه). برای انصراف /cancel را بفرستید یا دکمه «قبول و امضا» در پیام اصلی را بزنید. بدون ارسال دلیل، جلسه تغییری نمی‌کند. اگر درخواست دیگری را رد کنید، دلیل بعدی برای همان درخواست جدید ثبت می‌شود.';
+            await telegramService.sendNotification(String(callbackChatId), resultText);
             actionSucceeded = true;
           }
         } else {
@@ -2596,12 +2613,16 @@ app.post('/api/telegram/webhook', async (req, res, next) => {
             const signed = await recordTelegramSignature(request.meetingId, request.userId, request.chatId, request.organizationId);
             resultText = signed.ok ? '✅ امضا با موفقیت ثبت شد.' : signed.message;
             actionSucceeded = signed.ok;
-            if (signed.ok) await redisService.set(`telegram-sign:${token}`, JSON.stringify({ ...request, state: 'accepted' }), 86400);
+            if (signed.ok) {
+              await redisService.set(`telegram-sign:${token}`, JSON.stringify({ ...request, state: 'accepted' }), 86400);
+              const pending = await redisService.get(`telegram-sign-reject:${callbackChatId}`);
+              if (pending && JSON.parse(pending).token === token) await redisService.del(`telegram-sign-reject:${callbackChatId}`);
+            }
           }
         }
       }
       if (callback?.id) {
-        if (actionSucceeded && callback.message?.message_id) {
+        if (actionSucceeded && action === 'accept' && callback.message?.message_id) {
           await telegramService.replaceSignRequestMessageV2(
             String(callbackChatId),
             Number(callback.message.message_id),

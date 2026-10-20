@@ -109,14 +109,74 @@ describe('Telegram sign button in production', () => {
     dependencies.auth.findByTelegramChat.mockResolvedValue(user);
     dependencies.auth.findById.mockImplementation(async (id) => id === 'signer' ? user : null);
   });
-  const click = async (from = 42, chat = 42, token = 'token', secret = 'test-secret') => {
+  const click = async (from = 42, chat = 42, token = 'token', secret = 'test-secret', action = 'accept') => {
     const response = await fetch(`${origin}/api/telegram/webhook`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-telegram-bot-api-secret-token': secret },
-      body: JSON.stringify({ update_id: 1, callback_query: { id: 'callback', data: `mm:accept:${token}`, from: { id: from }, message: { message_id: 10, chat: { id: chat } } } }),
+      body: JSON.stringify({ update_id: 1, callback_query: { id: 'callback', data: `mm:${action}:${token}`, from: { id: from }, message: { message_id: 10, chat: { id: chat } } } }),
     });
     await response.json();
     return response.status;
   };
+  const message = async (text: string, from = 42) => {
+    const response = await fetch(`${origin}/api/telegram/webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-telegram-bot-api-secret-token': 'test-secret' },
+      body: JSON.stringify({ message: { text, chat: { id: 42 }, from: { id: from } } }),
+    });
+    await response.json();
+    return response.status;
+  };
+
+  it('keeps rejection pending and the original buttons usable until a reason arrives', async () => {
+    expect(await click(42, 42, 'token', 'test-secret', 'reject')).toBe(200);
+    expect(state.documents.meetings[0].status).toBe('READY_FOR_SIGNATURE');
+    expect(state.documents.meetings[0].signatureRejection).toBeUndefined();
+    expect(JSON.parse(state.cache.get('telegram-sign-reject:42')!).expiresAt).toBeGreaterThan(Date.now());
+    expect(dependencies.telegram.replaceSignRequestMessageV2).not.toHaveBeenCalled();
+    expect(dependencies.telegram.sendNotification).toHaveBeenCalledWith('42', expect.stringContaining('/cancel'));
+  });
+
+  it('allows cancellation and ignores a later reason', async () => {
+    await click(42, 42, 'token', 'test-secret', 'reject');
+    expect(await message('/cancel')).toBe(200);
+    expect(state.cache.has('telegram-sign-reject:42')).toBe(false);
+    await message('I changed my mind');
+    expect(state.documents.meetings[0].signatureRejection).toBeUndefined();
+    expect(JSON.parse(state.cache.get('telegram-sign:token')!).state).toBeUndefined();
+  });
+
+  it('allows signing instead and clears the pending reason', async () => {
+    await click(42, 42, 'token', 'test-secret', 'reject');
+    expect(await click()).toBe(200);
+    expect(state.cache.has('telegram-sign-reject:42')).toBe(false);
+    await message('A later unrelated message');
+    expect(state.documents.meetings[0].signatures).toHaveLength(1);
+    expect(state.documents.meetings[0].signatureRejection).toBeUndefined();
+  });
+
+  it('rejects an expired reason without changing the minute', async () => {
+    await click(42, 42, 'token', 'test-secret', 'reject');
+    const pending = JSON.parse(state.cache.get('telegram-sign-reject:42')!);
+    pending.expiresAt = Date.now() - 1;
+    state.cache.set('telegram-sign-reject:42', JSON.stringify(pending));
+    await message('This reason arrived too late');
+    expect(state.documents.meetings[0].signatureRejection).toBeUndefined();
+    expect(state.documents.meetings[0].status).toBe('READY_FOR_SIGNATURE');
+    expect(state.cache.has('telegram-sign-reject:42')).toBe(false);
+    expect(dependencies.telegram.sendNotification).toHaveBeenLastCalledWith(42, expect.stringContaining('مهلت'));
+  });
+
+  it('records a rejection only after a valid reason, then removes the original buttons', async () => {
+    await click(42, 42, 'token', 'test-secret', 'reject');
+    await message('no');
+    expect(state.documents.meetings[0].signatureRejection).toBeUndefined();
+    await message('Please fix the decision');
+    expect(state.documents.meetings[0].signatureRejection).toMatchObject({ signerId: 'signer', reason: 'Please fix the decision' });
+    expect(state.documents.meetings[0].status).toBe('DRAFT');
+    expect(state.cache.has('telegram-sign-reject:42')).toBe(false);
+    expect(dependencies.telegram.replaceSignRequestMessageV2).toHaveBeenCalledWith('42', 10, expect.any(String), 'Please fix the decision', 'danger');
+    await message('Duplicate reason');
+    expect(state.documents.audit_logs.filter((record) => record.action === 'SIGNATURE_REJECTED')).toHaveLength(1);
+  });
 
   it('persists the saved account signature, count, participant flag, hash, audit and accepted token', async () => {
     expect(await click()).toBe(200);
