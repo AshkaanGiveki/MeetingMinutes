@@ -3,7 +3,9 @@ import path from 'path';
 import { chromium } from 'playwright';
 import type { Meeting } from '../../types';
 
-const documentDirectory = path.resolve(process.env.DOCUMENT_STORAGE_PATH || './storage/documents');
+import { getDocumentDirectory } from './document-storage';
+
+const documentDirectory = getDocumentDirectory();
 
 const pdfOverrides = `
   *, *::before, *::after { box-sizing: border-box !important; }

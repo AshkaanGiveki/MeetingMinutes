@@ -5,7 +5,9 @@ import path from 'path';
 import PDFDocument from 'pdfkit';
 import { Meeting, Participant, PrintTemplate, SignatureRecord } from '../../types';
 
-const documentDirectory = path.resolve(process.env.DOCUMENT_STORAGE_PATH || './storage/documents');
+import { getDocumentDirectory } from './document-storage';
+
+const documentDirectory = getDocumentDirectory();
 const configuredPersianFont = process.env.PERSIAN_FONT_PATH ? path.resolve(process.cwd(), process.env.PERSIAN_FONT_PATH) : '';
 const windowsPersianFont = 'C:\\Windows\\Fonts\\tahoma.ttf';
 const bundledPersianFont = path.resolve(process.cwd(), 'src/assets/fonts/IRANSansXFaNum-Regular.woff2');
