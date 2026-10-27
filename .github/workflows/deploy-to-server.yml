@@ -1,0 +1,10 @@
+name: Deploy to production server
+on:
+  push:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  deploy:
+    uses: AshkaanGiveki/server-deploy/.github/workflows/deploy-meetingminutes.yml@main
