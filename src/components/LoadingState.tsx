@@ -73,14 +73,41 @@ export const TableRowsSkeleton: React.FC<{ columns: number; rows?: number }> = (
 );
 
 export const OrganizationCardsSkeleton: React.FC<{ count?: number }> = ({ count = 3 }) => (
-  <div className="organizations-skeleton-list" aria-label="Loading organizations">{Array.from({ length: count }, (_, index) => <div key={index} className="organizations-card-skeleton">
-    <div className="organizations-card-skeleton-main">
-      <div className="organizations-card-skeleton-title"><Skeleton className="h-5 w-40" /><Skeleton className="h-6 w-16 rounded-full" /></div>
-      <Skeleton className="organizations-card-skeleton-description h-3 w-3/4" />
-      <div className="organizations-card-skeleton-meta"><div className="flex -space-x-2 rtl:space-x-reverse"><Skeleton className="h-7 w-7 rounded-full" /><Skeleton className="h-7 w-7 rounded-full" /><Skeleton className="h-7 w-7 rounded-full" /></div><div className="flex gap-2"><Skeleton className="h-9 w-9 rounded-xl" /><Skeleton className="h-9 w-9 rounded-xl" /></div></div>
-      <Skeleton className="organizations-card-skeleton-action h-11 w-40 rounded-xl" />
-    </div>
-  </div>)}</div>
+  <div className="flex flex-col gap-4" aria-label="Loading organizations">
+    {Array.from({ length: count }, (_, index) => <div key={index} className="org-card group relative">
+      <div className="org-card-surface relative overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="org-card-content flex flex-col gap-5 p-4 pr-14 sm:p-5 sm:pr-16 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-6 lg:p-6 lg:pr-20">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Skeleton className="h-6 w-48 rounded-lg" />
+              <Skeleton className="h-6 w-16 rounded-full" />
+            </div>
+            <Skeleton className="mt-2 h-3 w-3/4 rounded-full" />
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="org-member-avatars inline-flex items-center">
+                <Skeleton className="org-member-avatar h-7 w-7 rounded-full border-2 border-white dark:border-slate-900" />
+                <Skeleton className="org-member-avatar -mr-1.5 h-7 w-7 rounded-full border-2 border-white dark:border-slate-900" />
+                <Skeleton className="org-member-avatar -mr-1.5 h-7 w-7 rounded-full border-2 border-white dark:border-slate-900" />
+                <Skeleton className="org-member-avatar -mr-1.5 h-7 w-7 rounded-full border-2 border-white dark:border-slate-900" />
+              </span>
+              <span className="org-card-badges inline-flex items-center gap-2">
+                <Skeleton className="h-9 w-9 rounded-lg" />
+                <Skeleton className="h-9 w-28 rounded-lg" />
+              </span>
+            </div>
+          </div>
+          <div className="flex w-full flex-col gap-2 lg:w-40">
+            <Skeleton className="h-10 w-full rounded-xl" />
+          </div>
+        </div>
+      </div>
+      <div className="org-card-identity">
+        <div className="org-card-icon flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-slate-100 ring-4 ring-white/80 dark:bg-slate-800 dark:ring-slate-900/80">
+          <Skeleton className="h-7 w-7 rounded-full" />
+        </div>
+      </div>
+    </div>)}
+  </div>
 );
 
 export const GuestSigningSkeleton: React.FC = () => (

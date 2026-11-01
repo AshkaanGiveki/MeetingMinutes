@@ -7,6 +7,7 @@ import { OrganizationCardsSkeleton } from './LoadingState';
 import { useSnackbar } from './Snackbar';
 import { formatIranianPhoneInput } from '../utils/phone';
 import { PageHeader } from './PageHeader';
+import { organizationRoleLabel } from '../utils/organization';
 
 interface OrganizationContext {
   organization: { id: string; name: string; visibility: string };
@@ -16,7 +17,7 @@ interface OrganizationContext {
 }
 
 interface Invitation {
-  token: string;
+  id: string;
   organizationId: string;
   email?: string;
   phoneNumber?: string;
@@ -25,8 +26,11 @@ interface Invitation {
   expiresAt: number;
 }
 
+interface AdministrativeOrganization { id: string; name: string; createdAt: string; memberCount: number; }
+
 interface OrganizationsViewProps {
   isAuthenticated?: boolean;
+  platformRole?: 'SuperAdmin' | 'User';
   activeOrganizationId?: string;
   onOrganizationChanged: (user: { organizationId: string; organizationName?: string; role?: string; permissions?: string[] }) => void;
 }
@@ -84,9 +88,10 @@ const CreateOrganizationModal: React.FC<CreateOrganizationModalProps> = ({ open,
   </AnimatePresence>
 );
 
-export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenticated = true, activeOrganizationId, onOrganizationChanged }) => {
+export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenticated = true, platformRole, activeOrganizationId, onOrganizationChanged }) => {
   const { showSnackbar } = useSnackbar();
   const [organizations, setOrganizations] = useState<OrganizationContext[]>([]);
+  const [administrativeOrganizations, setAdministrativeOrganizations] = useState<AdministrativeOrganization[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [name, setName] = useState('');
   const [inviteTarget, setInviteTargetState] = useState('');
@@ -96,6 +101,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const hasUnsavedOrganizationInput = Boolean(name.trim() || inviteTarget.trim());
 
   const load = async () => {
     setIsLoading(true);
@@ -107,6 +113,13 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
       const orgData = await orgResponse.json();
       if (!orgResponse.ok) throw new Error(orgData.error || 'سازمان‌ها دریافت نشدند.');
       setOrganizations(orgData.organizations || []);
+      if (platformRole === 'SuperAdmin') {
+        const adminResponse = await fetch('/api/admin/organizations');
+        const adminData = await adminResponse.json();
+        if (adminResponse.ok) setAdministrativeOrganizations(adminData.organizations || []);
+      } else {
+        setAdministrativeOrganizations([]);
+      }
       setIsLoading(false);
       const invitationResponse = await invitationRequest;
       const invitationData = await invitationResponse.json();
@@ -121,7 +134,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
   useEffect(() => {
     if (!isAuthenticated) return;
     void load();
-  }, [isAuthenticated, activeOrganizationId]);
+  }, [isAuthenticated, activeOrganizationId, platformRole]);
 
   const createOrganization = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -139,6 +152,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
   };
 
   const switchOrganization = async (organizationId: string) => {
+    if (hasUnsavedOrganizationInput && !window.confirm('تغییر سازمان، تغییرات ذخیره‌نشده را از بین می‌برد. ادامه می‌دهید؟')) return;
     setIsBusy(true);
     const response = await fetch(`/api/organizations/${organizationId}/switch`, { method: 'POST' });
     const data = await response.json();
@@ -171,7 +185,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
         icon={Building2}
         title="سازمان‌های من"
         description="عضویت‌ها، دعوت‌نامه‌ها و دسترسی‌های سازمانی خود را مدیریت کنید."
-        action={<button type="button" onClick={() => setIsCreateModalOpen(true)} className="flex w-fit items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700"><Plus className="h-4 w-4" />ایجاد سازمان</button>}
+        action={platformRole === 'SuperAdmin' ? <button type="button" onClick={() => setIsCreateModalOpen(true)} className="flex w-fit items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:-translate-y-0.5 hover:bg-indigo-700"><Plus className="h-4 w-4" />ایجاد سازمان</button> : undefined}
       >
         <motion.button
           type="button"
@@ -193,6 +207,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
         </motion.button>
       </PageHeader>
       {loadError && <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300"><span>{loadError}</span><button type="button" onClick={() => void load()} className="font-bold underline">تلاش دوباره</button></div>}
+      {platformRole === 'SuperAdmin' && !isLoading && <section className="rounded-3xl border border-indigo-100 bg-indigo-50/50 p-5 dark:border-indigo-900/50 dark:bg-indigo-950/20"><div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white"><ShieldCheck className="h-4 w-4 text-indigo-600" />Platform organization administration</div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{administrativeOrganizations.map((organization) => <div key={organization.id} className="rounded-2xl border border-indigo-100 bg-white px-4 py-3 dark:border-indigo-900/60 dark:bg-slate-900"><p className="font-bold text-slate-800 dark:text-slate-100">{organization.name}</p><p className="mt-1 text-[11px] text-slate-500">{organization.memberCount} members · {organization.id}</p></div>)}</div></section>}
       {isLoading && <OrganizationCardsSkeleton />}
       {!isLoading && <motion.div className="flex flex-col gap-4" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.15 } } }}>
         {organizations.length === 0 ? <EmptyState compact icon={Building2} title="هنوز سازمانی پیدا نشد" description="برای شروع، سازمان اول خود را ایجاد کنید." /> : <AnimatePresence mode="popLayout">{organizations.map((item, index) => {
@@ -208,7 +223,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
                   {(item.memberPreviews || []).slice(0, 4).map((member, memberIndex) => member.avatar ? <img key={member.id} src={member.avatar} alt={member.name} className="org-member-avatar h-7 w-7 rounded-full border-2 border-white object-cover dark:border-slate-900" style={{ marginInlineStart: memberIndex ? '-0.45rem' : 0 }} /> : <span key={member.id} className="org-member-avatar flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-indigo-100 text-[9px] font-bold text-indigo-700 dark:border-slate-900 dark:bg-indigo-950 dark:text-indigo-200" style={{ marginInlineStart: memberIndex ? '-0.45rem' : 0 }}>{member.name.slice(0, 1)}</span>)}
                   {item.memberCount > 4 && <span className="org-member-avatar flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-[9px] font-bold text-slate-600 dark:border-slate-900 dark:bg-slate-800 dark:text-slate-300" style={{ marginInlineStart: '-0.45rem' }}>+{item.memberCount - 4}</span>}
                   <span className="sr-only">{item.memberCount} عضو</span>
-                </span><span className="org-card-badges"><span className="org-role-badge inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" title={`نقش شما: ${item.membership.role}`} aria-label={`نقش شما: ${item.membership.role}`}><ShieldCheck className="h-3.5 w-3.5 text-slate-400" /><span className="sr-only">نقش شما: {item.membership.role}</span></span>{canManageMembers && <span className="org-manage-members inline-flex items-center gap-1.5 rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1.5 text-[10px] font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300" title="مدیریت اعضا" aria-label="مدیریت اعضا"><Users className="h-3.5 w-3.5" /><span>مدیریت اعضا</span></span>}</span></div>
+                </span><span className="org-card-badges"><span className="org-role-badge inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" title={`نقش شما: ${organizationRoleLabel(item.membership.role)}`} aria-label={`نقش شما: ${organizationRoleLabel(item.membership.role)}`}><ShieldCheck className="h-3.5 w-3.5 text-slate-400" /><span className="sr-only">نقش شما: {organizationRoleLabel(item.membership.role)}</span></span>{canManageMembers && <span className="org-manage-members inline-flex items-center gap-1.5 rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1.5 text-[10px] font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300" title="مدیریت اعضا" aria-label="مدیریت اعضا"><Users className="h-3.5 w-3.5" /><span>مدیریت اعضا</span></span>}</span></div>
               </div>
               <div className="flex w-full flex-col gap-2 lg:w-40">
                 {isActive ? <div className="org-card-action org-active-status flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold"><Check className="h-4 w-4" />فضای فعال شما</div> : <button disabled={isBusy} onClick={() => void switchOrganization(item.organization.id)} className="org-card-action org-activate-button flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold disabled:opacity-60"><span>فعال‌سازی</span><ArrowLeft className="h-4 w-4" /></button>}
@@ -219,7 +234,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
           </motion.div>;
         })}</AnimatePresence>}
       </motion.div>}
-      {invitations.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5"><h2 className="mb-3 font-bold text-amber-900">دعوت‌نامه‌های دریافتی</h2><motion.div className="space-y-2" initial="hidden" animate="show" variants={staggerContainerVariants}>{invitations.map((inv) => <motion.div key={inv.token} variants={staggerItemVariants} className="flex items-center justify-between rounded-xl bg-white p-3"><div><p className="text-sm font-semibold text-slate-800">دعوت به عضویت · {inv.role}</p><p className="text-xs text-slate-500">{inv.email || inv.phoneNumber}</p></div><div className="flex gap-2"><button onClick={() => void respondToInvitation(inv.token, 'accept')} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">پذیرش</button><button onClick={() => void respondToInvitation(inv.token, 'reject')} className="rounded-lg bg-rose-100 px-3 py-1.5 text-xs font-semibold text-rose-700"><X className="inline h-3 w-3" /> رد</button></div></motion.div>)}</motion.div></section>}
+      {invitations.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5"><h2 className="mb-3 font-bold text-amber-900">دعوت‌نامه‌های دریافتی</h2><motion.div className="space-y-2" initial="hidden" animate="show" variants={staggerContainerVariants}>{invitations.map((inv) => <motion.div key={inv.id} variants={staggerItemVariants} className="flex items-center justify-between rounded-xl bg-white p-3"><div><p className="text-sm font-semibold text-slate-800">دعوت به عضویت · {organizationRoleLabel(inv.role)}</p><p className="text-xs text-slate-500">{inv.email || inv.phoneNumber}</p></div><span className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">لینک دعوت را از پیامک باز کنید</span></motion.div>)}</motion.div></section>}
       <CreateOrganizationModal open={isCreateModalOpen} name={name} isBusy={isBusy} onNameChange={setName} onClose={() => setIsCreateModalOpen(false)} onSubmit={createOrganization} />
     </div>
   );

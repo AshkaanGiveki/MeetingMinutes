@@ -22,11 +22,12 @@ import { NewMeetingModal } from './components/NewMeetingModal';
 import { ReviewModal } from './components/ReviewModal';
 import { RoughNotesModal } from './components/RoughNotesModal';
 import { MeetingWorkspace, getMeetingWorkspaceStage } from './components/MeetingWorkspace';
-import { AuthModal } from './components/AuthModal';
 import { AuthView } from './components/AuthView';
 import { NotificationPanel } from './components/NotificationPanel';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OrganizationsView } from './components/OrganizationsView';
+import { ProjectsView } from './components/ProjectsView';
+import { RecoveryReviewView } from './components/RecoveryReviewView';
 import { GuestSigningView } from './components/GuestSigningView';
 import { InvitationView } from './components/InvitationView';
 import { OrganizationOnboarding } from './components/OrganizationOnboarding';
@@ -73,7 +74,7 @@ export default function App() {
       return false;
     }
   });
-  type AppTab = 'meetings' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'auth' | 'invitation';
+  type AppTab = 'meetings' | 'projects' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'recovery' | 'auth' | 'invitation';
   const meetingDetailMatch = location.pathname.match(/^\/meetings\/([^/]+)$/);
   const meetingDetailId = meetingDetailMatch?.[1];
   const archivePrintMatch = location.pathname.match(/^\/archive\/print\/([^/]+)$/);
@@ -82,6 +83,8 @@ export default function App() {
     ? 'invitation'
     : location.pathname.startsWith('/archive')
     ? 'archive'
+    : location.pathname.startsWith('/projects')
+      ? 'projects'
     : location.pathname.startsWith('/templates')
       ? 'templates'
       : location.pathname.startsWith('/contacts')
@@ -90,6 +93,8 @@ export default function App() {
           ? 'settings'
           : location.pathname.startsWith('/organizations')
             ? 'organizations'
+            : location.pathname.startsWith('/recovery')
+              ? 'recovery'
             : location.pathname.startsWith('/auth')
               ? 'auth'
               : 'meetings';
@@ -112,6 +117,9 @@ export default function App() {
     organizationId?: string;
     avatar?: string;
     signatureData?: string;
+    platformRole?: 'SuperAdmin' | 'User';
+    hasProjectAccess?: boolean;
+    organizationName?: string;
   }>(() => {
     try {
       const saved = localStorage.getItem('metameet_user');
@@ -153,9 +161,9 @@ export default function App() {
   const [isNewMeetingModalOpen, setIsNewMeetingModalOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isRoughNotesModalOpen, setIsRoughNotesModalOpen] = useState(false);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isMeetingRefreshing, setIsMeetingRefreshing] = useState(false);
+  const [activeProjectContext, setActiveProjectContext] = useState<{ id: string; name: string; organizationId: string; role: string; organizationName?: string } | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -180,6 +188,32 @@ export default function App() {
       window.clearInterval(interval);
     };
   }, [isAuthenticated, activeUser.organizationId]);
+
+  useEffect(() => {
+    if (currentTab !== 'projects') setActiveProjectContext(null);
+  }, [currentTab]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let active = true;
+    const refreshAuthorization = async () => {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (!response.ok) {
+          if (active) { setIsAuthenticated(false); navigate('/auth', { replace: true }); }
+          return;
+        }
+        const data = await response.json();
+        if (!active || !data.user) return;
+        setActiveUser((previous) => ({ ...previous, userId: data.user.userId || previous.userId, name: data.user.name || previous.name, phoneNumber: data.user.phoneNumber || previous.phoneNumber, email: data.user.email || previous.email, role: (data.user.role as OrganizationRole) || previous.role, organizationId: data.user.organizationId || undefined, organizationName: data.user.organizationName || previous.organizationName, platformRole: data.user.platformRole || previous.platformRole, hasProjectAccess: data.user.hasProjectAccess ?? previous.hasProjectAccess, signatureData: data.user.signatureData || previous.signatureData }));
+        if (!data.user.organizationId && data.user.hasProjectAccess && !['projects', 'settings'].includes(currentTab)) navigate('/projects', { replace: true });
+        if (!data.user.organizationId && !data.user.hasProjectAccess && !['settings', 'auth'].includes(currentTab)) navigate('/settings', { replace: true });
+      } catch { /* Authorization refresh is retried on the next interval. */ }
+    };
+    void refreshAuthorization();
+    const interval = window.setInterval(refreshAuthorization, 30000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [isAuthenticated, navigate, currentTab]);
   const [hasUserSigned, setHasUserSigned] = useState(false);
   const setOperationError = (message: string) => {
     if (!message) return;
@@ -188,7 +222,7 @@ export default function App() {
     showSnackbar({ type: isSuccess ? 'success' : isWarning ? 'warning' : 'error', message });
   };
   const meetingUpdateSequenceRef = useRef(0);
-  const canCreateMeeting = ['Owner', 'Admin', 'User'].includes(activeUser.role);
+  const canCreateMeeting = Boolean(activeUser.organizationId) && activeUser.platformRole !== 'SuperAdmin' && activeUser.role !== 'Admin' && ['Owner', 'User'].includes(activeUser.role);
   const canManageActiveMeeting = Boolean(activeMeeting && ['DRAFT', 'IN_REVIEW'].includes(activeMeeting.status) && activeMeeting.signatureRejection?.status !== 'pending' && activeMeeting.organizer.id === activeUser.userId);
   const canEditActiveMeeting = Boolean(activeMeeting && activeMeeting.status === 'DRAFT' && activeMeeting.signatureRejection?.status !== 'pending' && (activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))));
   const canRespondToSignatureRejection = Boolean(activeMeeting && meetingPeople(activeMeeting).some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Editor')));
@@ -347,7 +381,7 @@ export default function App() {
         if (cancelled) return;
         if (!data?.user) {
           setIsAuthenticated(false);
-          navigate('/auth', { replace: true });
+          if (!inviteToken) navigate('/auth', { replace: true });
           return;
         }
 
@@ -361,6 +395,9 @@ export default function App() {
           role: (data.user.role as OrganizationRole) || prev.role,
           organizationId: data.user.organizationId || undefined,
           signatureData: data.user.signatureData || prev.signatureData,
+          platformRole: data.user.platformRole || prev.platformRole,
+          hasProjectAccess: data.user.hasProjectAccess ?? prev.hasProjectAccess,
+          organizationName: data.user.organizationName || prev.organizationName,
         }));
         // Authentication is sufficient to render the shell. Secondary data loads are
         // independent and bounded so one stalled endpoint can never strand the app on
@@ -378,7 +415,7 @@ export default function App() {
       } catch {
         if (!cancelled) {
           setIsAuthenticated(false);
-          navigate('/auth', { replace: true });
+          if (!inviteToken) navigate('/auth', { replace: true });
         }
       } finally {
         if (!cancelled) setIsBootstrapping(false);
@@ -389,7 +426,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [guestLink?.meetingId, guestLink?.token]);
+  }, [guestLink?.meetingId, guestLink?.token, inviteToken]);
 
   // Handle meeting state updates
   const handleUpdateMeeting = async (updated: Partial<Meeting>) => {
@@ -887,7 +924,7 @@ export default function App() {
     handleCreateNewMeeting(newMeeting);
   };
 
-  const handleLoginSuccess = (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => {
+  const handleLoginSuccess = (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; organizationName?: string; avatar?: string; platformRole?: 'SuperAdmin' | 'User'; hasProjectAccess?: boolean }) => {
     const updated = {
       ...activeUser,
       userId: user.userId || activeUser.userId,
@@ -897,10 +934,13 @@ export default function App() {
       avatar: user.avatar || activeUser.avatar,
       role: user.role,
       organizationId: user.organizationId || undefined,
+      platformRole: user.platformRole || activeUser.platformRole,
+      hasProjectAccess: user.hasProjectAccess ?? activeUser.hasProjectAccess,
+      organizationName: user.organizationName || activeUser.organizationName,
     };
     setActiveUser(updated);
     setIsAuthenticated(true);
-    navigate('/meetings');
+    navigate(user.organizationId ? '/meetings' : user.hasProjectAccess ? '/projects' : '/settings');
     void Promise.allSettled([loadMeetings()]);
     try {
       localStorage.setItem('metameet_user', JSON.stringify(updated));
@@ -977,7 +1017,14 @@ export default function App() {
     }
     if (!isMeetingsLoading) return <main className="min-h-screen flex items-center justify-center text-slate-600">سند بایگانی‌شده پیدا نشد.</main>;
   }
-  if (!isAuthenticated && (currentTab === 'auth' || currentTab === 'invitation')) {
+  if (!isAuthenticated && currentTab === 'invitation' && inviteToken) {
+    return <InvitationView token={inviteToken} onAccepted={(user) => {
+      handleLoginSuccess(user as { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; hasProjectAccess?: boolean });
+      void loadMeetings();
+    }} />;
+  }
+
+  if (!isAuthenticated && currentTab === 'auth') {
     return (
       <main className={`h-[100dvh] max-h-[100dvh] overflow-hidden flex items-center justify-center p-0 ${isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'}`}>
         <AuthView
@@ -993,15 +1040,24 @@ export default function App() {
 
   if (isAuthenticated && currentTab === 'invitation' && inviteToken) {
     return <InvitationView token={inviteToken} onAccepted={(user) => {
-      if (user?.organizationId) setActiveUser((previous) => ({ ...previous, organizationId: user.organizationId, role: (user.role as OrganizationRole) || previous.role }));
+      setActiveUser((previous) => ({
+        ...previous,
+        organizationId: user?.organizationId || previous.organizationId,
+        role: (user?.role as OrganizationRole) || previous.role,
+        hasProjectAccess: user?.hasProjectAccess ?? previous.hasProjectAccess,
+      }));
       void loadMeetings();
     }} />;
   }
 
-  if (isAuthenticated && !activeUser.organizationId) {
+  if (isAuthenticated && !activeUser.organizationId && !activeUser.hasProjectAccess && !['settings', 'recovery'].includes(currentTab)) {
     return (
       <OrganizationOnboarding
         name={activeUser.name}
+        onProfile={() => navigate('/settings')}
+        onSignOut={() => void handleLogout()}
+        isSuperAdmin={activeUser.platformRole === 'SuperAdmin'}
+        onRecoveryReview={() => navigate('/recovery')}
         onOrganizationReady={(user) => {
           const updated = { ...activeUser, organizationId: user.organizationId, role: (user.role as OrganizationRole) || activeUser.role };
           setActiveUser(updated);
@@ -1040,7 +1096,6 @@ export default function App() {
           sealedMeetingsCount={sealedCount}
           onOpenNewMeeting={isAuthenticated && canCreateMeeting ? () => setIsNewMeetingModalOpen(true) : undefined}
           currentUser={isAuthenticated ? activeUser : undefined}
-          onOpenAuth={() => setIsAuthModalOpen(true)}
           onLogout={handleLogout}
         />
       </div>
@@ -1061,6 +1116,8 @@ export default function App() {
             unreadCount={unreadNotificationCount}
             onOpenRoughNotes={isAuthenticated && canCreateMeeting ? () => setIsRoughNotesModalOpen(true) : undefined}
             onLogout={isAuthenticated ? handleLogout : undefined}
+            contextLabel={activeProjectContext ? `${activeProjectContext.organizationName || activeUser.organizationName || 'سازمان'} · ${activeProjectContext.name}` : (activeUser.organizationName || (activeUser.hasProjectAccess ? 'پروژه‌های مجاز' : undefined))}
+            contextRole={activeProjectContext?.role || activeUser.role}
           />
         </div>
 
@@ -1091,14 +1148,31 @@ export default function App() {
               setTimeout(() => setOperationError(''), 3500);
             }} />
           ) : currentTab === 'contacts' ? (
-            <ContactsView isAuthenticated={isAuthenticated} organizationId={activeUser.organizationId} canManageMembers={['Owner', 'Admin'].includes(activeUser.role)} />
+            <ContactsView
+              isAuthenticated={isAuthenticated}
+              organizationId={activeUser.organizationId}
+              canManageMembers={['Owner', 'Admin'].includes(activeUser.role)}
+              canAppointOrganizationAdmin={activeUser.platformRole === 'SuperAdmin'}
+              platformRole={activeUser.platformRole}
+            />
+          ) : currentTab === 'projects' ? (
+            <ProjectsView isAuthenticated={isAuthenticated} organizationId={activeUser.organizationId} organizationName={activeUser.organizationName} onProjectContextChange={setActiveProjectContext} />
+          ) : currentTab === 'recovery' ? (
+            <RecoveryReviewView />
           ) : currentTab === 'organizations' ? (
             <OrganizationsView
               isAuthenticated={isAuthenticated}
+              platformRole={activeUser.platformRole}
               activeOrganizationId={activeUser.organizationId}
               onOrganizationChanged={(user) => {
                 setActiveUser((previous) => {
-                  const updated = { ...previous, role: (user.role as OrganizationRole) || previous.role, organizationId: user.organizationId };
+                  const updated = {
+                    ...previous,
+                    role: (user.role as OrganizationRole) || previous.role,
+                    organizationId: user.organizationId,
+                    organizationName: user.organizationName || previous.organizationName,
+                  };
+                  setActiveProjectContext(null);
                   try { localStorage.setItem('metameet_user', JSON.stringify(updated)); } catch {}
                   return updated;
                 });
@@ -1364,18 +1438,6 @@ export default function App() {
         organizer={activeParticipant}
       />
 
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        currentRole={activeUser.role}
-        onRoleChange={(role) => {
-          setActiveUser((prev) => ({ ...prev, role }));
-        }}
-        currentUserName={activeUser.name}
-        currentUserEmail={activeUser.phoneNumber}
-        onLoginSuccess={handleLoginSuccess}
-        onLogout={handleLogout}
-      />
     </div>
   );
 }

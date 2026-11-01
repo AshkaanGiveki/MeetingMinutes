@@ -1,12 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { Calendar, ChevronLeft, FileText, FolderArchive, Home, Layers, Search, Settings, Sparkles, Users, Building2, Menu, X, Palette, LogOut } from 'lucide-react';
+import { Calendar, ChevronLeft, FileText, FileSearch, FolderArchive, Home, Layers, Search, Settings, Sparkles, Users, Building2, FolderKanban, Menu, X, Palette, LogOut } from 'lucide-react';
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import moonIcon from '../assets/icons/moon.png';
 import notificationIcon from '../assets/icons/notification.png';
 import sunIcon from '../assets/icons/sun.png';
 import logoIcon from '../assets/icons/Logo.png';
 import wordmarkIcon from '../assets/icons/typo.png';
+import { organizationRoleLabel } from '../utils/organization';
 
 interface TopBarProps {
   currentTab: string;
@@ -20,6 +21,8 @@ interface TopBarProps {
   onOpenNotifications?: () => void;
   onOpenRoughNotes?: () => void;
   onLogout?: () => void;
+  contextLabel?: string;
+  contextRole?: string;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -34,6 +37,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenNotifications,
   onOpenRoughNotes,
   onLogout,
+  contextLabel,
+  contextRole,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [showMobileWordmark, setShowMobileWordmark] = React.useState(false);
@@ -44,6 +49,8 @@ export const TopBar: React.FC<TopBarProps> = ({
     { id: 'contacts', label: 'اعضا و امضاکنندگان', icon: Users },
     { id: 'settings', label: 'تنظیمات و امنیت', icon: Settings },
     { id: 'organizations', label: 'سازمان‌های من', icon: Building2 },
+    { id: 'projects', label: 'پروژه‌های من', icon: FolderKanban },
+    { id: 'recovery', label: 'بررسی بازیابی شماره', icon: FileSearch },
   ];
   const currentBreadcrumb = breadcrumbItems.find((item) => item.id === currentTab) || breadcrumbItems[0];
   const CurrentBreadcrumbIcon = currentBreadcrumb.icon;
@@ -75,6 +82,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     { id: 'templates', label: 'قالب‌های صورت‌جلسه', icon: Layers },
     { id: 'contacts', label: 'اعضا و امضاکنندگان', icon: Users },
     { id: 'organizations', label: 'سازمان‌های من', icon: Building2 },
+    { id: 'projects', label: 'پروژه‌های من', icon: FolderKanban },
     { id: 'settings', label: 'تنظیمات و امنیت', icon: Settings },
   ];
 
@@ -214,6 +222,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="truncate text-xs font-extrabold tracking-tight text-slate-900 dark:text-white">{isMeetingDetail ? detailLabel : currentBreadcrumb.label}</span>
         </motion.button>
       </AnimatePresence>
+      {contextLabel && <span className="mr-3 hidden max-w-48 truncate rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 lg:inline-flex" title={contextLabel}>{contextLabel}{contextRole ? ` · ${organizationRoleLabel(contextRole)}` : ''}</span>}
     </div>
     </div>
   </header>

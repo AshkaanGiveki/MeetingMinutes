@@ -16,3 +16,4 @@ export function formatIranianPhoneInput(value: string): string {
   if (compact.startsWith('9')) return `0${compact.slice(0, 10)}`;
   return compact.slice(0, 11);
 }
+

@@ -25,6 +25,10 @@ import { documentExists, getMeetingPdfPath, generateMeetingPdf } from './src/ser
 import { generateHtmlMeetingPdf } from './src/server/services/html-pdf.service';
 import { templateRepository } from './src/server/repositories/template.repository';
 import { organizationService } from './src/server/services/organization.service';
+import { accessService } from './src/server/services/access.service';
+import { otpService } from './src/server/services/otp.service';
+import { mobileChangeService } from './src/server/services/mobile-change.service';
+import { authFlags } from './src/server/config/auth-flags';
 import { generateAiMinutes, transcribeAudio } from './src/server/services/ai-minutes.service';
 import { ASSIGNABLE_MEETING_ROLES, canTransitionMeeting, getMeetingParticipantRoles, getMissingRequiredMeetingRoles, hasMeetingRole, hasPermission, MeetingRole, OrganizationRole, Permission, requiredMeetingRoleForPermission, RolePermissionsMap } from './src/server/policies/rbac';
 import {
@@ -49,6 +53,12 @@ if (process.env.NODE_ENV === 'production') {
   }
   if (process.env.EMAIL_PROVIDER === 'resend' && !process.env.EMAIL_API_KEY) {
     throw new Error('EMAIL_API_KEY is required when EMAIL_PROVIDER=resend.');
+  }
+  if (process.env.SMS_LIVE === 'true' && process.env.SMS_DRY_RUN !== 'true') {
+    if (!process.env.SMS_PROVIDER) throw new Error('SMS_PROVIDER is required when live SMS is enabled.');
+    if ((process.env.SMS_PROVIDER === 'sms.ir' || process.env.SMS_PROVIDER === 'smsir') && (!process.env.SMS_API_KEY || !process.env.SMS_LINE_NUMBER)) {
+      throw new Error('SMS_API_KEY and SMS_LINE_NUMBER are required for live SMS.ir delivery.');
+    }
   }
 }
 
@@ -160,6 +170,10 @@ type RequestWithAuth = express.Request & { auth?: AuthSession };
 
 const publicApiPaths = [
   /^\/api\/auth\/(login|register|forgot-password|reset-password|forgot-password-sms|reset-password-sms)$/,
+  /^\/api\/auth\/otp\/(request|verify)$/,
+  /^\/api\/invitations\/[^/]+$/,
+  /^\/api\/invitations\/[^/]+\/otp\/(request|verify)$/,
+  /^\/api\/invitations\/[^/]+\/accept$/,
   /^\/api\/auth\/me$/,
   /^\/api\/queues\/[^/]+$/,
   /^\/api\/telegram\/webhook$/,
@@ -197,7 +211,7 @@ app.use(async (req, res, next) => {
 function requirePermission(permission: Parameters<typeof hasPermission>[1]) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const auth = (req as RequestWithAuth).auth;
-    if (!auth || !(auth.permissions?.includes(permission) || hasPermission(auth.role as OrganizationRole, permission))) {
+    if (!auth || !auth.permissions?.includes(permission)) {
       return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     return next();
@@ -502,46 +516,115 @@ const passwordResetTokens = new Map<string, { phoneNumber?: string; email?: stri
 const signatureOtpStore = new Map<string, { code: string; expiresAt: number; attempts?: number }>();
 
 app.post('/api/auth/register', async (req, res) => {
-  const { phoneNumber, email = '', password, name, inviteToken } = req.body;
-  if (typeof phoneNumber !== 'string' || typeof password !== 'string' || typeof name !== 'string' || !phoneNumber.trim() || !name.trim()) {
-    return res.status(400).json({ error: 'نام کامل، ایمیل سازمانی و رمز عبور الزامی است.' });
-  }
+  if (!authFlags.publicRegistrationDisabled) return res.status(501).json({ error: 'Public registration flag is not supported for this PRD configuration.' });
+  return res.status(410).json({ error: 'Public registration is disabled. Use an administrator-issued mobile OTP invitation.' });
+});
 
-  if (!isPasswordStrong(password)) {
-    return res.status(400).json({
-      error: 'رمز عبور باید حداقل ۸ کاراکتر و شامل حروف کوچک، حروف بزرگ، اعداد و نمادهای خاص باشد.',
-    });
-  }
+app.get('/api/invitations/:token', async (req, res) => {
+  const db = getDb();
+  const invitation = db ? await db.collection<any>('organization_invitations').findOne({ token: req.params.token, status: 'pending' }) : null;
+  if (!invitation) return res.status(404).json({ error: 'Invitation is invalid or expired.' });
+  if (invitation.expiresAt < Date.now()) { await db?.collection('organization_invitations').updateOne({ token: req.params.token, status: 'pending' }, { $set: { status: 'expired' } }); return res.status(404).json({ error: 'Invitation is invalid or expired.' }); }
+  const organization = db ? await db.collection<any>('organizations').findOne({ id: invitation.organizationId }, { projection: { _id: 0, id: 1, name: 1 } }) : null;
+  return res.json({ success: true, invitation: { id: invitation.id, organizationId: invitation.organizationId, organizationName: organization?.name, projectId: invitation.projectId, role: invitation.offeredRole || invitation.role, maskedPhone: invitation.phoneNumber ? `${String(invitation.phoneNumber).slice(0, 4)}****${String(invitation.phoneNumber).slice(-2)}` : undefined, expiresAt: invitation.expiresAt } });
+});
 
+app.post('/api/invitations/:token/otp/request', async (req, res) => {
+  const db = getDb();
+  const invitation = db ? await db.collection<any>('organization_invitations').findOne({ token: req.params.token, status: 'pending' }) : null;
+  if (!invitation || invitation.expiresAt < Date.now() || typeof invitation.phoneNumber !== 'string') return res.status(404).json({ error: 'Invitation is invalid or expired.' });
+  const issued = await otpService.issue('invitation_acceptance', normalizePhoneNumber(invitation.phoneNumber), req.params.token);
+  if (!issued.ok) return res.status(503).json({ error: issued.reason || 'OTP could not be sent.' });
+  await db?.collection('access_audit_logs').insertOne({ id: `access_audit_${crypto.randomUUID()}`, action: 'invitation_otp_issued', invitationId: invitation.id, organizationId: invitation.organizationId, createdAt: new Date().toISOString() });
+  return res.json({ success: true, expiresAt: issued.expiresAt, ...(issued.code ? { demoOtp: issued.code } : {}) });
+});
+
+app.post('/api/invitations/:token/accept', async (req, res) => {
+  const db = getDb();
+  const invitation = db ? await db.collection<any>('organization_invitations').findOne({ token: req.params.token }) : null;
+  if (!invitation || invitation.expiresAt < Date.now() || typeof invitation.phoneNumber !== 'string') return res.status(400).json({ error: 'Invitation is invalid or expired.' });
+  if (invitation.status === 'accepted') {
+    const acceptedSession = req.cookies[SESSION_COOKIE_NAME] ? await authService.verifySessionAsync(req.cookies[SESSION_COOKIE_NAME]) : null;
+    if (acceptedSession?.userId === invitation.acceptedAccountId) return res.json({ success: true, user: acceptedSession });
+    return res.status(409).json({ error: 'This invitation has already been accepted.' });
+  }
+  if (invitation.status !== 'pending') return res.status(400).json({ error: 'Invitation is invalid or expired.' });
+  const phoneNumber = normalizePhoneNumber(invitation.phoneNumber);
+  const existingSession = req.cookies[SESSION_COOKIE_NAME] ? await authService.verifySessionAsync(req.cookies[SESSION_COOKIE_NAME]) : null;
+  const invitationAccount = db ? await db.collection<any>('users').findOne({ phoneNumber }, { projection: { id: 1 } }) : null;
+  if (existingSession && (!invitationAccount || existingSession.userId !== invitationAccount.id)) return res.status(403).json({ error: 'This invitation is fixed to another mobile account. Sign out and use the invited number.' });
+  const code = typeof req.body?.code === 'string' || typeof req.body?.code === 'number' ? String(req.body.code) : '';
+  const verification = await otpService.verify('invitation_acceptance', phoneNumber, code, req.params.token);
+  await db?.collection('access_audit_logs').insertOne({ id: `access_audit_${crypto.randomUUID()}`, action: verification.ok ? 'invitation_otp_verified' : 'invitation_otp_failed', invitationId: invitation.id, organizationId: invitation.organizationId, createdAt: new Date().toISOString() });
+  if (!verification.ok) return res.status(401).json({ error: verification.reason });
+  const claimed = db ? await db.collection('organization_invitations').updateOne({ token: req.params.token, status: 'pending' }, { $set: { status: 'processing', processingAt: new Date().toISOString() } }) : null;
+  if (!claimed?.modifiedCount) return res.status(409).json({ error: 'This invitation is already being accepted or is no longer available.' });
+  const firstName = typeof req.body?.firstName === 'string' ? req.body.firstName.trim() : '';
+  const lastName = typeof req.body?.lastName === 'string' ? req.body.lastName.trim() : '';
+  const existingUser = db ? await db.collection<any>('users').findOne({ phoneNumber }) : null;
+  if (!existingUser && (!firstName || !lastName)) {
+    await db?.collection('organization_invitations').updateOne({ token: req.params.token, status: 'processing' }, { $set: { status: 'pending' }, $unset: { processingAt: '' } });
+    return res.status(400).json({ error: 'First name and last name are required for a new account.' });
+  }
   try {
-    // Public registration never accepts a privileged role from the client.
-    const result = await authService.register(email, password, name.trim(), phoneNumber);
-    if (!result) {
-      return res.status(400).json({ error: 'خطا در ثبت‌نام کاربر.' });
+    const user = existingUser || await authService.createInvitedUser(phoneNumber, firstName, lastName);
+    const context = invitation.scopeType === 'project'
+      ? await accessService.acceptProjectInvitation(user.id, req.params.token)
+      : await organizationService.acceptInvitation(user.id, req.params.token);
+    if (!context) {
+      await db?.collection('organization_invitations').updateOne({ token: req.params.token, status: 'processing' }, { $set: { status: 'pending' }, $unset: { processingAt: '' } });
+      return res.status(400).json({ error: 'Invitation cannot be accepted by this account.' });
     }
-
-    if (typeof inviteToken === 'string' && inviteToken.trim()) {
-      const context = await organizationService.acceptInvitation(result.user.userId, inviteToken.trim());
-      if (context) {
-        const switched = await authService.switchOrganization(result.sessionToken, result.user.userId, context.organization.id);
-        if (switched) result.user = switched;
-      }
+    const session = await authService.createSessionForUser(user.id);
+    if (!session) {
+      await db?.collection('organization_invitations').updateOne({ token: req.params.token, status: 'processing' }, { $set: { status: 'pending' }, $unset: { processingAt: '' } });
+      return res.status(500).json({ error: 'Account session could not be created.' });
     }
-    res.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 3600 * 1000,
-    });
-
-    return res.json({ success: true, user: result.user });
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'خطا در ثبت نام';
-    return res.status(400).json({ error: errorMsg });
+    res.cookie(SESSION_COOKIE_NAME, session.sessionToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000 });
+    return res.json({ success: true, user: session.user, organization: 'organization' in context ? context.organization : undefined, project: 'project' in context ? context.project : undefined });
+  } catch (error) {
+    await db?.collection('organization_invitations').updateOne({ token: req.params.token, status: 'processing' }, { $set: { status: 'pending' }, $unset: { processingAt: '' } });
+    throw error;
   }
 });
 
+app.post('/api/auth/otp/request', async (req, res) => {
+  if (!authFlags.otpLogin) return res.status(404).json({ error: 'OTP login is not enabled.' });
+  const rawPhone = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber : '';
+  if (!rawPhone.trim()) return res.status(400).json({ error: 'Phone number is required.' });
+  let phoneNumber: string;
+  try { phoneNumber = normalizePhoneNumber(rawPhone); } catch { return res.status(400).json({ error: 'Invalid phone number.' }); }
+  const rateLimit = await redisService.checkRateLimit(req.ip || 'ip', 'otp-login', 5, 60);
+  if (!rateLimit.allowed) return res.status(429).json({ error: 'Too many OTP requests. Please try again later.' });
+  const db = getDb();
+  const user = db ? await db.collection<any>('users').findOne({ phoneNumber }, { projection: { id: 1, accountStatus: 1 } }) : null;
+  // Keep the response neutral for unknown numbers; do not create an account here.
+  if (!user || user.accountStatus === 'provisional') return res.json({ success: true });
+  const issued = await otpService.issue('login', phoneNumber);
+  if (!issued.ok) return res.status(503).json({ error: issued.reason || 'OTP could not be sent.' });
+  return res.json({ success: true, expiresAt: issued.expiresAt, ...(issued.code ? { demoOtp: issued.code } : {}) });
+});
+
+app.post('/api/auth/otp/verify', async (req, res) => {
+  if (!authFlags.otpLogin) return res.status(404).json({ error: 'OTP login is not enabled.' });
+  const rawPhone = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber : '';
+  const code = typeof req.body?.code === 'string' || typeof req.body?.code === 'number' ? String(req.body.code) : '';
+  if (!rawPhone.trim() || !code.trim()) return res.status(400).json({ error: 'Phone number and OTP are required.' });
+  let phoneNumber: string;
+  try { phoneNumber = normalizePhoneNumber(rawPhone); } catch { return res.status(400).json({ error: 'Invalid phone number.' }); }
+  const verification = await otpService.verify('login', phoneNumber, code);
+  if (!verification.ok) return res.status(401).json({ error: verification.reason });
+  const db = getDb();
+  const user = db ? await db.collection<any>('users').findOne({ phoneNumber, accountStatus: { $ne: 'provisional' } }, { projection: { id: 1 } }) : null;
+  if (!user) return res.status(401).json({ error: 'Invalid OTP or account.' });
+  const result = await authService.createSessionForUser(user.id);
+  if (!result) return res.status(401).json({ error: 'Invalid OTP or account.' });
+  res.cookie(SESSION_COOKIE_NAME, result.sessionToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000 });
+  return res.json({ success: true, user: result.user });
+});
+
 app.post('/api/auth/forgot-password', async (req, res) => {
+  if (!authFlags.passwordLogin) return res.status(410).json({ error: 'Password authentication has been retired. Use mobile OTP login.' });
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'آدرس ایمیل الزامی است.' });
@@ -570,6 +653,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 });
 
 app.post('/api/auth/reset-password', async (req, res) => {
+  if (!authFlags.passwordLogin) return res.status(410).json({ error: 'Password authentication has been retired. Use mobile OTP login.' });
   const { email, code, newPassword } = req.body;
   if (!email || !code || !newPassword) {
     return res.status(400).json({ error: 'ایمیل، کد تأیید و رمز عبور جدید الزامی هستند.' });
@@ -606,6 +690,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 // Document Signature OTP Endpoints (2-Factor Legal Signing)
 // -------------------------------------------------------------
 app.post('/api/auth/forgot-password-sms', async (req, res) => {
+  if (!authFlags.passwordLogin) return res.status(410).json({ error: 'Password authentication has been retired. Use mobile OTP login.' });
   const { phoneNumber } = req.body || {};
   if (typeof phoneNumber !== 'string') return res.status(400).json({ error: 'Phone number is required.' });
   let normalizedPhone: string;
@@ -620,6 +705,7 @@ app.post('/api/auth/forgot-password-sms', async (req, res) => {
 });
 
 app.post('/api/auth/reset-password-sms', async (req, res) => {
+  if (!authFlags.passwordLogin) return res.status(410).json({ error: 'Password authentication has been retired. Use mobile OTP login.' });
   const { phoneNumber, code, newPassword } = req.body || {};
   if (typeof phoneNumber !== 'string' || !code || typeof newPassword !== 'string') return res.status(400).json({ error: 'Phone number, code, and new password are required.' });
   let normalizedPhone: string;
@@ -713,6 +799,7 @@ app.post('/api/signature/otp/verify', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
+  if (!authFlags.passwordLogin) return res.status(410).json({ error: 'Password authentication has been retired. Use mobile OTP login.' });
   const phoneNumber = req.body?.phoneNumber || req.body?.identifier || req.body?.email;
   const { password } = req.body;
   if (!phoneNumber || !password) {
@@ -793,14 +880,189 @@ app.get('/api/organizations', async (req, res) => {
   return res.json({ success: true, organizations: await organizationService.listForUser(auth.userId), activeOrganizationId: auth.organizationId });
 });
 
-app.post('/api/organizations', async (req, res) => {
+app.get('/api/admin/organizations', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
+  if (!(await accessService.isSuperAdmin(auth.userId))) return res.status(403).json({ error: 'Only a Super Admin can view the administrative organization list.' });
+  return res.json({ success: true, organizations: await organizationService.listAdministrativeOrganizations() });
+});
+
+app.post('/api/organizations', async (req, res) => {
+  if (!authFlags.superAdminProvisioning) return res.status(404).json({ error: 'Organization provisioning is disabled.' });
+  const auth = (req as RequestWithAuth).auth!;
+  if (!(await accessService.isSuperAdmin(auth.userId))) {
+    return res.status(403).json({ error: 'Only a Super Admin can create an organization.' });
+  }
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
   if (name.length < 2 || name.length > 120) return res.status(400).json({ error: 'Organization name is invalid.' });
   const context = await organizationService.create(auth.userId, name);
   const token = req.cookies[SESSION_COOKIE_NAME];
   const session = token ? await authService.switchOrganization(token, auth.userId, context.organization.id) : null;
   return res.json({ success: true, organization: context.organization, user: session || auth });
+});
+
+app.get('/api/projects', async (req, res) => {
+  if (!authFlags.projectNavigation) return res.json({ success: true, projects: [] });
+  const auth = (req as RequestWithAuth).auth!;
+  return res.json({ success: true, projects: await accessService.listForUser(auth.userId) });
+});
+
+app.get('/api/projects/capabilities', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const organizationId = typeof req.query.organizationId === 'string' ? req.query.organizationId : auth.organizationId;
+  return res.json({ success: true, canCreate: Boolean(organizationId && await accessService.canCreateProject(auth.userId, organizationId)) });
+});
+
+app.get('/api/projects/:id/internal-candidates', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const candidates = await accessService.listInternalCandidates(auth.userId, req.params.id);
+  return res.json({ success: true, candidates });
+});
+
+app.get('/api/projects/:id', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const details = await accessService.getProjectDetails(auth.userId, req.params.id);
+  return details ? res.json({ success: true, ...details }) : res.status(404).json({ error: 'Project not found or access is not authorized.' });
+});
+
+app.post('/api/projects', async (req, res) => {
+  if (!authFlags.projectNavigation) return res.status(404).json({ error: 'Project access is not enabled.' });
+  const auth = (req as RequestWithAuth).auth!;
+  const organizationId = typeof req.body?.organizationId === 'string' ? req.body.organizationId : auth.organizationId || 'platform';
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (name.length < 2 || name.length > 160) return res.status(400).json({ error: 'Project name is invalid.' });
+  const project = await accessService.createProject(auth.userId, organizationId, name);
+  return project ? res.status(201).json({ success: true, project }) : res.status(403).json({ error: 'Project Manager eligibility is required in this organization.' });
+});
+
+app.post('/api/projects/:id/invitations', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const rawPhone = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber : '';
+  const offeredRole = req.body?.role === 'ReceivingLead' || req.body?.role === 'ReceivingMember' ? req.body.role : '';
+  if (!rawPhone.trim() || !offeredRole) return res.status(400).json({ error: 'Phone number and a valid receiving role are required.' });
+  let phoneNumber: string;
+  try { phoneNumber = normalizePhoneNumber(rawPhone); } catch { return res.status(400).json({ error: 'Invalid phone number.' }); }
+  const invitation = await accessService.createProjectInvitation(auth.userId, req.params.id, phoneNumber, offeredRole);
+  if (!invitation) return res.status(403).json({ error: 'You do not have authority to invite this project role.' });
+  const delivery = await smsService.sendMessage(phoneNumber, `دعوت دسترسی پروژه در اکورد: ${process.env.APP_URL || 'http://localhost:3000'}/invite/${invitation.token}`);
+  await organizationService.markDelivery(invitation.token, 'sms', delivery.success ? 'Submitted to SMS provider' : 'Failed', delivery.providerMessageId, delivery.error);
+  if (!delivery.success) return res.status(503).json({ error: delivery.error || 'Project invitation delivery failed.', code: 'DELIVERY_FAILED' });
+  return res.status(201).json({ success: true, invitation: { id: invitation.id, projectId: invitation.projectId, role: invitation.offeredRole, expiresAt: invitation.expiresAt }, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${invitation.token}` });
+});
+
+app.post('/api/projects/:id/invitations/copy', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const rawPhone = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber : '';
+  const offeredRole = req.body?.role === 'ReceivingLead' || req.body?.role === 'ReceivingMember' ? req.body.role : '';
+  if (!rawPhone.trim() || !offeredRole) return res.status(400).json({ error: 'Phone number and a valid receiving role are required.' });
+  let phoneNumber: string;
+  try { phoneNumber = normalizePhoneNumber(rawPhone); } catch { return res.status(400).json({ error: 'Invalid phone number.' }); }
+  const invitation = await accessService.createProjectInvitation(auth.userId, req.params.id, phoneNumber, offeredRole);
+  if (!invitation) return res.status(403).json({ error: 'You do not have authority to invite this project role.' });
+  await accessService.copyProjectInvitation(auth.userId, req.params.id, invitation.token);
+  return res.status(201).json({ success: true, invitation: { id: invitation.id, projectId: invitation.projectId, role: invitation.offeredRole, expiresAt: invitation.expiresAt }, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${invitation.token}` });
+});
+
+app.get('/api/projects/:id/invitations/managed', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  return res.json({ success: true, invitations: await accessService.listProjectInvitations(auth.userId, req.params.id) });
+});
+
+app.post('/api/projects/:id/invitations/:token/copy-link', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const token = await accessService.copyProjectInvitation(auth.userId, req.params.id, req.params.token);
+  return token ? res.json({ success: true, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${token}` }) : res.status(404).json({ error: 'A valid project invitation was not found.' });
+});
+
+app.post('/api/projects/:id/invitations/:token/reissue', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const invitation = await accessService.reissueProjectInvitation(auth.userId, req.params.id, req.params.token);
+  return invitation ? res.json({ success: true, invitation: { id: invitation.id, status: invitation.status, expiresAt: invitation.expiresAt }, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${invitation.token}` }) : res.status(404).json({ error: 'Project invitation cannot be reissued.' });
+});
+
+app.delete('/api/projects/:id/invitations/:token', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const cancelled = await accessService.cancelProjectInvitation(auth.userId, req.params.id, req.params.token);
+  return cancelled ? res.json({ success: true }) : res.status(404).json({ error: 'Project invitation not found.' });
+});
+
+app.post('/api/projects/:id/invitations/by-id/:invitationId/reissue', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const invitation = await accessService.reissueProjectInvitationById(auth.userId, req.params.id, req.params.invitationId);
+  return invitation ? res.json({ success: true, invitation: { id: invitation.id, status: invitation.status, expiresAt: invitation.expiresAt } }) : res.status(404).json({ error: 'Project invitation cannot be reissued.' });
+});
+
+app.delete('/api/projects/:id/invitations/by-id/:invitationId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const cancelled = await accessService.cancelProjectInvitationById(auth.userId, req.params.id, req.params.invitationId);
+  return cancelled ? res.json({ success: true }) : res.status(404).json({ error: 'Project invitation not found.' });
+});
+
+app.post('/api/organizations/:id/project-manager-eligibility/:userId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const eligibility = await accessService.grantProjectManagerEligibility(auth.userId, req.params.id, req.params.userId);
+  return eligibility ? res.json({ success: true, eligibility }) : res.status(403).json({ error: 'Organization management permission is required and the target must be an active internal member.' });
+});
+
+app.delete('/api/organizations/:id/project-manager-eligibility/:userId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const result = await accessService.revokeProjectManagerEligibility(auth.userId, req.params.id, req.params.userId);
+  return result.ok ? res.json({ success: true }) : res.status(400).json({ error: result.reason });
+});
+
+app.post('/api/organizations/:id/admins/:userId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const updated = await accessService.appointOrganizationAdmin(auth.userId, req.params.id, req.params.userId);
+  return updated ? res.json({ success: true }) : res.status(403).json({ error: 'Only a Super Admin can appoint an active organization member as Organization Admin.' });
+});
+
+app.delete('/api/organizations/:id/admins/:userId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const updated = await accessService.removeOrganizationAdmin(auth.userId, req.params.id, req.params.userId);
+  return updated ? res.json({ success: true }) : res.status(404).json({ error: 'Organization Admin assignment not found.' });
+});
+
+app.post('/api/projects/:id/manager', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const nextManagerUserId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  if (!nextManagerUserId) return res.status(400).json({ error: 'Replacement manager is required.' });
+  const result = await accessService.transferProjectManager(auth.userId, req.params.id, nextManagerUserId);
+  return result.ok ? res.json({ success: true, project: result.project }) : res.status(400).json({ error: result.reason });
+});
+
+app.post('/api/projects/:id/execution-members', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  if (!userId) return res.status(400).json({ error: 'User is required.' });
+  const membership = await accessService.addExecutionMember(auth.userId, req.params.id, userId);
+  return membership ? res.status(201).json({ success: true, membership }) : res.status(403).json({ error: 'Only the Project Manager can add active internal members.' });
+});
+
+app.delete('/api/projects/:id/execution-members/:userId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const removed = await accessService.removeExecutionMember(auth.userId, req.params.id, req.params.userId);
+  return removed ? res.json({ success: true }) : res.status(404).json({ error: 'Execution membership not found.' });
+});
+
+app.delete('/api/projects/:id/receiving-members/:userId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const removed = await accessService.removeReceivingMember(auth.userId, req.params.id, req.params.userId);
+  return removed ? res.json({ success: true }) : res.status(403).json({ error: 'Only the Receiving Lead can remove an ordinary receiving member.' });
+});
+
+app.post('/api/projects/:id/receiving-lead', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  if (!userId) return res.status(400).json({ error: 'Receiving Lead is required.' });
+  const membership = await accessService.appointReceivingLead(auth.userId, req.params.id, userId);
+  return membership ? res.json({ success: true, membership }) : res.status(403).json({ error: 'Only the Project Manager can appoint the Receiving Lead.' });
+});
+
+app.post('/api/projects/:id/receiving-members', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  if (!userId) return res.status(400).json({ error: 'User is required.' });
+  const membership = await accessService.addReceivingMember(auth.userId, req.params.id, userId);
+  return membership ? res.status(201).json({ success: true, membership }) : res.status(403).json({ error: 'Only the Receiving Lead can add receiving members.' });
 });
 
 app.patch('/api/organizations/:id', async (req, res) => {
@@ -831,12 +1093,7 @@ app.get('/api/organizations/invitations', async (req, res) => {
 });
 
 app.post('/api/organizations/invitations/:token/accept', async (req, res) => {
-  const auth = (req as RequestWithAuth).auth!;
-  const context = await organizationService.acceptInvitation(auth.userId, req.params.token);
-  if (!context) return res.status(400).json({ error: 'Invitation is invalid, expired, or not addressed to this account.' });
-  const token = req.cookies[SESSION_COOKIE_NAME];
-  const session = token ? await authService.switchOrganization(token, auth.userId, context.organization.id) : null;
-  return res.json({ success: true, user: session || auth, organization: context.organization });
+  return res.status(410).json({ error: 'Invitation acceptance requires the fixed-mobile OTP flow.' });
 });
 
 app.post('/api/organizations/invitations/:token/reject', async (req, res) => {
@@ -847,8 +1104,47 @@ app.post('/api/organizations/invitations/:token/reject', async (req, res) => {
 
 app.delete('/api/organizations/:id/invitations/:token', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
-  if (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage'))) return res.status(403).json({ error: 'You do not have permission to cancel invitations.' });
+  const superAdmin = await accessService.isSuperAdmin(auth.userId);
+  if (!superAdmin && (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage')))) return res.status(403).json({ error: 'You do not have permission to cancel invitations.' });
   const cancelled = await organizationService.cancelInvitation(auth.userId, req.params.token);
+  return cancelled ? res.json({ success: true }) : res.status(404).json({ error: 'Invitation not found.' });
+});
+
+app.get('/api/organizations/:id/invitations/managed', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const invitations = await organizationService.listOrganizationInvitations(auth.userId, req.params.id);
+  return res.json({ success: true, invitations });
+});
+
+app.post('/api/organizations/:id/invitations/:token/copy-link', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const token = await organizationService.copyLink(auth.userId, req.params.id, req.params.token);
+  if (!token) return res.status(404).json({ error: 'A valid authorized pending invitation was not found.' });
+  return res.json({ success: true, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${token}` });
+});
+
+app.post('/api/organizations/:id/invitations/:token/reissue', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const invitation = await organizationService.reissueInvitation(auth.userId, req.params.id, req.params.token);
+  if (!invitation) return res.status(404).json({ error: 'Invitation cannot be reissued.' });
+  return res.json({ success: true, invitation: { id: invitation.id, status: invitation.status, expiresAt: invitation.expiresAt }, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${invitation.token}` });
+});
+
+app.post('/api/organizations/:id/invitations/by-id/:invitationId/copy-link', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const token = await organizationService.copyLinkById(auth.userId, req.params.id, req.params.invitationId);
+  return token ? res.json({ success: true, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${token}` }) : res.status(404).json({ error: 'Invitation not found.' });
+});
+
+app.post('/api/organizations/:id/invitations/by-id/:invitationId/reissue', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const invitation = await organizationService.reissueInvitationById(auth.userId, req.params.id, req.params.invitationId);
+  return invitation ? res.json({ success: true, invitation: { id: invitation.id, status: invitation.status, expiresAt: invitation.expiresAt }, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${invitation.token}` }) : res.status(404).json({ error: 'Invitation cannot be reissued.' });
+});
+
+app.delete('/api/organizations/:id/invitations/by-id/:invitationId', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const cancelled = await organizationService.cancelInvitationById(auth.userId, req.params.id, req.params.invitationId);
   return cancelled ? res.json({ success: true }) : res.status(404).json({ error: 'Invitation not found.' });
 });
 
@@ -865,22 +1161,30 @@ app.post('/api/organizations/:id/leave', async (req, res) => {
 
 app.get('/api/organizations/:id/members', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
-  if (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage'))) return res.status(403).json({ error: 'You do not have permission to view organization members.' });
+  const superAdmin = await accessService.isSuperAdmin(auth.userId);
+  if (!superAdmin && (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage')))) return res.status(403).json({ error: 'You do not have permission to view organization members.' });
   return res.json({ success: true, members: await organizationService.listMembers(req.params.id) });
 });
 
 app.post('/api/organizations/:id/invitations', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
-  if (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage'))) return res.status(403).json({ error: 'You do not have permission to invite members.' });
+  const superAdmin = await accessService.isSuperAdmin(auth.userId);
+  if (!superAdmin && (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage')))) return res.status(403).json({ error: 'You do not have permission to invite members.' });
   const phoneNumber = typeof req.body?.phoneNumber === 'string' ? normalizePhoneNumber(req.body.phoneNumber) : undefined;
   const email = typeof req.body?.email === 'string' && req.body.email.trim() ? req.body.email.trim().toLowerCase() : undefined;
-  if (!phoneNumber && !email) return res.status(400).json({ error: 'Phone number or email is required.' });
-  const role = (req.body?.role || 'User') as OrganizationRole;
-  if (!['Admin', 'User'].includes(role)) return res.status(400).json({ error: 'Invalid organization role.' });
-  const invitation = await organizationService.invite({ organizationId: req.params.id, invitedBy: auth.userId, phoneNumber, email, name: req.body?.name, role });
+  if (!phoneNumber) return res.status(400).json({ error: 'A mobile number is required for OTP-protected invitations.' });
+  const requestedRole = String(req.body?.role || 'InternalMember');
+  const offeredRole = requestedRole === 'OrganizationAdmin' || requestedRole === 'Admin'
+    ? 'OrganizationAdmin'
+    : requestedRole === 'ProjectManager'
+      ? 'ProjectManager'
+      : 'InternalMember';
+  if (offeredRole === 'OrganizationAdmin' && !(await accessService.isSuperAdmin(auth.userId))) return res.status(403).json({ error: 'Only a Super Admin can appoint an Organization Admin.' });
+  if (offeredRole !== 'OrganizationAdmin' && !(await accessService.canManageOrganization(auth.userId, req.params.id))) return res.status(403).json({ error: 'Only an Organization Admin can issue internal invitations.' });
+  const invitation = await organizationService.invite({ organizationId: req.params.id, invitedBy: auth.userId, phoneNumber, email, name: req.body?.name, role: offeredRole === 'OrganizationAdmin' ? 'Admin' : 'User', offeredRole });
   const db = getDb();
   const existingUser = phoneNumber && db ? await db.collection<any>('users').findOne({ phoneNumber }, { projection: { id: 1, telegramChatId: 1 } }) : null;
-  let delivery: { success: boolean; error?: string } = { success: true };
+  let delivery: { success: boolean; error?: string; providerMessageId?: string } = { success: true };
   if (existingUser && db && phoneNumber) {
     const recipientMembership = await db.collection<any>('organization_memberships').findOne({ userId: existingUser.id, status: 'active' });
     const targetOrganization = await db.collection<any>('organizations').findOne({ id: req.params.id }, { projection: { name: 1 } });
@@ -895,7 +1199,22 @@ app.post('/api/organizations/:id/invitations', async (req, res) => {
     delivery = phoneNumber ? await smsService.sendMessage(phoneNumber, `دعوت عضویت در سازمان اکورد: ${process.env.APP_URL || 'http://localhost:3000'}/invite/${invitation.token}`) : { success: true };
   }
   if (!delivery.success) return res.status(503).json({ error: delivery.error || 'ارسال پیامک دعوت انجام نشد.', code: 'DELIVERY_FAILED', invitationToken: process.env.NODE_ENV !== 'production' ? invitation.token : undefined });
+  await organizationService.markDelivery(invitation.token, phoneNumber ? 'sms' : 'email', delivery.success ? 'Submitted to SMS provider' : 'Failed', delivery.providerMessageId, delivery.error);
   return res.json({ success: true, invitation, delivery: phoneNumber ? 'sms' : 'email', invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${invitation.token}` });
+});
+
+app.post('/api/organizations/:id/invitations/copy', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const superAdmin = await accessService.isSuperAdmin(auth.userId);
+  if (!superAdmin && (auth.organizationId !== req.params.id || !(auth.permissions?.includes('members.manage') || hasPermission(auth.role as OrganizationRole, 'members.manage')))) return res.status(403).json({ error: 'You do not have permission to invite members.' });
+  const phoneNumber = typeof req.body?.phoneNumber === 'string' ? normalizePhoneNumber(req.body.phoneNumber) : '';
+  if (!phoneNumber) return res.status(400).json({ error: 'A mobile number is required for OTP-protected invitations.' });
+  const requestedRole = String(req.body?.role || 'InternalMember');
+  const offeredRole = requestedRole === 'OrganizationAdmin' || requestedRole === 'Admin' ? 'OrganizationAdmin' : requestedRole === 'ProjectManager' ? 'ProjectManager' : 'InternalMember';
+  if (offeredRole === 'OrganizationAdmin' && !(await accessService.isSuperAdmin(auth.userId))) return res.status(403).json({ error: 'Only a Super Admin can appoint an Organization Admin.' });
+  const invitation = await organizationService.invite({ organizationId: req.params.id, invitedBy: auth.userId, phoneNumber, name: req.body?.name, role: offeredRole === 'OrganizationAdmin' ? 'Admin' : 'User', offeredRole });
+  const token = await organizationService.copyLink(auth.userId, req.params.id, invitation.token);
+  return res.status(201).json({ success: true, invitation: { id: invitation.id, role: invitation.offeredRole, expiresAt: invitation.expiresAt }, invitationUrl: `${process.env.APP_URL || 'http://localhost:3000'}/invite/${token}` });
 });
 
 app.get('/api/settings', async (req, res) => {
@@ -906,10 +1225,11 @@ app.get('/api/settings', async (req, res) => {
 
 app.put('/api/profile', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
-  if (typeof req.body?.name !== 'string' || typeof req.body?.phoneNumber !== 'string') return res.status(400).json({ error: 'A valid name and phone number are required.' });
+  if (typeof req.body?.firstName !== 'string' || typeof req.body?.lastName !== 'string') return res.status(400).json({ error: 'First name and last name are required.' });
+  if (Object.prototype.hasOwnProperty.call(req.body, 'phoneNumber')) return res.status(400).json({ error: 'Mobile number changes require the secure mobile-change workflow.' });
   let updated = false;
-  try { updated = await authService.updateProfile(auth.userId, req.body.name, req.body.phoneNumber); } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid profile.' }); }
-  return updated ? res.json({ success: true, name: req.body.name.trim() }) : res.status(400).json({ error: 'Profile name is invalid.' });
+  try { updated = await authService.updateProfile(auth.userId, req.body.firstName, req.body.lastName); } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid profile.' }); }
+  return updated ? res.json({ success: true, name: `${req.body.firstName.trim()} ${req.body.lastName.trim()}`.trim() }) : res.status(400).json({ error: 'Profile name is invalid.' });
 });
 
 app.put('/api/profile/avatar', async (req, res) => {
@@ -965,17 +1285,18 @@ app.get('/api/members', async (req, res) => {
   const offset = Math.max(0, Number.parseInt(String(req.query.offset || '0'), 10) || 0);
   const limit = Math.min(500, Math.max(1, Number.parseInt(String(req.query.limit || '10'), 10) || 10));
   const search = typeof req.query.search === 'string' ? req.query.search : '';
+  const includeRevoked = String(req.query.includeRevoked || '') === 'true';
   const [memberPage, invitations] = await Promise.all([
-    authService.listUsersPage(auth.organizationId, offset, limit, search),
-    db.collection('organization_invitations').find({ organizationId: auth.organizationId, status: 'pending', expiresAt: { $gt: Date.now() } }).project({ _id: 0, token: 1, phoneNumber: 1, name: 1, role: 1, createdAt: 1, expiresAt: 1 }).sort({ createdAt: -1 }).toArray(),
+    authService.listUsersPage(auth.organizationId, offset, limit, search, includeRevoked),
+    db.collection('organization_invitations').find({ organizationId: auth.organizationId, status: 'pending', expiresAt: { $gt: Date.now() } }).project({ _id: 0, id: 1, phoneNumber: 1, name: 1, role: 1, createdAt: 1, expiresAt: 1 }).sort({ createdAt: -1 }).toArray(),
   ]);
   return res.json({ success: true, ...memberPage, invitations });
 });
 
 app.delete('/api/members/:id', requirePermission('members.manage'), async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
-  const removed = await authService.removeUser(req.params.id, auth.organizationId, auth.userId);
-  if (!removed) return res.status(404).json({ error: 'Member could not be removed.' });
+  const removed = await accessService.removeInternalMembership(auth.userId, auth.organizationId, req.params.id);
+  if (!removed.ok) return res.status(400).json({ error: removed.reason || 'Member could not be removed.' });
   return res.json({ success: true });
 });
 
@@ -1039,21 +1360,65 @@ app.put('/api/members/:id/role', requirePermission('members.manage'), async (req
   const role = req.body?.role;
   const allowedRoles = ['Owner', 'Admin', 'User'];
   if (!allowedRoles.includes(role)) return res.status(400).json({ error: 'Invalid member role.' });
-  if (auth.role !== 'Owner' && ['Owner', 'Admin'].includes(role)) return res.status(403).json({ error: 'Only owners can assign owner or admin roles.' });
+  if (['Owner', 'Admin'].includes(role) && !(await accessService.isSuperAdmin(auth.userId))) return res.status(403).json({ error: 'Only a Super Admin can appoint organization-level administrators.' });
   if (req.params.id === auth.userId && role !== auth.role) return res.status(400).json({ error: 'You cannot change your own role.' });
   const updated = await authService.updateUserRole(req.params.id, auth.organizationId, role, auth.userId);
   return updated ? res.json({ success: true }) : res.status(404).json({ error: 'Member not found.' });
 });
 
 app.put('/api/members/:id/phone', requirePermission('members.manage'), async (req, res) => {
+  return res.status(410).json({ error: 'Direct mobile edits are disabled. Start a secure mobile-change request instead.' });
+});
+
+app.get('/api/mobile-change', async (req, res) => {
   const auth = (req as RequestWithAuth).auth!;
-  if (typeof req.body?.phoneNumber !== 'string') return res.status(400).json({ error: 'A valid phone number is required.' });
+  const organizationId = typeof req.query.organizationId === 'string' ? req.query.organizationId : auth.organizationId;
+  return res.json({ success: true, requests: await mobileChangeService.list(auth.userId, organizationId || undefined) });
+});
+
+app.post('/api/mobile-change', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  const isSuperAdmin = await accessService.isSuperAdmin(auth.userId);
+  const requestedOrganizationId = typeof req.body?.organizationId === 'string' ? req.body.organizationId.trim() : '';
+  const organizationId = requestedOrganizationId || auth.organizationId || (isSuperAdmin ? 'platform' : '');
+  const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId : '';
+  const newPhoneNumber = typeof req.body?.newPhoneNumber === 'string' ? req.body.newPhoneNumber : '';
+  if ((!organizationId && !isSuperAdmin) || !targetUserId || !newPhoneNumber) return res.status(400).json({ error: isSuperAdmin ? 'Target account and new mobile number are required.' : 'Organization, target account, and new mobile number are required.' });
   try {
-    const updated = await authService.updateUserPhone(req.params.id, auth.organizationId, req.body.phoneNumber);
-    return updated ? res.json({ success: true }) : res.status(409).json({ error: 'Phone number is already assigned or member was not found.' });
-  } catch (error) {
-    return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid phone number.' });
-  }
+    const request = await mobileChangeService.initiate(auth.userId, organizationId, targetUserId, newPhoneNumber);
+    return request ? res.status(201).json({ success: true, request: { ...request, oldPhoneNumber: `${request.oldPhoneNumber.slice(0, 4)}****${request.oldPhoneNumber.slice(-2)}` } }) : res.status(403).json({ error: 'The mobile-change request is not authorized or the number is already assigned.' });
+  } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid mobile-change request.' }); }
+});
+
+app.post('/api/mobile-change/:id/otp/:side/request', async (req, res) => {
+  if (!authFlags.mobileRecovery) return res.status(404).json({ error: 'Mobile recovery is not enabled.' });
+  const auth = (req as RequestWithAuth).auth!;
+  if (req.params.side !== 'new' && req.params.side !== 'old') return res.status(400).json({ error: 'Invalid verification side.' });
+  const result = await mobileChangeService.requestOtp(auth.userId, req.params.id, req.params.side);
+  return result.ok ? res.json({ success: true, expiresAt: result.expiresAt, demoCode: process.env.NODE_ENV !== 'production' ? result.code : undefined }) : res.status(400).json({ error: result.reason });
+});
+
+app.post('/api/mobile-change/:id/otp/:side/verify', async (req, res) => {
+  const auth = (req as RequestWithAuth).auth!;
+  if (req.params.side !== 'new' && req.params.side !== 'old') return res.status(400).json({ error: 'Invalid verification side.' });
+  const result = await mobileChangeService.verifyOtp(auth.userId, req.params.id, req.params.side, String(req.body?.code || ''));
+  return result.ok ? res.json({ success: true }) : res.status(400).json({ error: result.reason });
+});
+
+app.post('/api/mobile-change/:id/recovery-review', async (req, res) => {
+  if (!authFlags.mobileRecovery) return res.status(404).json({ error: 'Mobile recovery is not enabled.' });
+  const auth = (req as RequestWithAuth).auth!;
+  const decision = ['approved', 'rejected', 'inconclusive', 'expired'].includes(req.body?.decision) ? req.body.decision as 'approved' | 'rejected' | 'inconclusive' | 'expired' : '';
+  if (!decision) return res.status(400).json({ error: 'A valid recovery decision is required.' });
+  const result = await mobileChangeService.reviewRecovery(auth.userId, req.params.id, decision, typeof req.body?.evidenceReference === 'string' ? req.body.evidenceReference : '', typeof req.body?.reason === 'string' ? req.body.reason : '');
+  return result.ok ? res.json({ success: true }) : res.status(403).json({ error: result.reason });
+});
+
+app.post('/api/mobile-change/:id/complete', async (req, res) => {
+  if (!authFlags.mobileRecovery) return res.status(404).json({ error: 'Mobile recovery is not enabled.' });
+  const auth = (req as RequestWithAuth).auth!;
+  const result = await mobileChangeService.complete(auth.userId, req.params.id);
+  return result.ok ? res.json({ success: true }) : res.status(400).json({ error: result.reason });
 });
 
 app.delete('/api/members/invitations/:token', requirePermission('members.manage'), async (req, res) => {

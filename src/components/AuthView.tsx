@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { OrganizationRole } from '../types';
 import { CustomSelect } from './CustomSelect';
 import {
@@ -21,9 +21,11 @@ import { useSnackbar } from './Snackbar';
 import { formatIranianPhoneInput } from '../utils/phone';
 import logoIcon from '../assets/icons/Logo.png';
 
+const passwordLoginEnabled = import.meta.env.VITE_AUTH_PASSWORD_LOGIN_ENABLED !== 'false';
+
 interface AuthViewProps {
   inviteToken?: string;
-  onLoginSuccess: (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string }) => void;
+  onLoginSuccess: (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string; platformRole?: 'SuperAdmin' | 'User' }) => void;
   onBackToApp: () => void;
 }
 
@@ -33,12 +35,22 @@ export const AuthView: React.FC<AuthViewProps> = ({
   onBackToApp,
 }) => {
   const { showSnackbar } = useSnackbar();
-  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [mode, setMode] = useState<'login' | 'otp' | 'signup' | 'forgot'>('otp');
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+
+  // Passwordless login state. Password login remains available during account migration.
+  const [otpPhone, setOtpPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpStep, setOtpStep] = useState<1 | 2>(1);
+  const [demoOtp, setDemoOtp] = useState('');
+  const otpFormRef = useRef<HTMLFormElement>(null);
+  const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const [otpStatus, setOtpStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [otpAutoSubmitted, setOtpAutoSubmitted] = useState(false);
 
   // Sign up form state
   const [signupName, setSignupName] = useState('');
@@ -107,6 +119,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             email: data.user.email,
             role: data.user.role as OrganizationRole,
             organizationId: data.user.organizationId,
+            platformRole: data.user.platformRole,
           });
         }, 600);
       } else {
@@ -114,6 +127,106 @@ export const AuthView: React.FC<AuthViewProps> = ({
       }
     } catch {
       setFeedback({ type: 'error', text: 'ارتباط با سرور برقرار نشد.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const requestLoginOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setFeedback(null);
+    try {
+      const response = await fetch('/api/auth/otp/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: otpPhone.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'ارسال کد ورود انجام نشد.');
+      setDemoOtp(data.demoOtp || '');
+      setOtpStep(2);
+      setOtpCode('');
+      setOtpStatus('idle');
+      setOtpAutoSubmitted(false);
+      setFeedback({ type: 'success', text: 'کد ورود برای شماره موبایل شما ارسال شد.' });
+    } catch (error) {
+      setFeedback({ type: 'error', text: error instanceof Error ? error.message : 'ارسال کد ورود انجام نشد.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const focusOtpInput = (index: number) => {
+    if (index >= 0 && index < 6) {
+      otpInputRefs.current[index]?.focus();
+      otpInputRefs.current[index]?.select();
+    }
+  };
+
+  const submitOtpIfComplete = (digits: string[]) => {
+    if (digits.every(Boolean) && !otpAutoSubmitted) {
+      setOtpAutoSubmitted(true);
+      otpInputRefs.current[5]?.blur();
+      window.setTimeout(() => otpFormRef.current?.requestSubmit(), 180);
+    }
+  };
+
+  const handleOtpDigitChange = (index: number, value: string) => {
+    const digit = value.replace(/\D/g, '').slice(-1);
+    const digits = Array.from({ length: 6 }, (_, position) => otpCode[position] || '');
+    digits[index] = digit;
+    setOtpCode(digits.join(''));
+    setOtpStatus('idle');
+    if (digit) focusOtpInput(index + 1);
+    submitOtpIfComplete(digits);
+  };
+
+  const handleOtpPaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    const pastedDigits = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6).split('');
+    const digits = Array.from({ length: 6 }, (_, index) => pastedDigits[index] || '');
+    setOtpCode(digits.join(''));
+    setOtpStatus('idle');
+    focusOtpInput(Math.min(pastedDigits.length, 5));
+    submitOtpIfComplete(digits);
+  };
+
+  const handleOtpKeyDown = (event: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+    if (event.key === 'Backspace' && !otpCode[index] && index > 0) {
+      const digits = Array.from({ length: 6 }, (_, position) => otpCode[position] || '');
+      digits[index - 1] = '';
+      setOtpCode(digits.join(''));
+      focusOtpInput(index - 1);
+    }
+  };
+
+  const verifyLoginOtp = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setIsLoading(true);
+    setFeedback(null);
+    try {
+      const response = await fetch('/api/auth/otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: otpPhone.trim(), code: otpCode.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.user) throw new Error(data?.error || 'کد ورود نامعتبر است.');
+      setOtpStatus('success');
+      window.setTimeout(() => onLoginSuccess({
+          userId: data.user.userId,
+          name: data.user.name,
+          avatar: data.user.avatar,
+          phoneNumber: data.user.phoneNumber,
+          email: data.user.email,
+          role: data.user.role as OrganizationRole,
+          organizationId: data.user.organizationId,
+          platformRole: data.user.platformRole,
+        }), 450);
+    } catch {
+      setOtpStatus('error');
+      setFeedback({ type: 'error', text: 'کد ورود نادرست است. لطفاً دوباره تلاش کنید.' });
     } finally {
       setIsLoading(false);
     }
@@ -160,6 +273,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             email: data.user.email,
             role: data.user.role as OrganizationRole,
             organizationId: data.user.organizationId,
+            platformRole: data.user.platformRole,
           });
         }, 600);
       } else {
@@ -277,54 +391,69 @@ export const AuthView: React.FC<AuthViewProps> = ({
           </p>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex rounded-xl border border-slate-200/80 bg-slate-50 p-1 text-xs font-semibold dark:border-slate-800 dark:bg-slate-900/80">
-          <button
-            type="button"
-            onClick={() => {
-              setMode('login');
-              setFeedback(null);
-            }}
-            className={`flex-1 rounded-lg py-2.5 transition-all cursor-pointer ${
-              mode === 'login'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            ورود به حساب
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode('signup');
-              setFeedback(null);
-            }}
-            className={`flex-1 rounded-lg py-2.5 transition-all cursor-pointer ${
-              mode === 'signup'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            ثبت‌نام جدید
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode('forgot');
-              setFeedback(null);
-            }}
-            className={`flex-1 rounded-lg py-2.5 transition-all cursor-pointer ${
-              mode === 'forgot'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            بازیابی رمز
-          </button>
-        </div>
+        {mode === 'otp' && (
+          otpStep === 1 ? (
+            <form onSubmit={requestLoginOtp} className="flex flex-col gap-4 text-xs">
+              <p className="text-[11px] leading-6 text-slate-600 dark:text-slate-300">برای ورود، کد یک‌بارمصرف به شماره موبایل حساب فعال شما ارسال می‌شود.</p>
+              <label className="flex flex-col gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
+                شماره موبایل:
+                <input type="tel" required value={otpPhone} onChange={(e) => setOtpPhone(formatIranianPhoneInput(e.target.value))} placeholder="09121234567" className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs font-normal text-slate-900 outline-none focus:border-indigo-500 dark:border-slate-800 dark:bg-slate-900 dark:text-white" />
+              </label>
+              <button type="submit" disabled={isLoading || !otpPhone.trim()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3 text-xs font-bold text-white shadow-lg shadow-indigo-600/25 disabled:opacity-60">{isLoading ? 'در حال ارسال…' : 'ارسال کد ورود'}</button>
+              {passwordLoginEnabled && <button type="button" onClick={() => setMode('login')} className="text-[11px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400">ورود با رمز عبور در دوره مهاجرت</button>}
+            </form>
+          ) : (
+            <form ref={otpFormRef} onSubmit={verifyLoginOtp} className="flex flex-col gap-4 text-xs">
+              {demoOtp && <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-center font-mono font-bold tracking-widest text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300">کد توسعه: {demoOtp}</div>}
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-700 dark:text-slate-300">کد ۶ رقمی:</label>
+                  <span className="text-[10px] font-medium text-slate-400">هر خانه یک رقم</span>
+                </div>
+                <div
+                  dir="ltr"
+                  className={`flex justify-center gap-1.5 sm:gap-2.5 ${
+                    otpStatus === 'error' ? 'animate-[otp-shake_0.45s_ease-in-out]' : ''
+                  } ${otpStatus === 'success' ? 'animate-[otp-success_0.55s_ease-out]' : ''}`}
+                >
+                  {Array.from({ length: 6 }, (_, index) => {
+                    const digit = otpCode[index] || '';
+                    const isFilled = Boolean(digit);
+                    const statusClasses = otpStatus === 'error'
+                      ? 'bg-white text-red-600 dark:bg-slate-900 dark:text-red-300'
+                      : otpStatus === 'success'
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700 shadow-[0_5px_14px_-10px_rgba(16,185,129,0.7)] dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200'
+                        : isFilled
+                          ? 'border-indigo-300 bg-indigo-50 text-indigo-700 shadow-[0_5px_14px_-10px_rgba(79,70,229,0.65)] dark:border-indigo-700 dark:bg-indigo-950/35 dark:text-indigo-200'
+                          : 'border-slate-200/90 bg-white text-slate-700 shadow-[0_3px_10px_-8px_rgba(15,23,42,0.45)] dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200';
+                    return (
+                      <input
+                        key={index}
+                        ref={(element) => { otpInputRefs.current[index] = element; }}
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete={index === 0 ? 'one-time-code' : 'off'}
+                        aria-label={`رقم ${index + 1} کد ورود`}
+                        maxLength={1}
+                        value={digit}
+                        style={otpStatus === 'error' ? { borderWidth: '0.5px', borderStyle: 'solid', borderColor: '#ef4444' } : undefined}
+                        onChange={(event) => handleOtpDigitChange(index, event.target.value)}
+                        onPaste={handleOtpPaste}
+                        onKeyDown={(event) => handleOtpKeyDown(event, index)}
+                        className={`aspect-square h-10 w-10 rounded-[12px] border text-center font-sans text-lg font-semibold outline-none transition-all duration-200 ease-out placeholder:text-slate-300 focus:-translate-y-0.5 focus:border-indigo-400 focus:bg-white focus:shadow-[0_8px_18px_-10px_rgba(79,70,229,0.7)] focus:ring-2 focus:ring-indigo-500/15 dark:focus:bg-slate-800 sm:h-11 sm:w-11 ${statusClasses} ${isFilled ? 'scale-[1.02]' : ''}`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+              <button type="submit" disabled={isLoading || otpCode.length !== 6} className="w-full rounded-2xl bg-emerald-600 py-3 text-xs font-bold text-white shadow-lg shadow-emerald-600/20 disabled:opacity-60">{isLoading ? 'در حال بررسی…' : 'تأیید و ورود'}</button>
+              <button type="button" onClick={() => { setOtpStep(1); setOtpCode(''); setOtpStatus('idle'); setOtpAutoSubmitted(false); }} className="text-[11px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400">تغییر شماره</button>
+            </form>
+          )
+        )}
 
         {/* 1. LOGIN FORM */}
-        {mode === 'login' && (
+        {mode === 'login' && passwordLoginEnabled && (
           <form onSubmit={handleLogin} className="flex flex-col gap-4 text-xs">
             <div className="flex flex-col gap-1.5">
               <label className="font-semibold text-slate-700 dark:text-slate-300">
@@ -527,7 +656,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         )}
 
         {/* 3. PASSWORD RECOVERY FORM */}
-        {mode === 'forgot' && (
+        {mode === 'forgot' && passwordLoginEnabled && (
           <div className="flex flex-col gap-4 text-xs">
             {recoveryStep === 1 ? (
               <form onSubmit={handleRequestResetCode} className="flex flex-col gap-3.5">

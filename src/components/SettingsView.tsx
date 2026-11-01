@@ -13,7 +13,6 @@ import {
 import { UserAvatar } from './UserAvatar';
 import { PageHeader } from './PageHeader';
 import { useSnackbar } from './Snackbar';
-import { formatIranianPhoneInput } from '../utils/phone';
 
 interface SettingsViewProps {
   onAvatarChanged?: (avatar?: string) => void;
@@ -42,6 +41,8 @@ const SettingsToggle: React.FC<SettingsToggleProps> = ({ checked, label, onChang
 export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onSignatureChanged }) => {
   const { showSnackbar } = useSnackbar();
   const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [role, setRole] = useState('Participant');
   const [emailNotification, setEmailNotification] = useState(true);
@@ -73,6 +74,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
     fetch('/api/auth/me').then((response) => response.ok ? response.json() : null).then((data) => {
       if (data?.user) {
         setName(data.user.name || '');
+        const fallbackParts = String(data.user.name || '').trim().split(/\s+/);
+        setFirstName(data.user.firstName || fallbackParts.shift() || '');
+        setLastName(data.user.lastName || fallbackParts.join(' '));
         setPhoneNumber(data.user.phoneNumber || '');
         setRole(data.user.role || '');
         setSignatureData(data.user.signatureData || '');
@@ -250,7 +254,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
       const profileResponse = await fetch('/api/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), phoneNumber: phoneNumber.trim() }),
+        body: JSON.stringify({ firstName: firstName.trim(), lastName: lastName.trim() }),
       });
       if (!profileResponse.ok) throw new Error('Unable to save profile.');
       const response = await fetch('/api/settings', {
@@ -318,8 +322,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
               </label>
               <input
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
                 className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
               />
             </div>
@@ -327,9 +331,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onAvatarChanged, onS
             <div className="flex flex-col gap-1.5">
               <label className="font-semibold text-slate-700 dark:text-slate-300">{'\u0634\u0645\u0627\u0631\u0647 \u062a\u0644\u0641\u0646:'}</label>
               <input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(formatIranianPhoneInput(e.target.value))}
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
                 required
                 className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-100"
               />

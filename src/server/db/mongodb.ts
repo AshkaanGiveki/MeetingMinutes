@@ -157,6 +157,19 @@ async function setupIndexes(database: Db) {
     await database.collection('ai_suggestions').createIndex({ meetingId: 1, createdAt: -1 });
     await database.collection('queue_dead_letters').createIndex({ id: 1 }, { unique: true });
     await database.collection('email_deliveries').createIndex({ createdAt: -1 });
+    await database.collection('project_manager_eligibility').createIndex({ organizationId: 1, userId: 1 }, { unique: true });
+    await database.collection('project_manager_eligibility').createIndex({ organizationId: 1, status: 1 });
+    await database.collection('projects').createIndex({ id: 1 }, { unique: true });
+    await database.collection('projects').createIndex({ organizationId: 1, status: 1 });
+    await database.collection('projects').createIndex({ managerUserId: 1, status: 1 });
+    await database.collection('project_memberships').createIndex({ projectId: 1, userId: 1, role: 1 }, { unique: true });
+    await database.collection('project_memberships').createIndex({ projectId: 1, userId: 1 }, { unique: true, partialFilterExpression: { status: 'active' } });
+    await database.collection('project_memberships').createIndex({ userId: 1, status: 1 });
+    await database.collection('project_memberships').createIndex({ projectId: 1, role: 1, status: 1 });
+    await database.collection('mobile_change_requests').createIndex({ id: 1 }, { unique: true });
+    await database.collection('mobile_change_requests').createIndex({ targetUserId: 1, status: 1 });
+    await database.collection('access_audit_logs').createIndex({ organizationId: 1, createdAt: -1 });
+    await database.collection('access_audit_logs').createIndex({ actorId: 1, createdAt: -1 });
   } catch (err) {
     logger.warn('Index setup note:', { metadata: { error: String(err) } });
   }
@@ -164,4 +177,8 @@ async function setupIndexes(database: Db) {
 
 export function getDb(): Db | null {
   return isConnected ? db : null;
+}
+
+export function getMongoClient(): MongoClient | null {
+  return isConnected ? client : null;
 }

@@ -6,11 +6,9 @@ import {
   Users,
   Settings,
   LogOut,
-  LogIn,
   Calendar,
   Shield
   ,Building2
-  ,UserRound
   ,BookOpen
   ,ChevronUp
 } from 'lucide-react';
@@ -18,6 +16,7 @@ import logoIcon from '../assets/icons/Logo.png';
 import wordmarkIcon from '../assets/icons/typo.png';
 import { OrganizationRole } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { organizationRoleLabel } from '../utils/organization';
 
 interface RightSidebarProps {
   currentTab: string;
@@ -32,7 +31,6 @@ interface RightSidebarProps {
     role: OrganizationRole;
     avatar?: string;
   };
-  onOpenAuth?: () => void;
   onLogout?: () => void;
 }
 
@@ -44,7 +42,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   sealedMeetingsCount = 1,
   onOpenNewMeeting,
   currentUser,
-  onOpenAuth,
   onLogout,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
@@ -266,10 +263,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               {isProfileMenuOpen && isContentVisible && (
               <motion.div role="menu" aria-label="منوی حساب کاربری" initial={{ opacity: 0, y: 10, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.97 }} transition={{ type: 'spring', stiffness: 420, damping: 30, mass: 0.7 }} onClick={(event) => event.stopPropagation()} className="absolute bottom-[calc(100%+0.75rem)] right-0 left-0 z-50 overflow-hidden rounded-2xl border border-slate-200/90 bg-white text-right shadow-2xl shadow-slate-300/30 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40" dir="rtl">
                 <div className="p-1.5">
-                  <button role="menuitem" onClick={() => { setIsProfileMenuOpen(false); onOpenAuth?.(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
-                    <UserRound className="h-4 w-4 shrink-0 text-slate-400" />
-                    <span>مشاهده پروفایل</span>
-                  </button>
                   <button role="menuitem" onClick={() => { setIsProfileMenuOpen(false); onTabChange('settings'); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
                     <Settings className="h-4 w-4 shrink-0 text-slate-400" />
                     <span>تنظیمات حساب</span>
@@ -306,7 +299,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   </span>
                   <div className="flex items-center gap-1">
                     <span className="px-1.5 py-0.2 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 text-[10px] font-medium font-sans">
-                      {currentUser.role}
+                      {organizationRoleLabel(currentUser.role)}
                     </span>
                   </div>
                 </div>
@@ -324,15 +317,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               </motion.span>
             )}
           </div>
-        ) : (
-          <button
-            onClick={onOpenAuth}
-            className="hidden"
-          >
-            <LogIn className="w-4 h-4" />
-            {isContentVisible && <span>ورود / ثبت‌نام</span>}
-          </button>
-        )}
+        ) : null}
       </div>
     </motion.aside>
   );

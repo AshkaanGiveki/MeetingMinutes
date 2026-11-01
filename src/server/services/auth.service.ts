@@ -6,6 +6,7 @@ import { organizationService } from './organization.service';
 import { Permission, RolePermissionsMap } from '../policies/rbac';
 import { normalizeOrganizationRole } from './organization.service';
 import { normalizeIranianPhoneNumber } from '../utils/phone';
+import type { PlatformRole } from './access.service';
 
 export interface AuthSession {
   userId: string;
@@ -21,6 +22,8 @@ export interface AuthSession {
   telegramChatId?: string;
   telegramUsername?: string;
   expiresAt: number;
+  platformRole?: PlatformRole;
+  hasProjectAccess?: boolean;
 }
 
 export interface AuthUser {
@@ -35,9 +38,17 @@ export interface AuthUser {
   activeOrganizationId?: string;
   preferences?: Record<string, unknown>;
   signatureData?: string;
+  platformRole?: PlatformRole;
+  firstName?: string;
+  lastName?: string;
+  mobileVerifiedAt?: string;
+  accountStatus?: 'provisional' | 'active';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const normalizePhoneNumber = normalizeIranianPhoneNumber;
+const effectiveOrganizationPermissions = (role: string, permissions: Permission[] | undefined, platformRole?: PlatformRole): Permission[] => platformRole === 'SuperAdmin' ? [] : role === 'Admin' ? ['organization.manage', 'members.manage'] : (permissions || []);
 
 export class AuthService {
   private requireDb() {
@@ -46,10 +57,21 @@ export class AuthService {
     return db;
   }
 
+  private async ensureIdentityFields(user: AuthUser): Promise<AuthUser> {
+    if (user.firstName && user.lastName) return user;
+    const parts = String(user.name || '').trim().split(/\s+/).filter(Boolean);
+    const firstName = user.firstName || parts.shift() || 'کاربر';
+    const lastName = user.lastName || parts.join(' ') || 'Accord';
+    const db = this.requireDb();
+    await db.collection<AuthUser>('users').updateOne({ id: user.id }, { $set: { firstName, lastName, name: `${firstName} ${lastName}`.trim(), updatedAt: new Date().toISOString() } });
+    return { ...user, firstName, lastName, name: `${firstName} ${lastName}`.trim() };
+  }
+
   async login(identifier: string, passwordPlain: string): Promise<{ sessionToken: string; user: AuthSession } | null> {
     const normalizedIdentifier = identifier.includes('@') ? identifier.trim().toLowerCase() : normalizePhoneNumber(identifier);
     const db = this.requireDb();
-    const user = ((await db.collection<AuthUser>('users').findOne(identifier.includes('@') ? { email: normalizedIdentifier } : { phoneNumber: normalizedIdentifier })) || undefined) as AuthUser | undefined;
+    const foundUser = ((await db.collection<AuthUser>('users').findOne(identifier.includes('@') ? { email: normalizedIdentifier } : { phoneNumber: normalizedIdentifier })) || undefined) as AuthUser | undefined;
+    const user = foundUser ? await this.ensureIdentityFields(foundUser) : undefined;
     if (!user) {
       logger.warn(`Failed login attempt for identifier: ${identifier}`);
       return null;
@@ -67,6 +89,10 @@ export class AuthService {
     const context = (user.activeOrganizationId
       ? await organizationService.getContext(user.id, user.activeOrganizationId)
       : null) || await organizationService.getContext(user.id);
+    const hasProjectAccess = Boolean(
+      await db.collection('projects').findOne({ managerUserId: user.id, status: 'active' })
+      || await db.collection('project_memberships').findOne({ userId: user.id, status: 'active' }),
+    );
     if (context && user.activeOrganizationId !== context.organization.id) {
       await db.collection<AuthUser>('users').updateOne(
         { id: user.id },
@@ -83,15 +109,51 @@ export class AuthService {
       role: context?.membership.role || 'User',
       organizationId: context?.organization.id || '',
       organizationName: context?.organization.name,
-      permissions: context?.membership.permissions || [],
+      permissions: effectiveOrganizationPermissions(context?.membership.role || 'User', context?.membership.permissions, user.platformRole),
       signatureData: user.signatureData,
       telegramChatId: user.telegramChatId,
       telegramUsername: user.telegramUsername,
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000, // 7 days
+      platformRole: user.platformRole,
+      hasProjectAccess,
     };
 
     await db.collection('sessions').insertOne({ token: sessionToken, ...session, createdAt: new Date() });
     logger.info(`User logged in: ${user.email}`);
+    return { sessionToken, user: session };
+  }
+
+  async createSessionForUser(userId: string): Promise<{ sessionToken: string; user: AuthSession } | null> {
+    const db = this.requireDb();
+    const foundUser = await db.collection<AuthUser>('users').findOne({ id: userId });
+    const user = foundUser ? await this.ensureIdentityFields(foundUser) : null;
+    if (!user) return null;
+    const context = (user.activeOrganizationId
+      ? await organizationService.getContext(user.id, user.activeOrganizationId)
+      : null) || await organizationService.getContext(user.id);
+    const hasProjectAccess = Boolean(
+      await db.collection('projects').findOne({ managerUserId: user.id, status: 'active' })
+      || await db.collection('project_memberships').findOne({ userId: user.id, status: 'active' }),
+    );
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const session: AuthSession = {
+      userId: user.id,
+      phoneNumber: user.phoneNumber,
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      role: context?.membership.role || 'User',
+      organizationId: context?.organization.id || '',
+      organizationName: context?.organization.name,
+      permissions: effectiveOrganizationPermissions(context?.membership.role || 'User', context?.membership.permissions, user.platformRole),
+      signatureData: user.signatureData,
+      telegramChatId: user.telegramChatId,
+      telegramUsername: user.telegramUsername,
+      expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
+      platformRole: user.platformRole,
+      hasProjectAccess,
+    };
+    await db.collection('sessions').insertOne({ token: sessionToken, ...session, createdAt: new Date() });
     return { sessionToken, user: session };
   }
 
@@ -106,10 +168,43 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(passwordPlain, 10);
-    const newUser: AuthUser = { id: userId, phoneNumber: normalizedPhone, email: normalizedEmail, passwordHash, name };
+    const now = new Date().toISOString();
+    const newUser: AuthUser = { id: userId, phoneNumber: normalizedPhone, email: normalizedEmail, passwordHash, name, createdAt: now, updatedAt: now };
     await db.collection<AuthUser>('users').insertOne(newUser);
     logger.info(`New user registered: ${email}`);
     return this.login(normalizedPhone, passwordPlain);
+  }
+
+  async createInvitedUser(phoneNumber: string, firstName: string, lastName: string): Promise<AuthUser> {
+    const db = this.requireDb();
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    const existing = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone });
+    if (existing) return existing;
+    const userId = `usr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const normalizedFirstName = firstName.trim();
+    const normalizedLastName = lastName.trim();
+    const email = `invited_${normalizedPhone.replace(/[^0-9]/g, '')}@local.invalid`;
+    const user: AuthUser = {
+      id: userId,
+      phoneNumber: normalizedPhone,
+      email,
+      passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12),
+      name: `${normalizedFirstName} ${normalizedLastName}`.trim(),
+      firstName: normalizedFirstName,
+      lastName: normalizedLastName,
+      accountStatus: 'active',
+      mobileVerifiedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      await db.collection<AuthUser>('users').insertOne(user);
+      return user;
+    } catch (error) {
+      const raced = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone });
+      if (raced) return raced;
+      throw error;
+    }
   }
 
   async ensureBootstrapOwner(email?: string, password?: string, name = 'Accord Owner', phoneNumber?: string): Promise<void> {
@@ -125,6 +220,11 @@ export class AuthService {
       email: normalizedEmail,
       passwordHash: await bcrypt.hash(password, 12),
       name,
+      platformRole: 'SuperAdmin',
+      accountStatus: 'active',
+      mobileVerifiedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     await db.collection<AuthUser>('users').insertOne(user);
     await organizationService.create(user.id, 'سازمان اصلی');
@@ -140,8 +240,43 @@ export class AuthService {
     }
 
     const { token: _token, _id: _id, ...authSession } = session as AuthSession & { token: string; _id?: unknown };
-    const normalizedRole = normalizeOrganizationRole(authSession.role);
-    return { ...authSession, role: normalizedRole, permissions: RolePermissionsMap[normalizedRole] };
+    const foundUser = await db.collection<AuthUser>('users').findOne({ id: authSession.userId });
+    if (!foundUser || foundUser.accountStatus === 'provisional') {
+      await db.collection('sessions').deleteOne({ token: sessionToken });
+      return null;
+    }
+    const user = await this.ensureIdentityFields(foundUser);
+
+    // Sessions are rehydrated from current membership state on every request.
+    // This makes role removal, organization removal, and project access changes
+    // effective immediately instead of waiting for the seven-day session TTL.
+    const context = authSession.organizationId
+      ? await organizationService.getContext(user.id, authSession.organizationId)
+      : null;
+    const hasProjectAccess = Boolean(
+      await db.collection('projects').findOne({ managerUserId: user.id, status: 'active' })
+      || await db.collection('project_memberships').findOne({ userId: user.id, status: 'active' }),
+    );
+    const normalizedRole = normalizeOrganizationRole(context?.membership.role || 'User');
+    const refreshedSession: AuthSession = {
+      ...authSession,
+      name: user.name,
+      phoneNumber: user.phoneNumber,
+      email: user.email,
+      avatar: user.avatar,
+      platformRole: user.platformRole,
+      role: normalizedRole,
+      organizationId: context?.organization.id || '',
+      organizationName: context?.organization.name,
+      permissions: effectiveOrganizationPermissions(context?.membership.role || 'User', context?.membership.permissions || RolePermissionsMap[normalizedRole], user.platformRole),
+      signatureData: user.signatureData,
+      hasProjectAccess,
+    };
+    await db.collection('sessions').updateOne(
+      { token: sessionToken },
+      { $set: { ...refreshedSession } },
+    );
+    return refreshedSession;
   }
 
   async createInternalSession(userId: string, organizationId: string): Promise<string> {
@@ -159,11 +294,12 @@ export class AuthService {
       role: context.membership.role,
       organizationId: context.organization.id,
       organizationName: context.organization.name,
-      permissions: context.membership.permissions,
+      permissions: effectiveOrganizationPermissions(context.membership.role, context.membership.permissions, user.platformRole),
       signatureData: user.signatureData,
       telegramChatId: user.telegramChatId,
       telegramUsername: user.telegramUsername,
       expiresAt: Date.now() + 10 * 60 * 1000,
+      platformRole: user.platformRole,
     };
     await db.collection('sessions').insertOne({ token: sessionToken, ...session, createdAt: new Date() });
     return sessionToken;
@@ -188,11 +324,12 @@ export class AuthService {
       role: context.membership.role,
       organizationId: context.organization.id,
       organizationName: context.organization.name,
-      permissions: context.membership.permissions,
+      permissions: effectiveOrganizationPermissions(context.membership.role, context.membership.permissions, user.platformRole),
       signatureData: user.signatureData,
       telegramChatId: user.telegramChatId,
       telegramUsername: user.telegramUsername,
       expiresAt: Date.now() + 7 * 24 * 3600 * 1000,
+      platformRole: user.platformRole,
     };
     // Persist the choice on the user, not just in one browser session.
     await db.collection<AuthUser>('users').updateOne(
@@ -202,7 +339,7 @@ export class AuthService {
     // Keep other active sessions consistent with the same account-level choice.
     await db.collection('sessions').updateMany(
       { userId, token: { $ne: sessionToken }, expiresAt: { $gt: Date.now() } },
-      { $set: { organizationId: context.organization.id, organizationName: context.organization.name, role: context.membership.role, permissions: context.membership.permissions } },
+      { $set: { organizationId: context.organization.id, organizationName: context.organization.name, role: context.membership.role, permissions: effectiveOrganizationPermissions(context.membership.role, context.membership.permissions, user.platformRole) } },
     );
     await db.collection('sessions').updateOne({ token: sessionToken, userId }, { $set: session });
     return session;
@@ -256,15 +393,16 @@ export class AuthService {
     await this.requireDb().collection<AuthUser>('users').updateOne({ id: userId }, { $set: { preferences, updatedAt: new Date().toISOString() } });
   }
 
-  async updateProfile(userId: string, name: string, phoneNumber?: string): Promise<boolean> {
-    const normalizedName = name.trim();
-    if (normalizedName.length < 2 || normalizedName.length > 120) return false;
-    const normalizedPhone = phoneNumber ? normalizePhoneNumber(phoneNumber) : undefined;
+  async updateProfile(userId: string, firstName: string, lastName: string): Promise<boolean> {
+    const normalizedFirstName = firstName.trim();
+    const normalizedLastName = lastName.trim();
+    if (normalizedFirstName.length < 1 || normalizedFirstName.length > 60 || normalizedLastName.length < 1 || normalizedLastName.length > 60) return false;
+    const normalizedName = `${normalizedFirstName} ${normalizedLastName}`.trim();
     const db = this.requireDb();
-    if (normalizedPhone && await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } })) return false;
-    const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}), updatedAt: new Date().toISOString() } });
+    const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { name: normalizedName, firstName: normalizedFirstName, lastName: normalizedLastName, updatedAt: new Date().toISOString() } });
     if (!result.matchedCount) return false;
-    await db.collection('sessions').updateMany({ userId }, { $set: { name: normalizedName, ...(normalizedPhone ? { phoneNumber: normalizedPhone } : {}) } });
+    await db.collection('sessions').updateMany({ userId }, { $set: { name: normalizedName } });
+    await db.collection('access_audit_logs').insertOne({ id: `audit_${crypto.randomUUID()}`, action: 'profile_updated', actorId: userId, targetUserId: userId, createdAt: new Date().toISOString() });
     return true;
   }
 
@@ -297,8 +435,8 @@ export class AuthService {
     return organizationService.listMembers(organizationId);
   }
 
-  async listUsersPage(organizationId: string, offset = 0, limit = 10, search = '') {
-    return organizationService.listMembersPage(organizationId, offset, limit, search);
+  async listUsersPage(organizationId: string, offset = 0, limit = 10, search = '', includeRevoked = false) {
+    return organizationService.listMembersPage(organizationId, offset, limit, search, includeRevoked);
   }
 
   async removeUser(userId: string, organizationId = 'org_main', actorId?: string): Promise<boolean> {
@@ -318,15 +456,6 @@ export class AuthService {
       ? await organizationService.updateMembershipAs(actorId, organizationId, userId, role as any)
       : await organizationService.updateMembership(organizationId, userId, role as any);
     return updated;
-  }
-
-  async updateUserPhone(userId: string, organizationId: string, phoneNumber: string): Promise<boolean> {
-    const normalizedPhone = normalizePhoneNumber(phoneNumber);
-    const db = this.requireDb();
-    const duplicate = await db.collection<AuthUser>('users').findOne({ phoneNumber: normalizedPhone, id: { $ne: userId } });
-    if (duplicate) return false;
-    const result = await db.collection<AuthUser>('users').updateOne({ id: userId }, { $set: { phoneNumber: normalizedPhone, updatedAt: new Date().toISOString() } });
-    return result.matchedCount > 0;
   }
 
   async linkTelegramChat(userId: string, organizationId: string, chatId: string, username?: string): Promise<boolean> {

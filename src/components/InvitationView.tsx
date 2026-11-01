@@ -1,53 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CheckCircle2, LoaderCircle, ShieldCheck, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from './Snackbar';
 
-interface InvitationViewProps {
-  token: string;
-  onAccepted: (user?: { organizationId?: string; role?: string }) => void;
-}
-
-export const InvitationView: React.FC<InvitationViewProps> = ({ token, onAccepted }) => {
+interface InvitationDetails { organizationName?: string; projectId?: string; role?: string; maskedPhone?: string; expiresAt: number; }
+export const InvitationView: React.FC<{ token: string; onAccepted: (user?: { organizationId?: string; role?: string; hasProjectAccess?: boolean }) => void }> = ({ token, onAccepted }) => {
   const navigate = useNavigate();
   const { showSnackbar } = useSnackbar();
-  const [state, setState] = useState<'loading' | 'success' | 'error'>('loading');
-  const [message, setMessage] = useState('در حال بررسی و پذیرش دعوت…');
-  const startedRef = useRef(false);
+  const [details, setDetails] = useState<InvitationDetails | null>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'otp' | 'success' | 'error'>('loading');
+  const [message, setMessage] = useState('در حال بررسی دعوت‌نامه…');
+  const [otp, setOtp] = useState('');
+  const [demoOtp, setDemoOtp] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [isBusy, setIsBusy] = useState(false);
 
-  useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    let cancelled = false;
-    fetch(`/api/organizations/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data?.error || 'پذیرش دعوت انجام نشد.');
-        if (cancelled) return;
-        setState('success');
-        setMessage('دعوت با موفقیت پذیرفته شد و عضویت شما فعال گردید.');
-        onAccepted(data.user);
-        showSnackbar({ type: 'success', message: 'عضویت در سازمان با موفقیت انجام شد.' });
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setState('error');
-        setMessage(error instanceof Error ? error.message : 'دعوت معتبر نیست یا منقضی شده است.');
-      });
-    return () => { cancelled = true; };
-  }, [onAccepted, showSnackbar, token]);
-
-  return (
-    <main dir="rtl" className="flex min-h-screen items-center justify-center bg-[#f4f7fb] px-4 py-10 text-slate-800 dark:bg-[#0a0e1f] dark:text-slate-100">
-      <section className="w-full max-w-md rounded-[2rem] border border-white/80 bg-white/90 p-8 text-center shadow-2xl shadow-slate-900/10 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/90">
-        <div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-3xl ${state === 'success' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-300' : state === 'error' ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300'}`}>
-          {state === 'loading' ? <LoaderCircle className="h-7 w-7 animate-spin" /> : state === 'success' ? <CheckCircle2 className="h-8 w-8" /> : <XCircle className="h-8 w-8" />}
-        </div>
-        <h1 className="mt-5 text-lg font-bold">{state === 'success' ? 'دعوت پذیرفته شد' : state === 'error' ? 'پذیرش دعوت ناموفق بود' : 'درخواست عضویت'}</h1>
-        <p className="mt-3 text-sm leading-7 text-slate-500 dark:text-slate-400">{message}</p>
-        {state === 'success' && <div className="mt-5 flex items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"><ShieldCheck className="h-4 w-4" />اکنون می‌توانید در جلسه به‌عنوان عضو سازمان مشارکت کنید.</div>}
-        <button type="button" onClick={() => navigate(state === 'success' ? '/organizations' : '/meetings')} className="mt-6 w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-indigo-700">{state === 'success' ? 'رفتن به سازمان‌ها' : 'بازگشت به جلسات'}</button>
-      </section>
-    </main>
-  );
+  useEffect(() => { let cancelled = false; void fetch(`/api/invitations/${encodeURIComponent(token)}`).then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'دعوت‌نامه معتبر نیست یا منقضی شده است.'); if (!cancelled) { setDetails(data.invitation); setState('ready'); } }).catch((error) => { if (!cancelled) { setState('error'); setMessage(error instanceof Error ? error.message : 'دعوت‌نامه معتبر نیست.'); } }); return () => { cancelled = true; }; }, [token]);
+  const requestOtp = async () => { setIsBusy(true); try { const response = await fetch(`/api/invitations/${encodeURIComponent(token)}/otp/request`, { method: 'POST' }); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'ارسال کد انجام نشد.'); setDemoOtp(data.demoOtp || ''); setState('otp'); setMessage('کد فقط به شماره موبایل ثابت دعوت ارسال شد.'); } catch (error) { setState('error'); setMessage(error instanceof Error ? error.message : 'ارسال کد انجام نشد.'); } finally { setIsBusy(false); } };
+  const accept = async (event: React.FormEvent) => { event.preventDefault(); setIsBusy(true); try { const response = await fetch(`/api/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: otp, firstName: firstName.trim(), lastName: lastName.trim() }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'پذیرش دعوت انجام نشد.'); setState('success'); setMessage('دعوت‌نامه با موفقیت پذیرفته شد و دسترسی شما فعال گردید.'); onAccepted(data.user); showSnackbar({ type: 'success', message: 'عضویت با موفقیت فعال شد.' }); } catch (error) { setState('error'); setMessage(error instanceof Error ? error.message : 'پذیرش دعوت انجام نشد.'); } finally { setIsBusy(false); } };
+  return <main dir="rtl" className="flex min-h-screen items-center justify-center bg-[#f4f7fb] px-4 py-10 text-slate-800 dark:bg-[#0a0e1f] dark:text-slate-100"><section className="w-full max-w-md rounded-[2rem] border border-white/80 bg-white/90 p-8 text-right shadow-2xl dark:border-slate-800 dark:bg-slate-900/90"><div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-3xl ${state === 'success' ? 'bg-emerald-50 text-emerald-600' : state === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600'}`}>{state === 'loading' ? <LoaderCircle className="h-7 w-7 animate-spin" /> : state === 'success' ? <CheckCircle2 className="h-8 w-8" /> : state === 'error' ? <XCircle className="h-8 w-8" /> : <ShieldCheck className="h-8 w-8" />}</div><h1 className="mt-5 text-center text-lg font-bold">{state === 'success' ? 'دعوت پذیرفته شد' : state === 'error' ? 'پذیرش دعوت ناموفق بود' : 'دعوت‌نامه دسترسی'}</h1><p className="mt-3 text-center text-sm leading-7 text-slate-500 dark:text-slate-400">{message}</p>{details && (state === 'ready' || state === 'otp') && <div className="mt-5 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs dark:border-slate-700 dark:bg-slate-800/60"><div className="flex justify-between gap-3"><span>سازمان</span><strong>{details.organizationName || 'سازمان دعوت‌کننده'}</strong></div>{details.projectId && <div className="flex justify-between gap-3"><span>پروژه</span><strong>{details.projectId}</strong></div>}<div className="flex justify-between gap-3"><span>نقش پیشنهادی</span><strong>{details.role}</strong></div><div className="flex justify-between gap-3"><span>شماره ثابت دعوت</span><strong dir="ltr">{details.maskedPhone}</strong></div></div>}{state === 'ready' && <div className="mt-5 space-y-3"><p className="rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-3 text-xs leading-6 text-indigo-800 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-200">کد فقط به شماره موبایل ثابت دعوت ارسال می‌شود. اگر شماره برای شما نیست، از دعوت‌کننده بخواهید دعوت را لغو و برای شماره درست دوباره صادر کند.</p><button type="button" disabled={isBusy} onClick={() => void requestOtp()} className="w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-60">{isBusy ? 'در حال ارسال…' : 'ارسال کد و ادامه'}</button></div>}{state === 'otp' && <form onSubmit={accept} className="mt-5 space-y-3">{demoOtp && <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-center font-mono font-bold tracking-widest text-indigo-700">کد توسعه: {demoOtp}</div>}<div className="grid grid-cols-2 gap-2"><input required value={firstName} onChange={(event) => setFirstName(event.target.value)} placeholder="نام" className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /><input required value={lastName} onChange={(event) => setLastName(event.target.value)} placeholder="نام خانوادگی" className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /></div><input required maxLength={6} inputMode="numeric" value={otp} onChange={(event) => setOtp(event.target.value.replace(/[^0-9]/g, ''))} placeholder="کد ۶ رقمی" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-center font-mono text-lg tracking-widest dark:border-slate-700 dark:bg-slate-900" /><button type="submit" disabled={isBusy || otp.length !== 6} className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-60">{isBusy ? 'در حال فعال‌سازی…' : 'تأیید و فعال‌سازی دسترسی'}</button></form>}{state === 'success' && <div className="mt-5 flex items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700"><ShieldCheck className="h-4 w-4" />اکنون می‌توانید وارد فضای مجاز خود شوید.</div>}{(state === 'success' || state === 'error') && <button type="button" onClick={() => navigate(state === 'success' ? '/projects' : '/auth')} className="mt-6 w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white">{state === 'success' ? 'ورود به برنامه' : 'بازگشت به ورود'}</button>}</section></main>;
 };

@@ -63,7 +63,7 @@ async function main() {
   if (!db || !client) throw new Error('MongoDB connection failed; no seed data was written.');
   try {
     const passwordHash = bcrypt.hashSync(seedPassword, 12);
-    const users: AuthUser[] = Object.values(participants).map((participant, index) => ({ id: participant.id, phoneNumber: `+9891212345${String(index + 1).padStart(2, '0')}`, email: participant.email, passwordHash, name: participant.name, preferences: {} }));
+    const users: AuthUser[] = Object.values(participants).map((participant, index) => ({ id: participant.id, phoneNumber: `+9891212345${String(index + 1).padStart(2, '0')}`, email: participant.email, passwordHash, name: participant.name, preferences: {}, ...(participant.id === participants.maryam.id ? { platformRole: 'SuperAdmin' as const, accountStatus: 'active' as const, mobileVerifiedAt: new Date().toISOString() } : {}) }));
     const organization: OrganizationRecord = { id: 'org_main', name: 'سازمان اکورد', createdBy: participants.maryam.id, visibility: 'private', createdAt: new Date().toISOString() };
     await db.collection<OrganizationRecord>('organizations').updateOne({ id: organization.id }, { $setOnInsert: organization }, { upsert: true });
     for (const user of users) await db.collection('users').updateOne({ id: user.id }, { $setOnInsert: user }, { upsert: true });

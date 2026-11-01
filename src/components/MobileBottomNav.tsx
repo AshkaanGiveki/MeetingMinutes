@@ -1,6 +1,6 @@
 import React from 'react';
 import { LayoutGroup, motion } from 'motion/react';
-import { Archive, Building2, CalendarDays, Settings, Users } from 'lucide-react';
+import { Archive, Building2, CalendarDays, FolderKanban, Settings, Users } from 'lucide-react';
 
 interface MobileBottomNavProps {
   currentTab: string;
@@ -11,6 +11,7 @@ const navItems = [
   { id: 'meetings', label: 'جلسات', icon: CalendarDays },
   { id: 'archive', label: 'آرشیو', icon: Archive },
   { id: 'organizations', label: 'سازمان‌ها', icon: Building2 },
+  { id: 'projects', label: 'پروژه‌ها', icon: FolderKanban },
   { id: 'contacts', label: 'اعضا', icon: Users },
   { id: 'settings', label: 'تنظیمات', icon: Settings },
 ] as const;
