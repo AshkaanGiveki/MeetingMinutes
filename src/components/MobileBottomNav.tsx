@@ -5,6 +5,7 @@ import { Archive, Building2, CalendarDays, FolderKanban, Settings, Users } from 
 interface MobileBottomNavProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
+  canManageUsers?: boolean;
 }
 
 const navItems = [
@@ -13,14 +14,15 @@ const navItems = [
   { id: 'organizations', label: 'سازمان‌ها', icon: Building2 },
   { id: 'projects', label: 'پروژه‌ها', icon: FolderKanban },
   { id: 'contacts', label: 'اعضا', icon: Users },
+  { id: 'user-management', label: 'کاربران', icon: Users },
   { id: 'settings', label: 'تنظیمات', icon: Settings },
 ] as const;
 
-export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ currentTab, onTabChange }) => (
+export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ currentTab, onTabChange, canManageUsers = false }) => (
   <nav className="mobile-bottom-nav no-print fixed inset-x-3 bottom-3 z-40 lg:hidden" aria-label="ناوبری اصلی">
     <LayoutGroup id="mobile-bottom-navigation">
       <div className="mobile-bottom-nav-inner mx-auto flex max-w-xl items-center justify-around gap-1 rounded-[1.6rem] border border-white/80 bg-white/90 p-2 shadow-[0_18px_45px_-20px_rgba(15,23,42,0.55)] backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/90 dark:shadow-black/40">
-        {navItems.map(({ id, label, icon: Icon }) => {
+        {navItems.filter((item) => item.id !== 'user-management' || canManageUsers).map(({ id, label, icon: Icon }) => {
           const isActive = currentTab === id || (id === 'meetings' && currentTab === 'auth');
           return (
             <motion.button

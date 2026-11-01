@@ -11,6 +11,7 @@ import { organizationRoleLabel } from '../utils/organization';
 
 interface TopBarProps {
   currentTab: string;
+  canManageUsers?: boolean;
   onTabChange: (tab: string) => void;
   meetingDetail?: { id: string; title?: string };
   onOpenMeeting?: (meetingId: string) => void;
@@ -27,6 +28,7 @@ interface TopBarProps {
 
 export const TopBar: React.FC<TopBarProps> = ({
   currentTab,
+  canManageUsers = false,
   onTabChange,
   meetingDetail,
   onOpenMeeting,
@@ -47,6 +49,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     { id: 'archive', label: 'آرشیو اسناد پلمپ', icon: FolderArchive },
     { id: 'templates', label: 'قالب‌های صورت‌جلسه', icon: Layers },
     { id: 'contacts', label: 'اعضا و امضاکنندگان', icon: Users },
+    { id: 'user-management', label: 'مدیریت کاربران', icon: Users },
     { id: 'settings', label: 'تنظیمات و امنیت', icon: Settings },
     { id: 'organizations', label: 'سازمان‌های من', icon: Building2 },
     { id: 'projects', label: 'پروژه‌های من', icon: FolderKanban },
@@ -81,6 +84,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     { id: 'archive', label: 'آرشیو اسناد', icon: FolderArchive },
     { id: 'templates', label: 'قالب‌های صورت‌جلسه', icon: Layers },
     { id: 'contacts', label: 'اعضا و امضاکنندگان', icon: Users },
+    ...(canManageUsers ? [{ id: 'user-management', label: 'مدیریت کاربران', icon: Users }] : []),
     { id: 'organizations', label: 'سازمان‌های من', icon: Building2 },
     { id: 'projects', label: 'پروژه‌های من', icon: FolderKanban },
     { id: 'settings', label: 'تنظیمات و امنیت', icon: Settings },

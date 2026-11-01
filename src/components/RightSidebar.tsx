@@ -20,6 +20,7 @@ import { organizationRoleLabel } from '../utils/organization';
 
 interface RightSidebarProps {
   currentTab: string;
+  canManageUsers?: boolean;
   onTabChange: (tab: string) => void;
   isDark?: boolean;
   totalMeetingsCount?: number;
@@ -36,6 +37,7 @@ interface RightSidebarProps {
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
   currentTab,
+  canManageUsers = false,
   onTabChange,
   isDark,
   totalMeetingsCount = 3,
@@ -118,6 +120,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       label: 'اعضا و امضاکنندگان',
       icon: Users,
     },
+    ...(canManageUsers ? [{ id: 'user-management', label: 'مدیریت کاربران', icon: Users }] : []),
     {
       id: 'settings',
       label: 'تنظیمات و امنیت',

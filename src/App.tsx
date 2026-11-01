@@ -17,6 +17,7 @@ import { MeetingsListView } from './components/MeetingsListView';
 import { ArchiveView } from './components/ArchiveView';
 import { TemplatesView } from './components/TemplatesView';
 import { ContactsView } from './components/ContactsView';
+import { UserManagementView } from './components/UserManagementView';
 import { SettingsView } from './components/SettingsView';
 import { NewMeetingModal } from './components/NewMeetingModal';
 import { ReviewModal } from './components/ReviewModal';
@@ -37,6 +38,8 @@ import { SigningRejectionModal } from './components/SigningRejectionModal';
 import { SigningRejectionDecisionModal } from './components/SigningRejectionDecisionModal';
 import { ArchivedMinuteDocument } from './components/ArchivedMinuteDocument';
 import { repairMojibake } from './utils/text';
+import { getMockRole, MockRoleId } from './mockRoles';
+import { createMockMeeting } from './mockData';
 
 const hasMeetingRole = (participant: Participant, role: string) => (participant.roles || [participant.role]).includes(role as any);
 const meetingPeople = (meeting: Meeting): Participant[] => [meeting.organizer, ...(meeting.participants || [])]
@@ -61,6 +64,12 @@ const normalizeMeetingForClient = (meeting: Meeting): Meeting => ({
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [mockRoleId, setMockRoleId] = useState<MockRoleId | null>(() => {
+    if (!import.meta.env.DEV) return null;
+    try { return getMockRole(sessionStorage.getItem('accord:mock-role'))?.id || null; } catch { return null; }
+  });
+  const mockRole = import.meta.env.DEV ? getMockRole(mockRoleId) : undefined;
+  const isMockMode = Boolean(mockRole);
   const { showSnackbar } = useSnackbar();
   const guestLink = location.pathname.startsWith('/meeting/')
     ? { meetingId: location.pathname.split('/')[2] || '', token: new URLSearchParams(location.search).get('token') || '' }
@@ -74,7 +83,7 @@ export default function App() {
       return false;
     }
   });
-  type AppTab = 'meetings' | 'projects' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'recovery' | 'auth' | 'invitation';
+  type AppTab = 'meetings' | 'projects' | 'user-management' | 'archive' | 'templates' | 'contacts' | 'settings' | 'organizations' | 'recovery' | 'auth' | 'invitation';
   const meetingDetailMatch = location.pathname.match(/^\/meetings\/([^/]+)$/);
   const meetingDetailId = meetingDetailMatch?.[1];
   const archivePrintMatch = location.pathname.match(/^\/archive\/print\/([^/]+)$/);
@@ -83,6 +92,8 @@ export default function App() {
     ? 'invitation'
     : location.pathname.startsWith('/archive')
     ? 'archive'
+    : location.pathname.startsWith('/user-management')
+      ? 'user-management'
     : location.pathname.startsWith('/projects')
       ? 'projects'
     : location.pathname.startsWith('/templates')
@@ -106,6 +117,8 @@ export default function App() {
   const meetingsLoadSequenceRef = useRef(0);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [canManageProjectUsers, setCanManageProjectUsers] = useState(false);
+  const [projectRolesLoaded, setProjectRolesLoaded] = useState(false);
 
   // Authenticated User State with localStorage persistence
   const [activeUser, setActiveUser] = useState<{
@@ -166,7 +179,7 @@ export default function App() {
   const [activeProjectContext, setActiveProjectContext] = useState<{ id: string; name: string; organizationId: string; role: string; organizationName?: string } | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || isMockMode) {
       setUnreadNotificationCount(0);
       return;
     }
@@ -187,14 +200,26 @@ export default function App() {
       isActive = false;
       window.clearInterval(interval);
     };
-  }, [isAuthenticated, activeUser.organizationId]);
+  }, [isAuthenticated, isMockMode, activeUser.organizationId]);
 
   useEffect(() => {
     if (currentTab !== 'projects') setActiveProjectContext(null);
   }, [currentTab]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isMockMode) { setCanManageProjectUsers(false); setProjectRolesLoaded(false); return; }
+    let active = true;
+    setProjectRolesLoaded(false);
+    setCanManageProjectUsers(false);
+    void fetch('/api/projects').then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data) => { if (active) setCanManageProjectUsers(Array.isArray(data.projects) && data.projects.some((item: { role?: string }) => item.role === 'ProjectManager' || item.role === 'ReceivingLead')); })
+      .catch(() => { if (active) setCanManageProjectUsers(false); })
+      .finally(() => { if (active) setProjectRolesLoaded(true); });
+    return () => { active = false; };
+  }, [isAuthenticated, isMockMode, activeUser.organizationId, activeUser.userId]);
+
+  useEffect(() => {
+    if (!isAuthenticated || isMockMode) return;
     let active = true;
     const refreshAuthorization = async () => {
       try {
@@ -206,14 +231,14 @@ export default function App() {
         const data = await response.json();
         if (!active || !data.user) return;
         setActiveUser((previous) => ({ ...previous, userId: data.user.userId || previous.userId, name: data.user.name || previous.name, phoneNumber: data.user.phoneNumber || previous.phoneNumber, email: data.user.email || previous.email, role: (data.user.role as OrganizationRole) || previous.role, organizationId: data.user.organizationId || undefined, organizationName: data.user.organizationName || previous.organizationName, platformRole: data.user.platformRole || previous.platformRole, hasProjectAccess: data.user.hasProjectAccess ?? previous.hasProjectAccess, signatureData: data.user.signatureData || previous.signatureData }));
-        if (!data.user.organizationId && data.user.hasProjectAccess && !['projects', 'settings'].includes(currentTab)) navigate('/projects', { replace: true });
+        if (!data.user.organizationId && data.user.hasProjectAccess && !['projects', 'user-management', 'settings'].includes(currentTab)) navigate('/projects', { replace: true });
         if (!data.user.organizationId && !data.user.hasProjectAccess && !['settings', 'auth'].includes(currentTab)) navigate('/settings', { replace: true });
       } catch { /* Authorization refresh is retried on the next interval. */ }
     };
     void refreshAuthorization();
     const interval = window.setInterval(refreshAuthorization, 30000);
     return () => { active = false; window.clearInterval(interval); };
-  }, [isAuthenticated, navigate, currentTab]);
+  }, [isAuthenticated, isMockMode, navigate, currentTab]);
   const [hasUserSigned, setHasUserSigned] = useState(false);
   const setOperationError = (message: string) => {
     if (!message) return;
@@ -223,6 +248,11 @@ export default function App() {
   };
   const meetingUpdateSequenceRef = useRef(0);
   const canCreateMeeting = Boolean(activeUser.organizationId) && activeUser.platformRole !== 'SuperAdmin' && activeUser.role !== 'Admin' && ['Owner', 'User'].includes(activeUser.role);
+  const canManageOrganizationUsers = Boolean(activeUser.organizationId && (activeUser.platformRole === 'SuperAdmin' || ['Owner', 'Admin'].includes(activeUser.role)));
+  const userManagementScope = mockRole?.scope || (canManageOrganizationUsers ? 'organization' : canManageProjectUsers ? 'project' : null);
+  useEffect(() => {
+    if (isAuthenticated && currentTab === 'user-management' && !userManagementScope && (isMockMode || projectRolesLoaded)) navigate('/meetings', { replace: true });
+  }, [isAuthenticated, currentTab, userManagementScope, isMockMode, projectRolesLoaded, navigate]);
   const canManageActiveMeeting = Boolean(activeMeeting && ['DRAFT', 'IN_REVIEW'].includes(activeMeeting.status) && activeMeeting.signatureRejection?.status !== 'pending' && activeMeeting.organizer.id === activeUser.userId);
   const canEditActiveMeeting = Boolean(activeMeeting && activeMeeting.status === 'DRAFT' && activeMeeting.signatureRejection?.status !== 'pending' && (activeMeeting.organizer.id === activeUser.userId || activeMeeting.participants.some((participant) => participant.id === activeUser.userId && hasMeetingRole(participant, 'Editor'))));
   const canRespondToSignatureRejection = Boolean(activeMeeting && meetingPeople(activeMeeting).some((participant) => (participant.id === activeUser.userId || participant.email === activeUser.email) && hasMeetingRole(participant, 'Editor')));
@@ -242,6 +272,13 @@ export default function App() {
   };
 
   const loadMeetings = async () => {
+    if (mockRole) {
+      const sampleMeeting = createMockMeeting(mockRole.id);
+      setMeetings([sampleMeeting]);
+      setActiveMeeting(sampleMeeting);
+      setIsMeetingsLoading(false);
+      return;
+    }
     const requestSequence = ++meetingsLoadSequenceRef.current;
     setIsMeetingsLoading(true);
     try {
@@ -279,7 +316,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!meetingDetailId || !isAuthenticated) return;
+    if (!meetingDetailId || !isAuthenticated || isMockMode) return;
     let cancelled = false;
     const cachedMeeting = meetings.find((meeting) => meeting.id === meetingDetailId);
     if (cachedMeeting) setActiveMeeting(cachedMeeting);
@@ -307,7 +344,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [meetingDetailId, isAuthenticated]);
+  }, [meetingDetailId, isAuthenticated, isMockMode]);
 
   const refreshActiveMeeting = async () => {
     if (!meetingDetailId || isMeetingRefreshing) return;
@@ -368,6 +405,23 @@ export default function App() {
 
   // Load authenticated session before loading protected meeting data.
   useEffect(() => {
+    if (mockRole) {
+      const sampleMeeting = createMockMeeting(mockRole.id);
+      setActiveUser({
+        name: `${mockRole.label} (آزمایشی)`, phoneNumber: '', email: '',
+        userId: `mock-${mockRole.id}`, role: mockRole.organizationRole,
+        organizationId: 'mock-organization', organizationName: 'سازمان نمونه',
+        platformRole: mockRole.id === 'SuperAdmin' ? 'SuperAdmin' : 'User',
+        hasProjectAccess: mockRole.scope === 'project',
+      });
+      setIsAuthenticated(true);
+      setMeetings([sampleMeeting]);
+      setActiveMeeting(sampleMeeting);
+      setIsMeetingsLoading(false);
+      setIsBootstrapping(false);
+      if (location.pathname === '/' || location.pathname === '/auth') navigate('/meetings', { replace: true });
+      return;
+    }
     if (guestLink?.meetingId && guestLink.token) {
       setIsBootstrapping(false);
       return;
@@ -426,7 +480,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [guestLink?.meetingId, guestLink?.token, inviteToken]);
+  }, [guestLink?.meetingId, guestLink?.token, inviteToken, mockRoleId]);
 
   // Handle meeting state updates
   const handleUpdateMeeting = async (updated: Partial<Meeting>) => {
@@ -925,6 +979,8 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; organizationName?: string; avatar?: string; platformRole?: 'SuperAdmin' | 'User'; hasProjectAccess?: boolean }) => {
+    setMockRoleId(null);
+    try { sessionStorage.removeItem('accord:mock-role'); } catch {}
     const updated = {
       ...activeUser,
       userId: user.userId || activeUser.userId,
@@ -934,7 +990,7 @@ export default function App() {
       avatar: user.avatar || activeUser.avatar,
       role: user.role,
       organizationId: user.organizationId || undefined,
-      platformRole: user.platformRole || activeUser.platformRole,
+      platformRole: user.platformRole || (isMockMode ? 'User' : activeUser.platformRole),
       hasProjectAccess: user.hasProjectAccess ?? activeUser.hasProjectAccess,
       organizationName: user.organizationName || activeUser.organizationName,
     };
@@ -947,10 +1003,27 @@ export default function App() {
     } catch {}
   };
 
+  const handleMockLogin = (roleId: MockRoleId) => {
+    const role = getMockRole(roleId);
+    if (!role || !import.meta.env.DEV) return;
+    const sampleMeeting = createMockMeeting(role.id);
+    try { sessionStorage.setItem('accord:mock-role', role.id); } catch {}
+    setMockRoleId(role.id);
+    setActiveUser({ name: `${role.label} (آزمایشی)`, phoneNumber: '', email: '', userId: `mock-${role.id}`, role: role.organizationRole, organizationId: 'mock-organization', organizationName: 'سازمان نمونه', platformRole: role.id === 'SuperAdmin' ? 'SuperAdmin' : 'User', hasProjectAccess: role.scope === 'project' });
+    setMeetings([sampleMeeting]);
+    setActiveMeeting(sampleMeeting);
+    setIsMeetingsLoading(false);
+    setIsAuthenticated(true);
+    navigate('/meetings');
+  };
+
   const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch {}
+    if (isMockMode) {
+      setMockRoleId(null);
+      try { sessionStorage.removeItem('accord:mock-role'); } catch {}
+    } else {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+    }
     const guestUser = {
       name: 'کاربر مهمان',
       phoneNumber: '',
@@ -1029,6 +1102,7 @@ export default function App() {
       <main className={`h-[100dvh] max-h-[100dvh] overflow-hidden flex items-center justify-center p-0 ${isDark ? 'dark bg-[#0a0e1f] text-slate-100' : 'bg-[#f4f7fb] text-slate-800'}`}>
         <AuthView
           inviteToken={inviteToken}
+          onMockLogin={import.meta.env.DEV ? handleMockLogin : undefined}
           onLoginSuccess={(user) => {
             handleLoginSuccess(user);
           }}
@@ -1088,6 +1162,7 @@ export default function App() {
       <div className="no-print hidden shrink-0 lg:block">
         <RightSidebar
           currentTab={currentTab}
+          canManageUsers={Boolean(userManagementScope)}
           onTabChange={(tab) => {
             setCurrentTab(tab as typeof currentTab);
           }}
@@ -1106,6 +1181,7 @@ export default function App() {
         <div className="no-print shrink-0">
           <TopBar
             currentTab={currentTab}
+            canManageUsers={Boolean(userManagementScope)}
             onTabChange={(tab) => setCurrentTab(tab as typeof currentTab)}
             meetingDetail={meetingDetailId ? { id: meetingDetailId, title: activeMeeting?.title } : undefined}
             onOpenMeeting={(meetingId) => navigate(`/meetings/${meetingId}`)}
@@ -1120,6 +1196,8 @@ export default function App() {
             contextRole={activeProjectContext?.role || activeUser.role}
           />
         </div>
+
+        {mockRole && <div className="no-print mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-semibold text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-200"><span>پیش‌نمایش نقش: {mockRole.label} · داده‌های نمونه ذخیره نمی‌شوند</span><button type="button" onClick={() => void handleLogout()} className="font-bold underline">تغییر نقش</button></div>}
 
         {/* Content View Router */}
         <div className="app-content mt-3 min-h-0 flex-1 overflow-y-auto px-4 pb-28 sm:px-6 lg:pb-6">
@@ -1147,6 +1225,8 @@ export default function App() {
               setOperationError('شما در سازمان فعال خود اجازه ایجاد صورت‌جلسه ندارید.');
               setTimeout(() => setOperationError(''), 3500);
             }} />
+          ) : currentTab === 'user-management' ? (
+            userManagementScope ? <UserManagementView scope={userManagementScope} mockRoleId={mockRole?.id} organizationId={activeUser.organizationId} organizationName={activeUser.organizationName} platformRole={activeUser.platformRole} /> : null
           ) : currentTab === 'contacts' ? (
             <ContactsView
               isAuthenticated={isAuthenticated}
@@ -1351,6 +1431,7 @@ export default function App() {
 
       <MobileBottomNav
         currentTab={currentTab}
+        canManageUsers={Boolean(userManagementScope)}
         onTabChange={(tab) => setCurrentTab(tab as typeof currentTab)}
       />
 

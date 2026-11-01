@@ -20,17 +20,20 @@ import {
 import { useSnackbar } from './Snackbar';
 import { formatIranianPhoneInput } from '../utils/phone';
 import logoIcon from '../assets/icons/Logo.png';
+import { mockRoles, MockRoleId } from '../mockRoles';
 
 const passwordLoginEnabled = import.meta.env.VITE_AUTH_PASSWORD_LOGIN_ENABLED !== 'false';
 
 interface AuthViewProps {
   inviteToken?: string;
+  onMockLogin?: (role: MockRoleId) => void;
   onLoginSuccess: (user: { userId?: string; name: string; phoneNumber?: string; email?: string; role: OrganizationRole; organizationId?: string; avatar?: string; platformRole?: 'SuperAdmin' | 'User' }) => void;
   onBackToApp: () => void;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
   inviteToken,
+  onMockLogin,
   onLoginSuccess,
   onBackToApp,
 }) => {
@@ -390,6 +393,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
             احراز هویت یکپارچه و ثبت امضای الکترونیک اسناد
           </p>
         </div>
+
+        {onMockLogin && <section className="border-b border-slate-100 pb-4 dark:border-slate-800" aria-label="ورود آزمایشی با نقش">
+          <p className="mb-3 text-xs font-bold text-slate-600 dark:text-slate-300">ورود آزمایشی با نقش</p>
+          <div className="grid grid-cols-2 gap-2">
+            {mockRoles.map((role) => <button key={role.id} type="button" onClick={() => onMockLogin(role.id)} className="rounded-lg border border-indigo-200 px-2 py-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/50">ورود: {role.label}</button>)}
+          </div>
+        </section>}
 
         {mode === 'otp' && (
           otpStep === 1 ? (
