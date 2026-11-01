@@ -212,7 +212,7 @@ export default function App() {
     setProjectRolesLoaded(false);
     setCanManageProjectUsers(false);
     void fetch('/api/projects').then((response) => response.ok ? response.json() : Promise.reject())
-      .then((data) => { if (active) setCanManageProjectUsers(Array.isArray(data.projects) && data.projects.some((item: { role?: string }) => item.role === 'ProjectManager' || item.role === 'ReceivingLead')); })
+      .then((data) => { if (active) setCanManageProjectUsers(Array.isArray(data.projects) && data.projects.some((item: { role?: string }) => item.role === 'Stakeholder')); })
       .catch(() => { if (active) setCanManageProjectUsers(false); })
       .finally(() => { if (active) setProjectRolesLoaded(true); });
     return () => { active = false; };
@@ -231,8 +231,8 @@ export default function App() {
         const data = await response.json();
         if (!active || !data.user) return;
         setActiveUser((previous) => ({ ...previous, userId: data.user.userId || previous.userId, name: data.user.name || previous.name, phoneNumber: data.user.phoneNumber || previous.phoneNumber, email: data.user.email || previous.email, role: (data.user.role as OrganizationRole) || previous.role, organizationId: data.user.organizationId || undefined, organizationName: data.user.organizationName || previous.organizationName, platformRole: data.user.platformRole || previous.platformRole, hasProjectAccess: data.user.hasProjectAccess ?? previous.hasProjectAccess, signatureData: data.user.signatureData || previous.signatureData }));
-        if (!data.user.organizationId && data.user.hasProjectAccess && !['projects', 'user-management', 'settings'].includes(currentTab)) navigate('/projects', { replace: true });
-        if (!data.user.organizationId && !data.user.hasProjectAccess && !['settings', 'auth'].includes(currentTab)) navigate('/settings', { replace: true });
+        if (!data.user.organizationId && data.user.hasProjectAccess && !['meetings', 'projects', 'user-management', 'archive', 'settings'].includes(currentTab)) navigate('/projects', { replace: true });
+        if (!data.user.organizationId && !data.user.hasProjectAccess && data.user.platformRole !== 'SuperAdmin' && !['settings', 'auth'].includes(currentTab)) navigate('/settings', { replace: true });
       } catch { /* Authorization refresh is retried on the next interval. */ }
     };
     void refreshAuthorization();
@@ -247,9 +247,9 @@ export default function App() {
     showSnackbar({ type: isSuccess ? 'success' : isWarning ? 'warning' : 'error', message });
   };
   const meetingUpdateSequenceRef = useRef(0);
-  const canCreateMeeting = Boolean(activeUser.organizationId) && activeUser.platformRole !== 'SuperAdmin' && activeUser.role !== 'Admin' && ['Owner', 'User'].includes(activeUser.role);
-  const canManageOrganizationUsers = Boolean(activeUser.organizationId && (activeUser.platformRole === 'SuperAdmin' || ['Owner', 'Admin'].includes(activeUser.role)));
-  const userManagementScope = mockRole?.scope || (canManageOrganizationUsers ? 'organization' : canManageProjectUsers ? 'project' : null);
+  const canCreateMeeting = Boolean(activeUser.organizationId) && activeUser.platformRole !== 'SuperAdmin' && ['Owner', 'User'].includes(activeUser.role);
+  const canManageOrganizationUsers = Boolean(activeUser.organizationId && activeUser.role === 'Owner');
+  const userManagementScope = mockRole?.scope || (activeUser.platformRole === 'SuperAdmin' || canManageOrganizationUsers ? 'organization' : canManageProjectUsers ? 'project' : null);
   useEffect(() => {
     if (isAuthenticated && currentTab === 'user-management' && !userManagementScope && (isMockMode || projectRolesLoaded)) navigate('/meetings', { replace: true });
   }, [isAuthenticated, currentTab, userManagementScope, isMockMode, projectRolesLoaded, navigate]);
@@ -457,8 +457,8 @@ export default function App() {
         // independent and bounded so one stalled endpoint can never strand the app on
         // the bootstrap screen.
         setIsAuthenticated(true);
-        if ((location.pathname === '/' || location.pathname === '/auth') && data.user.organizationId) {
-          navigate('/meetings', { replace: true });
+        if (location.pathname === '/' || location.pathname === '/auth') {
+          navigate(data.user.platformRole === 'SuperAdmin' ? '/organizations' : data.user.organizationId ? '/meetings' : data.user.hasProjectAccess ? '/projects' : '/settings', { replace: true });
         }
         setIsBootstrapping(false);
         const results = await Promise.allSettled([loadMeetings()]);
@@ -878,12 +878,27 @@ export default function App() {
 
   // Create new meeting
   const handleCreateNewMeeting = async (newMeeting: Meeting) => {
+    let selectedProjectId = newMeeting.projectId || '';
+    if (!selectedProjectId) {
+      try {
+        const response = await fetch('/api/projects');
+        const data = response.ok ? await response.json() : { projects: [] };
+        const eligible = (data.projects || []).filter((item: { project: { organizationId: string }; role: string }) => item.project.organizationId === activeUser.organizationId && ['Owner', 'ProjectManager', 'OrganizationUser'].includes(item.role));
+        const saved = localStorage.getItem('accord:selected-project');
+        selectedProjectId = eligible.find((item: { project: { id: string } }) => item.project.id === saved)?.project.id || (eligible.length === 1 ? eligible[0].project.id : '');
+      } catch { /* The message below explains how to choose a project. */ }
+    }
+    if (!selectedProjectId) {
+      setOperationError('برای ایجاد جلسه، ابتدا پروژه را از صفحه پروژه‌ها انتخاب کنید.');
+      return;
+    }
     let persistedMeeting = newMeeting;
     try {
       const response = await fetchWithTimeout('/api/meetings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          projectId: selectedProjectId,
           organizationMinuteId: newMeeting.organizationMinuteId,
           title: newMeeting.title,
           persianDate: newMeeting.persianDate,
@@ -996,7 +1011,7 @@ export default function App() {
     };
     setActiveUser(updated);
     setIsAuthenticated(true);
-    navigate(user.organizationId ? '/meetings' : user.hasProjectAccess ? '/projects' : '/settings');
+    navigate(user.platformRole === 'SuperAdmin' ? '/organizations' : user.organizationId ? '/meetings' : user.hasProjectAccess ? '/projects' : '/settings');
     void Promise.allSettled([loadMeetings()]);
     try {
       localStorage.setItem('metameet_user', JSON.stringify(updated));
@@ -1124,13 +1139,13 @@ export default function App() {
     }} />;
   }
 
-  if (isAuthenticated && !activeUser.organizationId && !activeUser.hasProjectAccess && !['settings', 'recovery'].includes(currentTab)) {
+  if (isAuthenticated && activeUser.platformRole !== 'SuperAdmin' && !activeUser.organizationId && !activeUser.hasProjectAccess && !['settings', 'recovery'].includes(currentTab)) {
     return (
       <OrganizationOnboarding
         name={activeUser.name}
         onProfile={() => navigate('/settings')}
         onSignOut={() => void handleLogout()}
-        isSuperAdmin={activeUser.platformRole === 'SuperAdmin'}
+        isSuperAdmin={false}
         onRecoveryReview={() => navigate('/recovery')}
         onOrganizationReady={(user) => {
           const updated = { ...activeUser, organizationId: user.organizationId, role: (user.role as OrganizationRole) || activeUser.role };
@@ -1231,8 +1246,7 @@ export default function App() {
             <ContactsView
               isAuthenticated={isAuthenticated}
               organizationId={activeUser.organizationId}
-              canManageMembers={['Owner', 'Admin'].includes(activeUser.role)}
-              canAppointOrganizationAdmin={activeUser.platformRole === 'SuperAdmin'}
+              canManageMembers={activeUser.role === 'Owner'}
               platformRole={activeUser.platformRole}
             />
           ) : currentTab === 'projects' ? (
@@ -1503,6 +1517,7 @@ export default function App() {
         onClose={() => setIsNewMeetingModalOpen(false)}
         onCreateMeeting={handleCreateNewMeeting}
         organizer={activeParticipant}
+        organizationId={activeUser.organizationId}
       />
 
       <ReviewModal

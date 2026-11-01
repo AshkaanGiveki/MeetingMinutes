@@ -48,7 +48,7 @@ export interface OrganizationInvitation {
   copyCount?: number;
   scopeType?: 'organization' | 'project';
   projectId?: string;
-  offeredRole?: 'OrganizationAdmin' | 'InternalMember' | 'ProjectManager' | 'ReceivingLead' | 'ReceivingMember';
+  offeredRole?: 'Owner' | 'InternalMember' | 'Stakeholder' | 'CustomerClerk';
 }
 
 export interface OrganizationContext {
@@ -80,7 +80,7 @@ async function recordInvitationAudit(action: string, actorId: string, organizati
 }
 
 export function normalizeOrganizationRole(role: string): OrganizationRole {
-  return role === 'Owner' || role === 'Admin' ? role : 'User';
+  return role === 'Owner' ? 'Owner' : 'User';
 }
 
 export class OrganizationService {
@@ -92,7 +92,7 @@ export class OrganizationService {
     return requireDb().collection<OrganizationInvitation>("organization_invitations").findOne(query as any);
   }
 
-  async create(userId: string, name: string): Promise<OrganizationContext> {
+  async create(userId: string, name: string): Promise<OrganizationRecord> {
     const db = requireDb();
     const organization: OrganizationRecord = {
       id: `org_${crypto.randomUUID()}`,
@@ -101,23 +101,13 @@ export class OrganizationService {
       visibility: 'private',
       createdAt: new Date().toISOString(),
     };
-    const membership: OrganizationMembership = {
-      id: `membership_${crypto.randomUUID()}`,
-      organizationId: organization.id,
-      userId,
-      role: 'Owner',
-      permissions: RolePermissionsMap.Owner,
-      status: 'active',
-      joinedAt: organization.createdAt,
-    };
     await db.collection<OrganizationRecord>('organizations').insertOne(organization);
-    await db.collection<OrganizationMembership>('organization_memberships').insertOne(membership);
-    return { organization, membership };
+    return organization;
   }
 
   async rename(userId: string, organizationId: string, name: string): Promise<OrganizationRecord | null> {
     const db = requireDb();
-    const membership = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId, status: 'active', role: { $in: ['Owner', 'Admin'] } });
+    const membership = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId, status: 'active', role: 'Owner' });
     if (!membership) return null;
     const updatedAt = new Date().toISOString();
     const result = await db.collection<OrganizationRecord>('organizations').findOneAndUpdate({ id: organizationId }, { $set: { name: name.trim(), updatedAt } }, { returnDocument: 'after' });
@@ -258,10 +248,10 @@ export class OrganizationService {
     const invitation = await db.collection<OrganizationInvitation>('organization_invitations').findOne({ organizationId, token });
     if (!invitation) return null;
     const [authorized, actor] = await Promise.all([
-      db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active', role: { $in: ['Owner', 'Admin'] } }),
+      db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active', role: 'Owner' }),
       db.collection<{ platformRole?: string }>('users').findOne({ id: actorId }, { projection: { platformRole: 1 } }),
     ]);
-    return authorized || actor?.platformRole === 'SuperAdmin' ? invitation : null;
+    return authorized || (actor?.platformRole === 'SuperAdmin' && invitation.offeredRole === 'Owner') ? invitation : null;
   }
 
   async copyLink(actorId: string, organizationId: string, token: string): Promise<string | null> {
@@ -302,13 +292,13 @@ export class OrganizationService {
   async listOrganizationInvitations(actorId: string, organizationId: string): Promise<Array<Omit<OrganizationInvitation, 'token'>>> {
     const db = requireDb();
     const [authorized, actor] = await Promise.all([
-      db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active', role: { $in: ['Owner', 'Admin'] } }),
+      db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active', role: 'Owner' }),
       db.collection<{ platformRole?: string }>('users').findOne({ id: actorId }, { projection: { platformRole: 1 } }),
     ]);
     if (!authorized && actor?.platformRole !== 'SuperAdmin') return [];
     await db.collection<OrganizationInvitation>('organization_invitations').updateMany({ organizationId, status: 'pending', expiresAt: { $lt: Date.now() } }, { $set: { status: 'expired' } });
     const invitations = await db.collection<OrganizationInvitation>('organization_invitations').find({ organizationId, status: 'pending', expiresAt: { $gt: Date.now() } }).sort({ createdAt: -1 }).toArray();
-    return invitations.map(({ token: _token, phoneNumber, email, _id: mongoId, ...safe }) => ({
+    return invitations.filter((invitation) => authorized || invitation.offeredRole === 'Owner').map(({ token: _token, phoneNumber, email, _id: mongoId, ...safe }) => ({
       ...safe,
       id: safe.id || String(mongoId || ''),
       phoneNumber: phoneNumber ? `${phoneNumber.slice(0, 4)} **** ${phoneNumber.slice(-2)}` : undefined,
@@ -342,11 +332,12 @@ export class OrganizationService {
     const invitation = await db.collection<OrganizationInvitation>('organization_invitations').findOne({ token, status: { $in: ['pending', 'processing'] } });
     if (!user || !invitation || invitation.expiresAt < Date.now()) return null;
     if (invitation.scopeType === 'project') return null;
+    if (['OrganizationAdmin', 'ProjectManager'].includes(String(invitation.offeredRole || ''))) return null;
     if (invitation.phoneNumber !== user.phoneNumber && invitation.email !== user.email) return null;
     const issuer = await db.collection<{ id: string; platformRole?: string }>('users').findOne({ id: invitation.invitedBy }, { projection: { id: 1, platformRole: 1 } });
-    const issuerHasAuthority = invitation.role === 'Admin'
+    const issuerHasAuthority = invitation.role === 'Owner'
       ? issuer?.platformRole === 'SuperAdmin'
-      : Boolean(await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId: invitation.organizationId, userId: invitation.invitedBy, status: 'active', role: { $in: ['Owner', 'Admin'] } }));
+      : Boolean(await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId: invitation.organizationId, userId: invitation.invitedBy, status: 'active', role: 'Owner' }));
     if (!issuerHasAuthority) return null;
     const organizationRole = normalizeOrganizationRole(invitation.role);
     const existing = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId: invitation.organizationId, userId });
@@ -365,18 +356,10 @@ export class OrganizationService {
         { organizationId: invitation.organizationId, userId },
         { $set: { status: 'active', role: organizationRole, permissions: RolePermissionsMap[organizationRole], joinedAt: new Date().toISOString() } },
       );
-    } else if (invitation.role === 'Admin' && existing.role !== 'Admin' && existing.role !== 'Owner') {
+    } else if (invitation.role === 'Owner' && existing.role !== 'Owner') {
       await db.collection<OrganizationMembership>('organization_memberships').updateOne(
         { organizationId: invitation.organizationId, userId, status: 'active' },
-        { $set: { role: 'Admin', permissions: RolePermissionsMap.Admin, updatedAt: new Date().toISOString() } },
-      );
-    }
-    if (invitation.offeredRole === 'ProjectManager') {
-      const now = new Date().toISOString();
-      await db.collection('project_manager_eligibility').updateOne(
-        { organizationId: invitation.organizationId, userId, status: 'active' },
-        { $set: { status: 'active', grantedBy: invitation.invitedBy, grantedAt: now, revokedAt: undefined, revokedBy: undefined }, $setOnInsert: { id: `pm_eligibility_${crypto.randomUUID()}`, organizationId: invitation.organizationId, userId, status: 'active', grantedBy: invitation.invitedBy, grantedAt: now } },
-        { upsert: true },
+        { $set: { role: 'Owner', permissions: RolePermissionsMap.Owner, updatedAt: new Date().toISOString() } },
       );
     }
     await db.collection<OrganizationInvitation>('organization_invitations').updateOne({ token }, { $set: { status: 'accepted', acceptedAt: new Date().toISOString(), acceptedAccountId: user.id } });
@@ -431,10 +414,10 @@ export class OrganizationService {
     if (!invitation) return false;
     if (invitation.invitedBy !== actorId) {
       const [membership, actor] = await Promise.all([
-        db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId: invitation.organizationId, userId: actorId, status: 'active', role: { $in: ['Owner', 'Admin'] } }),
+        db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId: invitation.organizationId, userId: actorId, status: 'active', role: 'Owner' }),
         db.collection<{ platformRole?: string }>('users').findOne({ id: actorId }, { projection: { platformRole: 1 } }),
       ]);
-      if (!membership && actor?.platformRole !== 'SuperAdmin') return false;
+      if (!membership && (actor?.platformRole !== 'SuperAdmin' || invitation.offeredRole !== 'Owner')) return false;
     }
     const result = await db.collection('organization_invitations').updateOne({ token, status: 'pending' }, { $set: { status: 'cancelled' } });
     if (result.modifiedCount) await recordInvitationAudit('organization_invitation_cancelled', actorId, invitation.organizationId, invitation.id);
@@ -473,13 +456,11 @@ export class OrganizationService {
       } },
     ]).toArray();
     const pageEntries = result?.data || [];
-    const eligibility = await db.collection<{ userId: string; status: string }>('project_manager_eligibility').find({ organizationId, userId: { $in: pageEntries.map((entry: any) => entry.membership.userId) }, status: 'active' }).project({ _id: 0, userId: 1 }).toArray();
-    const eligibleIds = new Set(eligibility.map((entry) => entry.userId));
     const members = pageEntries.map((entry: { membership: OrganizationMembership & { user: Record<string, unknown> } }) => {
       const { user, ...membership } = entry.membership;
       const { passwordHash: _passwordHash, ...safeUser } = user as Record<string, unknown> & { passwordHash?: string };
       const normalizedRole = normalizeOrganizationRole(String(membership.role));
-      return { ...safeUser, membership: { ...membership, role: normalizedRole, permissions: RolePermissionsMap[normalizedRole], projectManagerEligible: eligibleIds.has(membership.userId) } };
+      return { ...safeUser, membership: { ...membership, role: normalizedRole, permissions: RolePermissionsMap[normalizedRole] } };
     });
     const total = Number(result?.total?.[0]?.count || 0);
     return { members, total, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + members.length < total, nextOffset: safeOffset + members.length };
@@ -497,7 +478,7 @@ export class OrganizationService {
     const db = requireDb();
     const actor = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active' });
     const target = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId, status: 'active' });
-    if (!actor || !target || !['Owner', 'Admin'].includes(actor.role)) return false;
+    if (!actor || !target || actor.role !== 'Owner') return false;
     if (target.role === 'Owner' && actor.role !== 'Owner') return false;
     if (role === 'Owner' && actor.role !== 'Owner') return false;
     if (target.role === 'Owner' && role !== 'Owner') {
@@ -515,7 +496,7 @@ export class OrganizationService {
     const db = requireDb();
     const actor = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active' });
     const target = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId, status: 'active' });
-    if (!actor || !target || !['Owner', 'Admin'].includes(actor.role)) return { ok: false, reason: 'You do not have permission to remove this member.' };
+    if (!actor || !target || actor.role !== 'Owner') return { ok: false, reason: 'You do not have permission to remove this member.' };
     if (target.role === 'Owner' && actor.role !== 'Owner') return { ok: false, reason: 'Only an owner can remove another owner.' };
     if (target.role === 'Owner') {
       const ownerCount = await db.collection<OrganizationMembership>('organization_memberships').countDocuments({ organizationId, role: 'Owner', status: 'active' });

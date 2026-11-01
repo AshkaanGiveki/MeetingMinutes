@@ -16,11 +16,20 @@ describe('RBAC & Permission Policy Suite', () => {
     expect(hasPermission('Viewer', 'meeting.finalize')).toBe(false);
   });
 
-  it('Participant should be allowed to sign and comment, but not finalize meetings', () => {
+  it('Participant can comment, while signing needs a separate meeting assignment', () => {
     expect(hasPermission('Participant', 'meeting.read')).toBe(true);
-    expect(hasPermission('Participant', 'signature.sign')).toBe(true);
+    expect(hasPermission('Participant', 'signature.sign')).toBe(false);
     expect(hasPermission('Participant', 'comment.create')).toBe(true);
     expect(hasPermission('Participant', 'meeting.finalize')).toBe(false);
+  });
+
+  it('review and sign are independent meeting permissions', () => {
+    expect(hasPermission('Reviewer', 'meeting.review')).toBe(true);
+    expect(hasPermission('Reviewer', 'signature.sign')).toBe(false);
+    expect(hasPermission('Signer', 'signature.sign')).toBe(true);
+    expect(hasPermission('Signer', 'meeting.review')).toBe(false);
+    expect(hasPermission('Editor', 'signature.sign')).toBe(false);
+    expect(hasPermission('Organizer', 'signature.sign')).toBe(false);
   });
 
   it('State Machine: Should allow valid transition from DRAFT to IN_REVIEW', () => {

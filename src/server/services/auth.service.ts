@@ -48,7 +48,7 @@ export interface AuthUser {
 }
 
 export const normalizePhoneNumber = normalizeIranianPhoneNumber;
-const effectiveOrganizationPermissions = (role: string, permissions: Permission[] | undefined, platformRole?: PlatformRole): Permission[] => platformRole === 'SuperAdmin' ? [] : role === 'Admin' ? ['organization.manage', 'members.manage'] : (permissions || []);
+const effectiveOrganizationPermissions = (role: string, permissions: Permission[] | undefined, platformRole?: PlatformRole): Permission[] => platformRole === 'SuperAdmin' ? [] : role === 'Owner' ? RolePermissionsMap.Owner : role === 'User' ? RolePermissionsMap.User : [];
 
 export class AuthService {
   private requireDb() {
@@ -227,8 +227,7 @@ export class AuthService {
       updatedAt: new Date().toISOString(),
     };
     await db.collection<AuthUser>('users').insertOne(user);
-    await organizationService.create(user.id, 'سازمان اصلی');
-    logger.info('Bootstrap owner account created.');
+    logger.info('Bootstrap Super Admin account created.');
   }
 
   async verifySessionAsync(sessionToken: string): Promise<AuthSession | null> {

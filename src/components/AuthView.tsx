@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { OrganizationRole } from '../types';
-import { CustomSelect } from './CustomSelect';
 import {
   Shield,
   Lock,
@@ -60,7 +59,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
-  const [signupRole, setSignupRole] = useState<OrganizationRole>('User');
 
   // Password Recovery state
   const [recoveryStep, setRecoveryStep] = useState<1 | 2>(1);
@@ -637,21 +635,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   </div>
                 </div>
               )}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="font-semibold text-slate-700 dark:text-slate-300">
-                نقش سازمانی:
-              </label>
-              <CustomSelect
-                value={signupRole}
-                onChange={(next) => setSignupRole(next as OrganizationRole)}
-                className="w-full"
-                options={[
-                  { value: 'User', label: 'کاربر سازمان (User)' },
-                  { value: 'Admin', label: 'مدیر سازمان (Admin)' },
-                ]}
-              />
             </div>
 
             <button

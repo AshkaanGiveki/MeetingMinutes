@@ -11,6 +11,7 @@ interface NewMeetingModalProps {
   onClose: () => void;
   onCreateMeeting: (newMeeting: Meeting) => void;
   organizer?: Participant;
+  organizationId?: string;
 }
 
 export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
@@ -18,6 +19,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   onClose,
   onCreateMeeting,
   organizer,
+  organizationId,
 }) => {
   const [title, setTitle] = useState('');
   const [organizationMinuteId, setOrganizationMinuteId] = useState('');
@@ -26,6 +28,8 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
   const [location, setLocation] = useState('اتاق جلسات اصلی');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [projectId, setProjectId] = useState('');
   const [isTemplatesLoading, setIsTemplatesLoading] = useState(false);
 
   useEffect(() => {
@@ -38,15 +42,25 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
       .finally(() => setIsTemplatesLoading(false));
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || !organizationId) return;
+    void fetch('/api/projects').then((response) => response.ok ? response.json() : Promise.reject()).then((data) => {
+      const items = (data.projects || []).filter((item: { project: { organizationId: string } }) => item.project.organizationId === organizationId).map((item: { project: { id: string; name: string } }) => item.project);
+      setProjects(items);
+      setProjectId((current) => items.some((item: { id: string }) => item.id === current) ? current : items.find((item: { id: string }) => item.id === localStorage.getItem('accord:selected-project'))?.id || items[0]?.id || '');
+    }).catch(() => { setProjects([]); setProjectId(''); });
+  }, [isOpen, organizationId]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || !projectId) return;
 
     const chosenTemplate = templates.find((t) => t.id === selectedTemplateId);
     if (!organizer) return;
 
     const newMeeting: Meeting = {
       id: `meet_${Date.now()}`,
+      projectId,
       organizationMinuteId: organizationMinuteId ? Number(organizationMinuteId) : undefined,
       title: title.trim(),
       contentTemplateId: chosenTemplate?.id,
@@ -101,6 +115,7 @@ export const NewMeetingModal: React.FC<NewMeetingModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-xs">
+          <label className="flex flex-col gap-1 font-semibold text-slate-700 dark:text-slate-300">پروژه<select required value={projectId} onChange={(event) => { setProjectId(event.target.value); localStorage.setItem('accord:selected-project', event.target.value); }} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs dark:border-slate-700 dark:bg-slate-800"><option value="">انتخاب پروژه</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
           <div className="flex flex-col gap-1">
             <label className="font-semibold text-slate-700 dark:text-slate-300">
               عنوان جلسه:

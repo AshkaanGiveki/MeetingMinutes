@@ -75,6 +75,15 @@ export class MeetingRepository {
     return docs.map(({ _id, ...rest }) => normalizeSignatureRequirement(rest as unknown as Meeting));
   }
 
+  async getAllForProjects(projectIds: string[]): Promise<Meeting[]> {
+    if (!projectIds.length) return [];
+    const docs = await requireDb().collection('meetings')
+      .find({ projectId: { $in: projectIds } })
+      .sort({ updatedAt: -1 })
+      .toArray();
+    return docs.map(({ _id, ...rest }) => normalizeSignatureRequirement(rest as unknown as Meeting));
+  }
+
   async getById(id: string): Promise<Meeting | null> {
     const doc = await requireDb().collection('meetings').findOne({ id });
     if (!doc) return null;

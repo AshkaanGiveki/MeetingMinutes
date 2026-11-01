@@ -12,7 +12,6 @@ interface ContactsViewProps {
   isAuthenticated?: boolean;
   organizationId?: string;
   canManageMembers?: boolean;
-  canAppointOrganizationAdmin?: boolean;
   platformRole?: string;
 }
 
@@ -41,11 +40,11 @@ interface MobileRecoveryRequest {
   createdAt: string;
 }
 
-type OrganizationInvitationRole = 'InternalMember' | 'ProjectManager' | 'OrganizationAdmin';
+type OrganizationInvitationRole = 'InternalMember';
 type InvitationDistribution = 'sms' | 'copy';
 type RecoveryDecision = 'approved' | 'rejected' | 'inconclusive' | 'expired';
 
-export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = true, organizationId, canManageMembers = false, canAppointOrganizationAdmin = false, platformRole }) => {
+export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = true, organizationId, canManageMembers = false, platformRole }) => {
   const [members, setMembers] = useState<Participant[]>([]);
   const [invitations, setInvitations] = useState<PendingOrganizationInvitation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -190,7 +189,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
       setIsInviteModalOpen(false);
       setOperationMessage(invitationDistribution === 'copy'
         ? 'دعوت ایجاد شد و لینک آن در کلیپ‌بورد کپی شد.'
-        : `دعوت ${newRole === 'InternalMember' ? 'عضو داخلی' : newRole === 'ProjectManager' ? 'مدیر پروژه' : 'مدیر سازمان'} با موفقیت برای ارسال پیامک ثبت شد.`);
+        : 'دعوت کاربر سازمان با موفقیت برای ارسال پیامک ثبت شد.');
       const refreshed = await fetch(`/api/organizations/${organizationId}/invitations/managed`);
       if (refreshed.ok) {
         const refreshedData = await refreshed.json();
@@ -221,16 +220,6 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
     } finally {
       setIsRemovingMember(false);
     }
-  };
-
-  const toggleProjectManagerEligibility = async (member: Participant) => {
-    const eligible = Boolean((member as Participant & { membership?: { projectManagerEligible?: boolean } }).membership?.projectManagerEligible);
-    const response = await fetch(`/api/organizations/${organizationId}/project-manager-eligibility/${member.id}`, { method: eligible ? 'DELETE' : 'POST' });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) { setLoadError(data.error || 'صلاحیت مدیر پروژه تغییر نکرد.'); return; }
-    setOperationMessage(eligible ? 'صلاحیت مدیر پروژه لغو شد.' : 'صلاحیت مدیر پروژه اعطا شد.');
-    memberOffsetRef.current = 0;
-    void loadMembersPage(0, memberSearch, false);
   };
 
   const manageInvitation = async (invitation: PendingOrganizationInvitation, action: 'copy-link' | 'reissue' | 'cancel') => {
@@ -318,7 +307,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
         <div className="grid gap-2 sm:grid-cols-2">
           {invitations.map((invitation) => <div key={invitation.id} className="flex min-w-0 items-center gap-2.5 rounded-2xl border border-slate-200/80 bg-white/90 p-2 dark:border-slate-700 dark:bg-slate-900/80">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"><Clock3 className="h-3.5 w-3.5" /></div>
-            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-800 dark:text-slate-100" style={{ fontFamily: 'IRANSansXFaNum, sans-serif' }}>{invitation.phoneNumber}</p><p className="mt-0.5 text-[10px] text-slate-500">{invitation.offeredRole === 'ProjectManager' ? 'مدیر پروژه' : invitation.offeredRole === 'OrganizationAdmin' ? 'مدیر سازمان' : 'عضو داخلی'}</p></div>
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-800 dark:text-slate-100" style={{ fontFamily: 'IRANSansXFaNum, sans-serif' }}>{invitation.phoneNumber}</p><p className="mt-0.5 text-[10px] text-slate-500">کاربر سازمان</p></div>
             <span className="shrink-0 rounded-lg bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">در انتظار</span>
             <div className="flex shrink-0 gap-1"><button type="button" onClick={() => void manageInvitation(invitation, 'copy-link')} className="rounded-lg px-2 py-1 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50">کپی</button><button type="button" onClick={() => void manageInvitation(invitation, 'cancel')} className="rounded-lg px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50">لغو</button></div>
           </div>)}
@@ -388,7 +377,6 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
                         <span className="block text-[10px] font-medium text-slate-400">نقش سازمانی</span>
                         <span className="mt-1.5 block font-semibold">{member.role || 'ثبت نشده'}</span>
                       </div>
-                    {canManageMembers && <button type="button" onClick={() => void toggleProjectManagerEligibility(member)} className="mt-2 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-3 py-2.5 text-right text-[11px] font-bold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300">{(member as Participant & { membership?: { projectManagerEligible?: boolean } }).membership?.projectManagerEligible ? 'لغو صلاحیت مدیر پروژه' : 'اعطای صلاحیت مدیر پروژه'}</button>}
                     </motion.div>}
                   </motion.article>
                 );
@@ -426,8 +414,6 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ isAuthenticated = tr
                 <label className="font-semibold text-slate-700 dark:text-slate-300">نقش پیشنهادی:</label>
                 <select value={newRole} onChange={(e) => setNewRole(e.target.value as OrganizationInvitationRole)} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-slate-800 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
                   <option value="InternalMember">عضو داخلی</option>
-                  <option value="ProjectManager">مدیر پروژه</option>
-                  {canAppointOrganizationAdmin && <option value="OrganizationAdmin">مدیر سازمان</option>}
                 </select>
                 <p className="text-[10px] leading-5 text-slate-500">نام و نام خانوادگی در مرحله فعال‌سازی توسط خود فرد تکمیل می‌شود.</p>
               </div>

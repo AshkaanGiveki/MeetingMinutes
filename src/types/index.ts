@@ -63,6 +63,8 @@ export interface MeetingAttachment {
 
 export interface Meeting {
   id: string;
+  /** Project scope for all newly created meetings. Older records may require migration. */
+  projectId?: string;
   /** Organization-scoped human-facing minute number; distinct from the internal meeting id. */
   organizationMinuteId?: number;
   title: string;
@@ -136,7 +138,6 @@ export type Template = MinuteContentTemplate;
 
 export type OrganizationRole =
   | 'Owner'
-  | 'Admin'
   | 'User';
 
 export type MeetingRole =

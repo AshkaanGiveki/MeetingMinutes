@@ -144,7 +144,7 @@ export const OrganizationsView: React.FC<OrganizationsViewProps> = ({ isAuthenti
     const data = await response.json();
     setIsBusy(false);
     if (!response.ok) return showSnackbar({ type: 'error', message: data.error || 'ایجاد سازمان انجام نشد.' });
-    onOrganizationChanged(data.user);
+    if (data.user?.organizationId) onOrganizationChanged(data.user);
     setName('');
     setIsCreateModalOpen(false);
     showSnackbar({ type: 'success', message: 'سازمان ایجاد شد.', position: 'bottom-center' });

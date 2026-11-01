@@ -30,7 +30,8 @@ export const OrganizationPermissions = [
 ] as const;
 export type OrganizationPermission = typeof OrganizationPermissions[number];
 
-export type OrganizationRole = 'Owner' | 'Admin' | 'User';
+export type OrganizationRole = 'Owner' | 'User';
+/** Meeting permission presets stored for compatibility; these are not account roles. */
 export type MeetingRole = 'Organizer' | 'Editor' | 'Reviewer' | 'Signer' | 'Participant' | 'Viewer';
 
 export const ASSIGNABLE_MEETING_ROLES = ['Editor', 'Reviewer', 'Signer', 'Viewer'] as const;
@@ -89,28 +90,6 @@ export const RolePermissionsMap: Record<OrganizationRole | MeetingRole, Permissi
     'audit.read',
     'settings.manage',
   ],
-  Admin: [
-    'meeting.view_all',
-    'meeting.create',
-    'meeting.read',
-    'meeting.edit',
-    'meeting.delete',
-    'meeting.finalize',
-    'meeting.review',
-    'meeting.archive',
-    'participant.invite',
-    'participant.remove',
-    'comment.create',
-    'comment.resolve',
-    'signature.request',
-    'signature.sign',
-    'template.create',
-    'template.edit',
-    'template.delete',
-    'members.manage',
-    'audit.read',
-    'settings.manage',
-  ],
   User: [
     'meeting.create',
     'meeting.read',
@@ -127,21 +106,18 @@ export const RolePermissionsMap: Record<OrganizationRole | MeetingRole, Permissi
     'comment.create',
     'comment.resolve',
     'signature.request',
-    'signature.sign',
   ],
   Editor: [
     'meeting.read',
     'meeting.edit',
     'comment.create',
     'comment.resolve',
-    'signature.sign',
   ],
   Reviewer: [
     'meeting.read',
     'meeting.review',
     'comment.create',
     'comment.resolve',
-    'signature.sign',
   ],
   Signer: [
     'meeting.read',
@@ -151,7 +127,6 @@ export const RolePermissionsMap: Record<OrganizationRole | MeetingRole, Permissi
   Participant: [
     'meeting.read',
     'comment.create',
-    'signature.sign',
   ],
   Viewer: [
     'meeting.read',

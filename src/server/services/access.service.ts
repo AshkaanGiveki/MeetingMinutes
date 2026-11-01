@@ -3,7 +3,13 @@ import { getDb } from '../db/mongodb';
 import type { OrganizationInvitation, OrganizationMembership } from './organization.service';
 
 export type PlatformRole = 'SuperAdmin' | 'User';
-export type ProjectRole = 'ProjectManager' | 'ExecutionMember' | 'ReceivingLead' | 'ReceivingMember';
+export type ProjectRole = 'ProjectManager' | 'OrganizationUser' | 'Stakeholder' | 'CustomerClerk';
+function normalizeProjectRole(role: string | undefined): ProjectRole | undefined {
+  if (role === 'ExecutionMember') return 'OrganizationUser';
+  if (role === 'ReceivingLead') return 'Stakeholder';
+  if (role === 'ReceivingMember') return 'CustomerClerk';
+  return role === 'ProjectManager' || role === 'OrganizationUser' || role === 'Stakeholder' || role === 'CustomerClerk' ? role : undefined;
+}
 export type ProjectMembershipStatus = 'active' | 'revoked';
 
 export interface ProjectRecord {
@@ -15,17 +21,6 @@ export interface ProjectRecord {
   status: 'active';
   createdAt: string;
   updatedAt: string;
-}
-
-export interface ProjectManagerEligibility {
-  id: string;
-  organizationId: string;
-  userId: string;
-  status: 'active' | 'revoked';
-  grantedBy: string;
-  grantedAt: string;
-  revokedAt?: string;
-  revokedBy?: string;
 }
 
 export interface ProjectMembership {
@@ -42,7 +37,7 @@ export interface ProjectMembership {
 
 export interface ProjectContext {
   project: ProjectRecord;
-  role: ProjectRole | 'OrganizationAdmin';
+  role: ProjectRole | 'Owner';
 }
 
 function requireDb() {
@@ -62,80 +57,22 @@ export class AccessService {
   }
 
   async canManageOrganization(userId: string, organizationId: string): Promise<boolean> {
-    if (await this.isSuperAdmin(userId)) return true;
     const membership = await requireDb().collection<{ userId: string; organizationId: string; role: string; status: string }>('organization_memberships').findOne({ userId, organizationId, status: 'active' });
-    return Boolean(membership && ['Owner', 'Admin'].includes(membership.role));
+    return membership?.role === 'Owner';
   }
 
-  async appointOrganizationAdmin(actorId: string, organizationId: string, userId: string): Promise<boolean> {
-    if (!(await this.isSuperAdmin(actorId))) return false;
+  async createProject(actorId: string, organizationId: string, name: string, managerUserId: string): Promise<ProjectRecord | null> {
     const db = requireDb();
-    const member = await db.collection('organization_memberships').findOne({ organizationId, userId, status: 'active' });
-    if (!member) return false;
-    const result = await db.collection('organization_memberships').updateOne({ organizationId, userId, status: 'active' }, { $set: { role: 'Admin', permissions: ['members.manage', 'organization.manage'], updatedAt: new Date().toISOString() } });
-    if (result.modifiedCount) await recordAccessAudit('organization_admin_appointed', actorId, organizationId, userId);
-    return result.modifiedCount > 0;
-  }
-
-  async removeOrganizationAdmin(actorId: string, organizationId: string, userId: string): Promise<boolean> {
-    if (!(await this.isSuperAdmin(actorId))) return false;
-    const db = requireDb();
-    const adminCount = await db.collection('organization_memberships').countDocuments({ organizationId, role: 'Admin', status: 'active' });
-    if (adminCount <= 1) return false;
-    const result = await db.collection('organization_memberships').updateOne({ organizationId, userId, role: 'Admin', status: 'active' }, { $set: { role: 'User', permissions: [], updatedAt: new Date().toISOString() } });
-    if (result.modifiedCount) await recordAccessAudit('organization_admin_removed', actorId, organizationId, userId);
-    return result.modifiedCount > 0;
-  }
-
-  async grantProjectManagerEligibility(actorId: string, organizationId: string, userId: string): Promise<ProjectManagerEligibility | null> {
     if (!(await this.canManageOrganization(actorId, organizationId))) return null;
-    const db = requireDb();
-    const internalMembership = await db.collection('organization_memberships').findOne({ organizationId, userId, status: 'active' });
-    if (!internalMembership) return null;
-    const now = new Date().toISOString();
-    const eligibility: ProjectManagerEligibility = {
-      id: `pm_eligibility_${crypto.randomUUID()}`,
-      organizationId,
-      userId,
-      status: 'active',
-      grantedBy: actorId,
-      grantedAt: now,
-    };
-    await db.collection<ProjectManagerEligibility>('project_manager_eligibility').updateOne(
-      { organizationId, userId },
-      { $set: { status: 'active', grantedBy: actorId, grantedAt: now, revokedAt: undefined, revokedBy: undefined }, $setOnInsert: eligibility },
-      { upsert: true },
-    );
-    await recordAccessAudit('project_manager_eligibility_granted', actorId, organizationId, userId);
-    return (await db.collection<ProjectManagerEligibility>('project_manager_eligibility').findOne({ organizationId, userId })) || eligibility;
-  }
-
-  async revokeProjectManagerEligibility(actorId: string, organizationId: string, userId: string): Promise<{ ok: boolean; reason?: string }> {
-    if (!(await this.canManageOrganization(actorId, organizationId))) return { ok: false, reason: 'Organization management permission is required.' };
-    const db = requireDb();
-    const managed = await db.collection<ProjectRecord>('projects').find({ organizationId, managerUserId: userId, status: 'active' }).toArray();
-    if (managed.length > 0) return { ok: false, reason: 'Reassign active projects before revoking project-manager eligibility.' };
-    const result = await db.collection<ProjectManagerEligibility>('project_manager_eligibility').updateOne(
-      { organizationId, userId, status: 'active' },
-      { $set: { status: 'revoked', revokedAt: new Date().toISOString(), revokedBy: actorId } },
-    );
-    if (result.modifiedCount) await recordAccessAudit('project_manager_eligibility_revoked', actorId, organizationId, userId);
-    return result.modifiedCount > 0 ? { ok: true } : { ok: false, reason: 'Eligibility not found.' };
-  }
-
-  async createProject(actorId: string, organizationId: string, name: string): Promise<ProjectRecord | null> {
-    const db = requireDb();
-    const internalMembership = await db.collection('organization_memberships').findOne({ organizationId, userId: actorId, status: 'active' });
-    if (!internalMembership) return null;
-    const eligible = await db.collection<ProjectManagerEligibility>('project_manager_eligibility').findOne({ organizationId, userId: actorId, status: 'active' });
-    if (!eligible) return null;
+    const manager = await db.collection('organization_memberships').findOne({ organizationId, userId: managerUserId, status: 'active', role: { $in: ['Owner', 'User'] } });
+    if (!manager) return null;
     const now = new Date().toISOString();
     const project: ProjectRecord = {
       id: `project_${crypto.randomUUID()}`,
       organizationId,
       name: name.trim(),
       createdBy: actorId,
-      managerUserId: actorId,
+      managerUserId,
       status: 'active',
       createdAt: now,
       updatedAt: now,
@@ -146,18 +83,15 @@ export class AccessService {
   }
 
   async canCreateProject(actorId: string, organizationId: string): Promise<boolean> {
-    const db = requireDb();
-    const eligible = await db.collection<ProjectManagerEligibility>('project_manager_eligibility').findOne({ organizationId, userId: actorId, status: 'active' });
-    return Boolean(eligible);
+    return this.canManageOrganization(actorId, organizationId);
   }
 
   async transferProjectManager(actorId: string, projectId: string, nextManagerUserId: string): Promise<{ ok: boolean; project?: ProjectRecord; reason?: string }> {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
     if (!project || !(await this.canManageOrganization(actorId, project.organizationId))) return { ok: false, reason: 'Project management permission is required.' };
-    const eligible = await db.collection<ProjectManagerEligibility>('project_manager_eligibility').findOne({ organizationId: project.organizationId, userId: nextManagerUserId, status: 'active' });
-    const internal = await db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId: nextManagerUserId, status: 'active' });
-    if (!eligible || !internal) return { ok: false, reason: 'The replacement must be an eligible active internal member.' };
+    const internal = await db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId: nextManagerUserId, status: 'active', role: { $in: ['Owner', 'User'] } });
+    if (!internal) return { ok: false, reason: 'The replacement must be an active organization user.' };
     const updatedAt = new Date().toISOString();
     const result = await db.collection<ProjectRecord>('projects').updateOne({ id: projectId, managerUserId: project.managerUserId }, { $set: { managerUserId: nextManagerUserId, updatedAt } });
     if (!result.modifiedCount) return { ok: false, reason: 'Project manager transfer was not applied.' };
@@ -165,44 +99,43 @@ export class AccessService {
     return { ok: true, project: { ...project, managerUserId: nextManagerUserId, updatedAt } };
   }
 
-  async addExecutionMember(actorId: string, projectId: string, userId: string): Promise<ProjectMembership | null> {
-    return this.addInternalProjectMember(actorId, projectId, userId, 'ExecutionMember');
+  async addOrganizationUser(actorId: string, projectId: string, userId: string): Promise<ProjectMembership | null> {
+    return this.addInternalProjectMember(actorId, projectId, userId, 'OrganizationUser');
   }
 
-  async removeExecutionMember(actorId: string, projectId: string, userId: string): Promise<boolean> {
+  async removeOrganizationUser(actorId: string, projectId: string, userId: string): Promise<boolean> {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
-    if (!project || project.managerUserId !== actorId) return false;
-    const result = await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId, userId, role: 'ExecutionMember', status: 'active' }, { $set: { status: 'revoked', updatedAt: new Date().toISOString() } });
-    if (result.modifiedCount) await recordAccessAudit('execution_member_removed', actorId, project.organizationId, userId, projectId);
+    if (!project || project.managerUserId === userId || !(await this.canManageOrganization(actorId, project.organizationId))) return false;
+    const result = await db.collection('project_memberships').updateOne({ projectId, userId, role: { $in: ['OrganizationUser', 'ExecutionMember'] }, status: 'active' }, { $set: { status: 'revoked', updatedAt: new Date().toISOString() } });
+    if (result.modifiedCount) await recordAccessAudit('organization_user_removed', actorId, project.organizationId, userId, projectId);
     return result.modifiedCount > 0;
   }
 
-  async removeReceivingMember(actorId: string, projectId: string, userId: string): Promise<boolean> {
+  async removeCustomerClerk(actorId: string, projectId: string, userId: string): Promise<boolean> {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
     if (!project) return false;
-    const lead = await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId: actorId, role: 'ReceivingLead', status: 'active' });
+    const lead = await db.collection('project_memberships').findOne({ projectId, userId: actorId, role: { $in: ['Stakeholder', 'ReceivingLead'] }, status: 'active' });
     if (!lead || userId === actorId) return false;
-    const result = await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId, userId, role: 'ReceivingMember', status: 'active' }, { $set: { status: 'revoked', updatedAt: new Date().toISOString() } });
-    if (result.modifiedCount) await recordAccessAudit('receiving_member_removed', actorId, project.organizationId, userId, projectId);
+    const result = await db.collection('project_memberships').updateOne({ projectId, userId, role: { $in: ['CustomerClerk', 'ReceivingMember'] }, status: 'active' }, { $set: { status: 'revoked', updatedAt: new Date().toISOString() } });
+    if (result.modifiedCount) await recordAccessAudit('customer_clerk_removed', actorId, project.organizationId, userId, projectId);
     return result.modifiedCount > 0;
   }
 
-  async appointReceivingLead(actorId: string, projectId: string, userId: string): Promise<ProjectMembership | null> {
+  async appointStakeholder(actorId: string, projectId: string, userId: string): Promise<ProjectMembership | null> {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
-    if (!project || project.managerUserId !== actorId) return null;
-    if (await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId, role: 'ExecutionMember', status: 'active' })) return null;
+    if (!project || !(await this.canManageOrganization(actorId, project.organizationId))) return null;
+    if (await db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId, status: 'active' })) return null;
     const now = new Date().toISOString();
-    await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId, userId, role: 'ReceivingMember', status: 'active' }, { $set: { status: 'revoked', updatedAt: now } });
-    const membership: ProjectMembership = { id: `project_member_${crypto.randomUUID()}`, projectId, organizationId: project.organizationId, userId, role: 'ReceivingLead', status: 'active', assignedBy: actorId, createdAt: now, updatedAt: now };
-    await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId, userId, role: 'ReceivingLead' }, { $set: { ...membership, status: 'active', updatedAt: now }, $setOnInsert: membership }, { upsert: true });
-    // Establish the replacement first, then revoke the prior lead so a failed
-    // replacement never leaves the project without a receiving lead.
-    await db.collection<ProjectMembership>('project_memberships').updateMany({ projectId, role: 'ReceivingLead', userId: { $ne: userId }, status: 'active' }, { $set: { status: 'revoked', updatedAt: now } });
-    await recordAccessAudit('receiving_lead_appointed', actorId, project.organizationId, userId, projectId);
-    return (await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId, role: 'ReceivingLead', status: 'active' })) || membership;
+    await db.collection('project_memberships').updateOne({ projectId, userId, role: { $in: ['CustomerClerk', 'ReceivingMember'] }, status: 'active' }, { $set: { status: 'revoked', updatedAt: now } });
+    const membership: ProjectMembership = { id: `project_member_${crypto.randomUUID()}`, projectId, organizationId: project.organizationId, userId, role: 'Stakeholder', status: 'active', assignedBy: actorId, createdAt: now, updatedAt: now };
+    await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId, userId, role: 'Stakeholder' }, { $set: { ...membership, status: 'active', updatedAt: now }, $setOnInsert: membership }, { upsert: true });
+    // Establish the replacement before revoking the former stakeholder.
+    await db.collection('project_memberships').updateMany({ projectId, role: { $in: ['Stakeholder', 'ReceivingLead'] }, userId: { $ne: userId }, status: 'active' }, { $set: { status: 'revoked', updatedAt: now } });
+    await recordAccessAudit('stakeholder_appointed', actorId, project.organizationId, userId, projectId);
+    return (await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId, role: 'Stakeholder', status: 'active' })) || membership;
   }
 
   async removeInternalMembership(actorId: string, organizationId: string, userId: string): Promise<{ ok: boolean; reason?: string }> {
@@ -211,28 +144,26 @@ export class AccessService {
     const managed = await db.collection<ProjectRecord>('projects').findOne({ organizationId, managerUserId: userId, status: 'active' });
     if (managed) return { ok: false, reason: 'Reassign the person’s active projects before removing internal membership.' };
     const targetMembership = await db.collection<OrganizationMembership>('organization_memberships').findOne({ organizationId, userId, status: 'active' });
-    if (targetMembership?.role === 'Admin' && await db.collection('organization_memberships').countDocuments({ organizationId, role: 'Admin', status: 'active' }) <= 1) return { ok: false, reason: 'Assign a replacement Organization Admin before removing the last administrator.' };
     const now = new Date().toISOString();
     const removed = await db.collection('organization_memberships').updateOne({ organizationId, userId, status: 'active' }, { $set: { status: 'left', leftAt: now, removedBy: actorId } });
     if (!removed.modifiedCount) return { ok: false, reason: 'Active internal membership not found.' };
-    await db.collection('project_memberships').updateMany({ organizationId, userId, role: 'ExecutionMember', status: 'active' }, { $set: { status: 'revoked', updatedAt: now, revokedBy: actorId } });
-    await db.collection('project_manager_eligibility').updateOne({ organizationId, userId, status: 'active' }, { $set: { status: 'revoked', revokedAt: now, revokedBy: actorId } });
+    await db.collection('project_memberships').updateMany({ organizationId, userId, role: { $in: ['OrganizationUser', 'ExecutionMember'] }, status: 'active' }, { $set: { status: 'revoked', updatedAt: now, revokedBy: actorId } });
     await recordAccessAudit('internal_membership_removed', actorId, organizationId, userId);
     return { ok: true };
   }
 
-  async addReceivingMember(actorId: string, projectId: string, userId: string): Promise<ProjectMembership | null> {
+  async addCustomerClerk(actorId: string, projectId: string, userId: string): Promise<ProjectMembership | null> {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
     if (!project) return null;
-    const lead = await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId: actorId, role: 'ReceivingLead', status: 'active' });
+    const lead = await db.collection('project_memberships').findOne({ projectId, userId: actorId, role: { $in: ['Stakeholder', 'ReceivingLead'] }, status: 'active' });
     if (!lead) return null;
-    if (await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId, role: 'ExecutionMember', status: 'active' })) return null;
+    if (await db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId, status: 'active' })) return null;
     const now = new Date().toISOString();
-    const membership: ProjectMembership = { id: `project_member_${crypto.randomUUID()}`, projectId, organizationId: project.organizationId, userId, role: 'ReceivingMember', status: 'active', assignedBy: actorId, createdAt: now, updatedAt: now };
-    await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId, userId, role: 'ReceivingMember' }, { $set: { ...membership, status: 'active', updatedAt: now }, $setOnInsert: membership }, { upsert: true });
-    await recordAccessAudit('receiving_member_added', actorId, project.organizationId, userId, projectId);
-    return (await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId, role: 'ReceivingMember', status: 'active' })) || membership;
+    const membership: ProjectMembership = { id: `project_member_${crypto.randomUUID()}`, projectId, organizationId: project.organizationId, userId, role: 'CustomerClerk', status: 'active', assignedBy: actorId, createdAt: now, updatedAt: now };
+    await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId, userId, role: 'CustomerClerk' }, { $set: { ...membership, status: 'active', updatedAt: now }, $setOnInsert: membership }, { upsert: true });
+    await recordAccessAudit('customer_clerk_added', actorId, project.organizationId, userId, projectId);
+    return (await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId, role: 'CustomerClerk', status: 'active' })) || membership;
   }
 
   async listForUser(userId: string): Promise<ProjectContext[]> {
@@ -242,20 +173,17 @@ export class AccessService {
       db.collection<ProjectMembership>('project_memberships').find({ userId, status: 'active' }).toArray(),
     ]);
     const projects = new Map<string, ProjectRecord>();
-    const user = await db.collection<{ platformRole?: PlatformRole }>('users').findOne({ id: userId }, { projection: { platformRole: 1 } });
-    const adminMemberships = user?.platformRole === 'SuperAdmin'
-      ? []
-      : await db.collection<{ organizationId: string }>('organization_memberships').find({ userId, status: 'active', role: { $in: ['Owner', 'Admin'] } }).project({ _id: 0, organizationId: 1 }).toArray();
-    const adminOrganizationIds = user?.platformRole === 'SuperAdmin' ? undefined : adminMemberships.map((item) => item.organizationId);
+    const ownerMemberships = await db.collection<{ organizationId: string }>('organization_memberships').find({ userId, status: 'active', role: 'Owner' }).project({ _id: 0, organizationId: 1 }).toArray();
+    const ownerOrganizationIds = ownerMemberships.map((item) => item.organizationId);
     managed.forEach((project) => projects.set(project.id, project));
     const ids = memberships.map((membership) => membership.projectId);
     if (ids.length) (await db.collection<ProjectRecord>('projects').find({ id: { $in: ids }, status: 'active' }).toArray()).forEach((project) => projects.set(project.id, project));
-    const administrativeProjects = await db.collection<ProjectRecord>('projects').find(adminOrganizationIds ? { organizationId: { $in: adminOrganizationIds }, status: 'active' } : { status: 'active' }).toArray();
+    const administrativeProjects = await db.collection<ProjectRecord>('projects').find({ organizationId: { $in: ownerOrganizationIds }, status: 'active' }).toArray();
     administrativeProjects.forEach((project) => projects.set(project.id, project));
     return [...projects.values()].map((project) => {
       const membership = memberships.find((item) => item.projectId === project.id && item.status === 'active');
-      const isAdmin = (adminOrganizationIds ? adminOrganizationIds.includes(project.organizationId) : user?.platformRole === 'SuperAdmin');
-      return { project, role: project.managerUserId === userId ? 'ProjectManager' : membership?.role || (isAdmin ? 'OrganizationAdmin' : 'ExecutionMember') };
+      const isOwner = ownerOrganizationIds.includes(project.organizationId);
+      return { project, role: isOwner ? 'Owner' : project.managerUserId === userId ? 'ProjectManager' : normalizeProjectRole(membership?.role) || 'OrganizationUser' };
     });
   }
 
@@ -264,11 +192,8 @@ export class AccessService {
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
     if (!project) return null;
     const membership = await db.collection<ProjectMembership>('project_memberships').find({ projectId, status: 'active' }).toArray();
-    const [internalAdmin, userRecord] = await Promise.all([
-      db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId, status: 'active', role: { $in: ['Owner', 'Admin'] } }),
-      db.collection<{ platformRole?: PlatformRole }>('users').findOne({ id: userId }, { projection: { platformRole: 1 } }),
-    ]);
-    const administrativeAccess = Boolean(internalAdmin || userRecord?.platformRole === 'SuperAdmin');
+    const internalAdmin = await db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId, status: 'active', role: 'Owner' });
+    const administrativeAccess = Boolean(internalAdmin);
     const isManager = project.managerUserId === userId;
     const ownMembership = membership.find((item) => item.userId === userId);
     if (!isManager && !ownMembership && !administrativeAccess) return null;
@@ -276,8 +201,8 @@ export class AccessService {
     const userMap = new Map(users.map((user) => [user.id, user]));
     return {
       project,
-      role: isManager ? 'ProjectManager' : ownMembership?.role || 'OrganizationAdmin',
-      members: membership.map((item) => ({ ...item, user: userMap.get(item.userId) })),
+      role: internalAdmin ? 'Owner' : isManager ? 'ProjectManager' : normalizeProjectRole(ownMembership?.role) || 'OrganizationUser',
+      members: membership.map((item) => ({ ...item, role: normalizeProjectRole(item.role) || item.role, user: userMap.get(item.userId) })),
       manager: userMap.get(project.managerUserId),
     };
   }
@@ -285,19 +210,21 @@ export class AccessService {
   async listInternalCandidates(actorId: string, projectId: string) {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
-    if (!project || project.managerUserId !== actorId) return [];
-    const members = await db.collection('organization_memberships').find({ organizationId: project.organizationId, status: 'active' }).project({ _id: 0, userId: 1, role: 1 }).toArray();
+    if (!project || !(await this.canManageOrganization(actorId, project.organizationId))) return [];
+    const members = await db.collection('organization_memberships').find({ organizationId: project.organizationId, status: 'active', role: { $in: ['Owner', 'User'] } }).project({ _id: 0, userId: 1, role: 1 }).toArray();
     const users = await db.collection<{ id: string; name?: string }>('users').find({ id: { $in: members.map((item) => item.userId) } }).project({ _id: 0, id: 1, name: 1 }).toArray();
     return users;
   }
 
-  async createProjectInvitation(actorId: string, projectId: string, phoneNumber: string, offeredRole: 'ReceivingLead' | 'ReceivingMember'): Promise<OrganizationInvitation | null> {
+  async createProjectInvitation(actorId: string, projectId: string, phoneNumber: string, offeredRole: 'Stakeholder' | 'CustomerClerk'): Promise<OrganizationInvitation | null> {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
     if (!project) return null;
-    const managerAllowed = project.managerUserId === actorId;
-    const lead = await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId: actorId, role: 'ReceivingLead', status: 'active' });
-    if ((offeredRole === 'ReceivingLead' && !managerAllowed) || (offeredRole === 'ReceivingMember' && !lead)) return null;
+    const ownerAllowed = await this.canManageOrganization(actorId, project.organizationId);
+    const lead = await db.collection('project_memberships').findOne({ projectId, userId: actorId, role: { $in: ['Stakeholder', 'ReceivingLead'] }, status: 'active' });
+    if ((offeredRole === 'Stakeholder' && !ownerAllowed) || (offeredRole === 'CustomerClerk' && !lead)) return null;
+    const existingUser = await db.collection<{ id: string; phoneNumber: string }>('users').findOne({ phoneNumber }, { projection: { id: 1 } });
+    if (existingUser && await db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId: existingUser.id, status: 'active' })) return null;
     const existing = await db.collection<OrganizationInvitation>('organization_invitations').findOne({ projectId, phoneNumber, offeredRole, status: 'pending' });
     if (existing) return existing;
     const now = new Date().toISOString();
@@ -328,10 +255,10 @@ export class AccessService {
     const invitation = await db.collection<OrganizationInvitation>('organization_invitations').findOne({ projectId, token });
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
     if (!invitation || !project) return null;
-    const manager = project.managerUserId === actorId;
-    const lead = Boolean(await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId: actorId, role: 'ReceivingLead', status: 'active' }));
-    const admin = await this.canManageOrganization(actorId, project.organizationId);
-    if ((invitation.offeredRole === 'ReceivingLead' && !manager && !admin) || (invitation.offeredRole === 'ReceivingMember' && !lead && !admin)) return null;
+    const stakeholder = Boolean(await db.collection('project_memberships').findOne({ projectId, userId: actorId, role: { $in: ['Stakeholder', 'ReceivingLead'] }, status: 'active' }));
+    const owner = await this.canManageOrganization(actorId, project.organizationId);
+    const invitedRole = normalizeProjectRole(invitation.offeredRole);
+    if ((invitedRole === 'Stakeholder' && !owner) || (invitedRole === 'CustomerClerk' && !stakeholder) || !['Stakeholder', 'CustomerClerk'].includes(invitedRole || '')) return null;
     return { invitation, project };
   }
 
@@ -339,10 +266,9 @@ export class AccessService {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
     if (!project || !(await this.getProjectDetails(actorId, projectId))) return [];
-    const manager = project.managerUserId === actorId;
-    const lead = Boolean(await db.collection<ProjectMembership>('project_memberships').findOne({ projectId, userId: actorId, role: 'ReceivingLead', status: 'active' }));
-    const admin = await this.canManageOrganization(actorId, project.organizationId);
-    if (!manager && !lead && !admin) return [];
+    const stakeholder = Boolean(await db.collection('project_memberships').findOne({ projectId, userId: actorId, role: { $in: ['Stakeholder', 'ReceivingLead'] }, status: 'active' }));
+    const owner = await this.canManageOrganization(actorId, project.organizationId);
+    if (!stakeholder && !owner) return [];
     await db.collection<OrganizationInvitation>('organization_invitations').updateMany({ projectId, status: 'pending', expiresAt: { $lt: Date.now() } }, { $set: { status: 'expired' } });
     const invitations = await db.collection<OrganizationInvitation>('organization_invitations').find({ projectId }).sort({ createdAt: -1 }).toArray();
     return invitations.map(({ token: _token, phoneNumber, email, ...safe }) => ({
@@ -399,18 +325,20 @@ export class AccessService {
     if (!user || user.phoneNumber !== invitation.phoneNumber) return null;
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: invitation.projectId, organizationId: invitation.organizationId, status: 'active' });
     if (!project) return null;
-    const issuerStillAuthorized = invitation.offeredRole === 'ReceivingLead'
-      ? project.managerUserId === invitation.invitedBy
-      : Boolean(await db.collection<ProjectMembership>('project_memberships').findOne({ projectId: project.id, userId: invitation.invitedBy, role: 'ReceivingLead', status: 'active' }));
+    const invitedRole = normalizeProjectRole(invitation.offeredRole);
+    if (invitedRole !== 'Stakeholder' && invitedRole !== 'CustomerClerk') return null;
+    const issuerStillAuthorized = invitedRole === 'Stakeholder'
+      ? await this.canManageOrganization(invitation.invitedBy, project.organizationId)
+      : Boolean(await db.collection('project_memberships').findOne({ projectId: project.id, userId: invitation.invitedBy, role: { $in: ['Stakeholder', 'ReceivingLead'] }, status: 'active' }));
     if (!issuerStillAuthorized) return null;
-    if (await db.collection<ProjectMembership>('project_memberships').findOne({ projectId: project.id, userId, role: 'ExecutionMember', status: 'active' })) return null;
+    if (await db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId, status: 'active' })) return null;
     const now = new Date().toISOString();
-    const role = invitation.offeredRole === 'ReceivingLead' ? 'ReceivingLead' : 'ReceivingMember';
-    if (role === 'ReceivingLead') await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId: project.id, userId, role: 'ReceivingMember', status: 'active' }, { $set: { status: 'revoked', updatedAt: now } });
+    const role = invitedRole;
+    if (role === 'Stakeholder') await db.collection('project_memberships').updateOne({ projectId: project.id, userId, role: { $in: ['CustomerClerk', 'ReceivingMember'] }, status: 'active' }, { $set: { status: 'revoked', updatedAt: now } });
     const membership: ProjectMembership = { id: `project_member_${crypto.randomUUID()}`, projectId: project.id, organizationId: project.organizationId, userId, role, status: 'active', assignedBy: invitation.invitedBy, createdAt: now, updatedAt: now };
     await db.collection<ProjectMembership>('project_memberships').updateOne({ projectId: project.id, userId, role }, { $set: { ...membership, status: 'active', updatedAt: now }, $setOnInsert: membership }, { upsert: true });
-    if (invitation.offeredRole === 'ReceivingLead') {
-      await db.collection<ProjectMembership>('project_memberships').updateMany({ projectId: project.id, role: 'ReceivingLead', userId: { $ne: userId }, status: 'active' }, { $set: { status: 'revoked', updatedAt: now } });
+    if (invitedRole === 'Stakeholder') {
+      await db.collection('project_memberships').updateMany({ projectId: project.id, role: { $in: ['Stakeholder', 'ReceivingLead'] }, userId: { $ne: userId }, status: 'active' }, { $set: { status: 'revoked', updatedAt: now } });
     }
     const updated = await db.collection<OrganizationInvitation>('organization_invitations').updateOne({ token, status: { $in: ['pending', 'processing'] } }, { $set: { status: 'accepted', acceptedAt: now, acceptedAccountId: userId } });
     if (!updated.modifiedCount) return null;
@@ -418,10 +346,10 @@ export class AccessService {
     return { project, role };
   }
 
-  private async addInternalProjectMember(actorId: string, projectId: string, userId: string, role: 'ExecutionMember'): Promise<ProjectMembership | null> {
+  private async addInternalProjectMember(actorId: string, projectId: string, userId: string, role: 'OrganizationUser'): Promise<ProjectMembership | null> {
     const db = requireDb();
     const project = await db.collection<ProjectRecord>('projects').findOne({ id: projectId, status: 'active' });
-    if (!project || project.managerUserId !== actorId) return null;
+    if (!project || !(await this.canManageOrganization(actorId, project.organizationId))) return null;
     const internal = await db.collection('organization_memberships').findOne({ organizationId: project.organizationId, userId, status: 'active' });
     if (!internal) return null;
     const now = new Date().toISOString();
