@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { redisService } from './redis.service';
-import { smsService } from './sms.service';
+import { isSmsLiveEnabled, smsService } from './sms.service';
 
 export type OtpPurpose = 'login' | 'invitation_acceptance' | 'mobile_new' | 'mobile_old' | 'recovery';
 
@@ -39,7 +39,9 @@ export class OtpService {
       await redisService.del(cooldownKeyFor(purpose, destination, reference));
       return { ok: false, reason: delivery.error || 'OTP delivery failed.' };
     }
-    return { ok: true, ...(process.env.NODE_ENV !== 'production' ? { code } : {}), expiresAt };
+    // When live SMS is disabled, surface the OTP in the UI just like development.
+    // This keeps staging/demo production containers usable without sending paid SMS.
+    return { ok: true, ...(!isSmsLiveEnabled() ? { code } : {}), expiresAt };
   }
 
   async verify(purpose: OtpPurpose, destination: string, code: string, reference = ''): Promise<{ ok: boolean; reason?: string }> {
